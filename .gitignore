@@ -1,0 +1,41 @@
+# 构建产物
+target/
+out/
+negout/
+build/
+*.class
+*.jar
+*.war
+
+# 验证工程的中间产物
+verification/**/out/
+verification/**/negout/
+verification/**/build/
+verification/**/target/
+verification/**/cp.txt
+verification/**/negative/*.log
+verification/**/scale/java/
+verification/v3-jblade-jte/target/jte-classes/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 环境与密钥
+.env
+.env.local
+*.pem
+*.key
+
+# 日志
+*.log
+logs/

@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import io.jaravel.auth.Authenticatable;
+import io.jaravel.auth.RememberToken;
 import io.jaravel.auth.UserProvider;
 import io.jaravel.auth.hash.HashManager;
 
@@ -70,8 +71,12 @@ public abstract class AbstractUserProvider implements UserProvider {
     /**
      * remember 令牌的比较。
      *
-     * <p>必须定时安全:令牌是 60 字符的随机串,普通 equals 会在第一个
-     * 不同的字符上返回,让攻击者可以逐字符爆破。
+     * <p>必须定时安全:普通 equals 会在第一个不同的字符上返回,
+     * 让攻击者可以逐字符爆破。
+     *
+     * <p>remember 令牌不走这里 —— 它存的是摘要,见
+     * {@link #retrieveByToken}。本方法留给「两边都是同一种表示」
+     * 的比较(自定义提供器里的各种一次性码)。
      *
      * <p>同时要求长度一致才比较 —— {@code MessageDigest.isEqual} 对
      * 不同长度会立刻返回,但那个信息本身无害(令牌长度是固定的公开参数)。
@@ -110,9 +115,19 @@ public abstract class AbstractUserProvider implements UserProvider {
         return out;
     }
 
+    /**
+     * 按 remember cookie 取用户。
+     *
+     * <p>库里存的是摘要,cookie 里是明文,所以比对走
+     * {@link RememberToken#matches} 而不是 {@link #tokensMatch}。
+     *
+     * <p>**同时校验 id 与令牌**:只按 id 取然后信任 cookie 等于
+     * 「谁都能伪造登录」。
+     */
     @Override
     public Optional<Authenticatable> retrieveByToken(Object id, String token) {
         return retrieveById(id)
-                .filter(user -> tokensMatch(user.getRememberToken().orElse(null), token));
+                .filter(user -> RememberToken.matches(
+                        user.getRememberToken().orElse(null), token));
     }
 }

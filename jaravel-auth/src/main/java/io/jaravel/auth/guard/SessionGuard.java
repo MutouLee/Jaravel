@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import io.jaravel.auth.Authenticatable;
+import io.jaravel.auth.RememberToken;
 import io.jaravel.auth.StatefulGuard;
 import io.jaravel.auth.UserProvider;
 import io.jaravel.auth.provider.AbstractUserProvider;
@@ -275,7 +276,8 @@ public class SessionGuard implements StatefulGuard {
     // ================= remember cookie =================
 
     private void issueRememberCookie(Authenticatable user) {
-        String token = SessionData.generateId();
+        // 60 字节随机;provider 负责哈希后存库(见 RememberToken 的类注释)
+        String token = RememberToken.generate();
         try {
             provider.updateRememberToken(user, token);
         } catch (UnsupportedOperationException e) {
@@ -296,7 +298,8 @@ public class SessionGuard implements StatefulGuard {
 
     private void clearRememberToken(Authenticatable user) {
         try {
-            provider.updateRememberToken(user, SessionData.generateId());
+            // 换成一个无人持有的新值 —— 旧 cookie 立刻失效
+            provider.updateRememberToken(user, RememberToken.generate());
         } catch (UnsupportedOperationException ignored) {
             // 模型本来就不支持 remember me,没什么要清的
         }

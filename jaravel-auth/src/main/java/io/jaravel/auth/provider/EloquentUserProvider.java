@@ -5,6 +5,7 @@ import java.util.Optional;
 
 import io.jaravel.auth.AuthModel;
 import io.jaravel.auth.Authenticatable;
+import io.jaravel.auth.RememberToken;
 import io.jaravel.auth.hash.HashManager;
 import io.jaravel.eloquent.Model;
 import io.jaravel.eloquent.meta.Col;
@@ -94,8 +95,9 @@ public class EloquentUserProvider<M extends Model<M>> extends AbstractUserProvid
                       并在 @AuthModel 里写 rememberToken = "remember_token"。"""
                     .formatted(meta.type().getSimpleName()));
         }
+        // 存摘要,不存明文 —— 见 UserProvider.updateRememberToken 的契约
         M model = unwrapModel(user);
-        rememberColumn.set(model, token);
+        rememberColumn.set(model, RememberToken.hash(token));
         model.save();
     }
 

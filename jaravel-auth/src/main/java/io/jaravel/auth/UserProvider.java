@@ -24,6 +24,17 @@ public interface UserProvider {
      */
     Optional<Authenticatable> retrieveByToken(Object id, String token);
 
+    /**
+     * 写入 remember 令牌。
+     *
+     * <p><b>收到的是明文,实现必须用 {@link RememberToken#hash} 哈希后再存。</b>
+     * 明文只存在于 cookie 里 —— 见 {@link RememberToken} 的类注释里
+     * 「为什么要哈希存库」。
+     *
+     * <p>这个契约放在注释里而不是由框架代劳,是因为写入动作本身在实现里
+     * (不同存储的写法差别很大)。{@code AbstractUserProvider} 的子类
+     * 可以直接调 {@code RememberToken.hash(token)}。
+     */
     void updateRememberToken(Authenticatable user, String token);
 
     /**

@@ -46,6 +46,18 @@
       <artifactId>sqlite-jdbc</artifactId>
       <version>${sqlite.version}</version>
     </dependency>
+
+    <!--
+      模型的 created_at 是 Instant;不带这个模块的 ObjectMapper 直接抛异常,
+      而 AuthSecurityTest ⑫ 测的是「password 不出现在 JSON 里」——
+      缺序列化器会让它因为时间字段失败,看起来像密码泄露测试写错了。
+      生产环境里这个模块由 spring-boot-starter-web 带入。
+    -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.datatype</groupId>
+      <artifactId>jackson-datatype-jsr310</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>

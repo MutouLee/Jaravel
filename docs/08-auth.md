@@ -436,22 +436,45 @@ jaravel-auth
 
 `Auth.user()` 在一次请求内多次调用只查库一次(缓存在 `RequestScope`)。这是必须的——否则模板里每个 `@auth` 都会查库。
 
-### 7.2 安全检查清单(必须在 v0.3 验收)
+### 7.2 安全检查清单(v0.3 已验收)
 
-- [ ] 登录成功后 `Session.regenerate()`(防会话固定)
-- [ ] remember token 随机 60 字节,哈希存库,登出时失效
-- [ ] API token 明文只在创建时返回,库中存 SHA-256
-- [ ] token 比对用 `MessageDigest.isEqual`(constant-time)
-- [ ] 用户不存在时仍执行 dummy 哈希(防时序枚举)
-- [ ] 登录失败节流默认开启
-- [ ] 密码重置 token 单次有效 + 过期 + 节流
-- [ ] JWT 默认拒绝 `alg: none`,拒绝算法混淆(RS256 公钥当 HS256 密钥)
-- [ ] 签名 URL 用 HMAC-SHA256 + 过期时间,比对 constant-time
-- [ ] `logout()` 清空 session 并重新生成 CSRF token
-- [ ] cookie 默认 `HttpOnly` + `Secure`(非 local 环境)+ `SameSite=Lax`
-- [ ] `@Hidden` 的 password 字段绝不出现在任何 JSON 序列化中(需有专门测试)
+实现状态见 `jaravel-auth-tests` 的 `AuthSecurityTest` —— 每一条对应一个
+同名的嵌套类(`C01_SessionRegeneration` … `C12_PasswordNeverSerialized`),
+编号与下表严格一致。共 47 条断言。
 
-这份清单本身应写成一组测试(`AuthSecurityTest`),逐条断言。
+| # | 条目 | 状态 | 测试类 |
+|---|---|---|---|
+| ① | 登录成功后 `Session.regenerate()`(防会话固定) | ✅ | `C01_SessionRegeneration` |
+| ② | remember token 随机 60 字节,哈希存库,登出时失效 | ✅ | `C02_RememberToken` |
+| ③ | API token 明文只在创建时返回,库中存 SHA-256 | ✅ | `C03_ApiTokenStorage` |
+| ④ | token 比对用 `MessageDigest.isEqual`(constant-time) | ✅ | `C04_ConstantTimeComparison` |
+| ⑤ | 用户不存在时仍执行 dummy 哈希(防时序枚举) | ✅ | `C05_TimingAttackOnMissingUser` |
+| ⑥ | 登录失败节流默认开启 | ✅ | `C06_LoginThrottling` |
+| ⑦ | 密码重置 token 单次有效 + 过期 + 节流 | ✅ | `C07_PasswordResetToken` |
+| ⑧ | JWT 拒绝 `alg: none`,拒绝算法混淆 | ✅ | `C08_JwtAlgorithmAttacks` |
+| ⑨ | 签名 URL:HMAC-SHA256 + 过期 + constant-time 比对 | ✅ | `C09_SignedUrls` |
+| ⑩ | `logout()` 清空 session 并重新生成 CSRF token | ✅ | `C10_Logout` |
+| ⑪ | cookie 默认 `HttpOnly` + `Secure`(非 local)+ `SameSite=Lax` | ✅ | `C11_CookieFlags` |
+| ⑫ | `@Hidden` 的 password 绝不出现在任何 JSON 序列化中 | ✅ | `C12_PasswordNeverSerialized` |
+
+**写这组测试时发现并修掉的两个真实缺口**(都在第 ② 条):
+
+1. remember 令牌只有 32 字节,而清单要求 60 —— 且
+   `AbstractUserProvider` 的注释已经声称是 60 字符。
+2. 令牌**明文存库**。任何只读的数据库泄露(SQL 注入、备份文件、
+   只读账号)都直接产出一批可用的登录凭据 —— 攻击者不需要密码,
+   拼个 `id|token` 的 cookie 就是那个用户。而 remember 令牌的有效期
+   以月计,危害比 API token 更大。
+
+   修复:新增 `RememberToken`(生成 / SHA-256 哈希 / 定时安全比对),
+   写入端存摘要,读取端哈希后比对。**升级影响**:库里已有的
+   `remember_token` 全部失效,受影响用户需重新登录一次。
+   「同时接受明文与哈希」等于没修,所以没有兼容路径。
+
+第 ④ 条按**字节码**断言(检查这些类是否真的引用了
+`MessageDigest.isEqual`)而不是测耗时:定时攻击的差异在纳秒级,
+在 JIT + GC 的 JVM 上写「跑 1000 次比平均耗时」只会得到一个随机失败的
+flaky 测试,比不测更糟。
 
 ---
 

@@ -24,6 +24,7 @@
     <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-eloquent-processor</artifactId></dependency>
     <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-migration</artifactId></dependency>
     <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-validation</artifactId></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-queue</artifactId></dependency>
     <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-cache</artifactId></dependency>
     <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-session</artifactId></dependency>
     <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-auth</artifactId></dependency>

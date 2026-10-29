@@ -43,11 +43,31 @@ public class SendInvoice implements ShouldQueue {
 
 ### 1.2 投递
 
+> **v0.4 实现时的偏差**:下面前四行里的 `Queue.dispatch(job).onQueue(...)`
+> 形式**在 Java 里无法原样实现**。它在 Laravel 里能工作靠的是 PHP 的
+> 确定性析构 —— `PendingDispatch` 的 `__destruct` 在表达式结束时触发投递。
+> Java 的 GC 时机不确定,`finalize` 已废弃。
+>
+> 硬做的两条路都更糟:让 `dispatch(job)` 立即投递、链式方法事后修改,
+> 那时任务已经在队列里,`onQueue` 改不动它;延迟到请求作用域结束再投,
+> 投递时机就不可预期了,而 CLI 与队列任务里根本没有请求作用域。
+>
+> 实际 API 拆成两个入口,各自语义确定:
+>
+> ```java
+> Queue.dispatch(new SendInvoice(id));                            // 用任务自己的配置投
+> Queue.job(new SendInvoice(id)).onQueue("mail").dispatch();      // 要改配置时用
+> ```
+>
+> 「忘了写 `.dispatch()`」的风险由一个开发期检查兜住:未投递的
+> `PendingDispatch` 被 GC 回收时打印警告。静默什么都不做是这里
+> 唯一不可接受的结果。
+
 ```java
 Queue.dispatch(new SendInvoice(orderId));
-Queue.dispatch(new SendInvoice(id)).onQueue("mail").onConnection("redis");
-Queue.dispatch(new SendInvoice(id)).delay(Duration.ofMinutes(5));
-Queue.dispatch(new SendInvoice(id)).afterCommit();           // 事务提交后才真正入队
+Queue.job(new SendInvoice(id)).onQueue("mail").onConnection("redis").dispatch();
+Queue.job(new SendInvoice(id)).delay(Duration.ofMinutes(5)).dispatch();
+Queue.job(new SendInvoice(id)).afterCommit().dispatch();      // 默认就是 afterCommit
 Queue.dispatchSync(new SendInvoice(id));                      // 同步执行(测试/调试)
 Queue.dispatchIf(cond, job);  Queue.dispatchUnless(cond, job);
 
@@ -122,13 +142,33 @@ QueueWorker
 
 | 驱动 | 实现 | 说明 |
 |---|---|---|
-| `database` | `jobs` / `failed_jobs` / `job_batches` 表 | 零额外依赖,小项目够用。用 `SELECT ... FOR UPDATE SKIP LOCKED` 保证不重复消费 |
+| `database` | `jobs` / `failed_jobs` / `job_batches` 表 | 零额外依赖,小项目够用。**v0.4 实现用乐观锁 UPDATE 而不是 `SKIP LOCKED`** —— 见下 |
 | `redis` | Lettuce + Lua 脚本 | 生产默认,`BRPOPLPUSH` + 延迟 ZSET |
 | `rabbitmq` | amqp-client | 需要复杂路由/多语言消费者时 |
 | `kafka` | kafka-clients | 高吞吐事件流;**语义不同**(无单任务重试),文档明确说明限制 |
 | `sqs` | AWS SDK v2 | |
 | `sync` | 立即同步执行 | 开发/测试默认 |
 | `null` | 丢弃 | |
+
+> **为什么 database 驱动没用 `SELECT … FOR UPDATE SKIP LOCKED`**
+>
+> 它只在 MySQL 8.0+ / PostgreSQL 9.5+ 上有,老版本与 SQLite 都没有,
+> 所以需要**版本探测**(§待决问题里原本也是这么规划的)。而探测这件事
+> 有一个很糟的失败模式:探测错了要么在 pop 时抛语法错误,要么**退化成
+> 不加锁的 SELECT** —— 后者的症状是任务被执行两次,对扣款这类任务
+> 就是生产事故,且只在并发下偶发。
+>
+> v0.4 实现的是「先挑候选 id,再用带条件的 UPDATE 去抢」:
+>
+> ```sql
+> update jobs set reserved_at = ? where id = ? and reserved_at is null
+> ```
+>
+> 受影响行数为 1 才算抢到,为 0 就换下一个候选。这在**所有**数据库上
+> 都正确,不需要版本探测。代价是高并发下有重试开销 —— 而那个开销在
+> 「几十个 worker 抢一个队列」时才显著,到那个量级本来就该换 Redis。
+>
+> `SKIP LOCKED` 作为吞吐优化列入 v0.5,届时与其它方言差异一起处理。
 
 ```yaml
 # config/queue.yml

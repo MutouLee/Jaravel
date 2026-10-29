@@ -32,6 +32,7 @@
     <module>jaravel-eloquent-processor</module>
     <module>jaravel-migration</module>
     <module>jaravel-validation</module>
+    <module>jaravel-queue</module>
     <module>jaravel-cache</module>
     <module>jaravel-session</module>
     <module>jaravel-auth</module>
@@ -80,6 +81,7 @@
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-eloquent-processor</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-migration</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-validation</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-queue</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-cache</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-session</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-auth</artifactId><version>${project.version}</version></dependency>

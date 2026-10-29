@@ -36,6 +36,7 @@ class ArchitectureBoundaryTest {
             "io.jaravel.eloquent..",
             "io.jaravel.migration..",
             "io.jaravel.validation..",
+            "io.jaravel.queue..",
             "io.jaravel.cache..",
             "io.jaravel.session..",
             "io.jaravel.auth..",

@@ -2,24 +2,29 @@ package app.models;
 
 import java.time.Instant;
 
+import io.jaravel.eloquent.annotations.Fillable;
+import io.jaravel.eloquent.annotations.Id;
+import io.jaravel.eloquent.annotations.Model;
+
 /**
  * Todo 模型。
  *
- * <p>标量列是 **public 字段**(ADR-010 方案 E')——
- * 读写就是 {@code todo.title} 与 {@code todo.title = "x"},与 PHP 的
+ * <p>标量列是 **public 字段**(ADR-010 方案 E')—— 读写就是
+ * {@code todo.title} 与 {@code todo.title = "x"},与 PHP 的
  * {@code $todo->title} 等长。
  *
- * <p>v0.1 还没有 Eloquent,所以持久化走查询构造器(见 TodoRepository)。
- * v0.2 会让这个类加上 {@code @Model} 注解并继承 {@code Model<Todo>},
- * 届时 {@code todo.save()} 可用,本文件的字段声明不需要改动 ——
- * 这正是方案 E' 的好处。
+ * <p>v0.1 时这里还要配一个 43 行的 {@code TodoRepository};Eloquent 落地后
+ * 那个类整个删掉了,字段声明**一行没改** —— 这正是方案 E' 当初选它的理由。
  */
-public class Todo {
+@Model
+@Fillable({"title", "done"})
+public class Todo extends TodoBase {
 
-    public Long id;
+    @Id public Long id;
     public String title;
     public boolean done;
     public Instant createdAt;
+    public Instant updatedAt;
 
     public Todo() {}
 

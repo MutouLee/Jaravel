@@ -25,6 +25,9 @@ public class JaravelExceptionHandler {
     /** 异常 → 状态码的默认映射 */
     protected int statusFor(Throwable t) {
         if (t instanceof HttpException h) return h.status();
+        // findOrFail / firstOrFail 的 404 —— 这是 Laravel 的约定,
+        // 有它控制器才能直接写 Post.findOrFail(id) 而不必手写 404 分支
+        if (t instanceof io.jaravel.eloquent.ModelNotFoundException) return 404;
         if (t instanceof IllegalArgumentException) return 400;
         if (t instanceof io.jaravel.core.context.OutsideRequestException) return 500;
         return 500;
@@ -47,11 +50,39 @@ public class JaravelExceptionHandler {
         if (custom != null) return custom;
 
         report(t);
-        int status = statusFor(t);
 
+        // 校验失败对表单与 API 的正确响应完全不同,单独分流
+        if (t instanceof io.jaravel.validation.ValidationException v) {
+            return renderValidationFailure(request, v);
+        }
+
+        int status = statusFor(t);
         return request.expectsJson()
                 ? renderJson(request, t, status)
                 : renderHtml(request, t, status);
+    }
+
+    /**
+     * 校验失败。
+     *
+     * <p>API 请求 → 422 + 与 Laravel 同构的 JSON;
+     * 表单请求 → **302 回跳并把错误与旧输入闪存**。
+     *
+     * <p>后者不是锦上添花:表单提交失败时给用户一个 422 的错误页,等于让他
+     * 退回去重填一遍所有字段。Laravel 之所以回跳,是因为只有回跳才能把
+     * {@code @error} 与 {@code @old} 这两个模板指令变得有用。
+     */
+    protected Response renderValidationFailure(
+            Request request, io.jaravel.validation.ValidationException e) {
+
+        if (request.expectsJson()) {
+            return Response.json(e.toJson()).status(422);
+        }
+
+        var redirect = io.jaravel.http.Redirect.back(request, "/")
+                .with("errors", e.errors())
+                .with("old", request.all());
+        return redirect;
     }
 
     protected Response renderJson(Request request, Throwable t, int status) {

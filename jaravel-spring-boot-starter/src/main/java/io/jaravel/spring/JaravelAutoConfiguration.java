@@ -106,6 +106,58 @@ public class JaravelAutoConfiguration {
         return new JdbcConnection(ds, grammar);
     }
 
+    /**
+     * 把连接交给三个按静态门面工作的子系统。
+     *
+     * <p>Eloquent 的 {@code Todo.find(1)}、Schema 的 {@code Schema.create(...)}、
+     * 以及 {@code unique}/{@code exists} 规则都是静态入口 —— 这是 Laravel 式
+     * 开发体验的核心(没人想为了查一条记录先注入一个 Repository),代价是
+     * 需要在启动时把连接放进一个全局位置。
+     *
+     * <p>这里是**唯一**做这件事的地方,所以「全局状态从哪来」是可追溯的;
+     * 测试里换连接也只需调同样的三个方法。
+     */
+    @Bean
+    public JaravelStaticWiring jaravelStaticWiring(Connection connection, ConfigRepository config) {
+        io.jaravel.eloquent.Eloquent.useConnection(connection);
+        io.jaravel.migration.schema.Schema.useConnection(connection);
+        io.jaravel.validation.DatabaseRule.useConnection(connection);
+
+        // N+1 第二道防线。默认跟随 debug 模式:开发时任何未预加载的访问都
+        // 立刻报错,上线后退化为静默懒加载(宁可慢也不要 500)。
+        // 想在 CI 里强制开启就显式配置它 —— 那是证明「没有隐藏 N+1」的唯一方式。
+        if (config.has("jaravel.eloquent.prevent-lazy-loading")) {
+            io.jaravel.eloquent.Eloquent.preventLazyLoading(
+                    config.bool("jaravel.eloquent.prevent-lazy-loading"));
+        }
+        return new JaravelStaticWiring();
+    }
+
+    /**
+     * 迁移执行器。
+     *
+     * <p>依赖 {@link JaravelStaticWiring} 是必要的:迁移里的 {@code Schema.create}
+     * 走静态门面,必须等连接注入完成。
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public MigrationRunner jaravelMigrationRunner(
+            Connection connection, ConfigRepository config, JaravelStaticWiring wiring) {
+        var runner = new MigrationRunner(connection, config);
+        runner.runIfEnabled();
+        runner.seedIfEnabled();
+        return runner;
+    }
+
+    /**
+     * 一个空标记 bean。
+     *
+     * <p>存在的意义是让上面的注入成为**显式的依赖节点**:需要在连接就绪后
+     * 才能工作的 bean 可以依赖它,而不是靠 bean 初始化顺序碰运气。
+     */
+    public static final class JaravelStaticWiring {
+    }
+
     // ================= 视图 =================
 
     @Bean

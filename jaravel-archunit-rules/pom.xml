@@ -20,6 +20,10 @@
     <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-routing</artifactId></dependency>
     <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-view</artifactId></dependency>
     <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-database</artifactId></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-eloquent</artifactId></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-eloquent-processor</artifactId></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-migration</artifactId></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-validation</artifactId></dependency>
     <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-spring-boot-starter</artifactId></dependency>
 
     <dependency>

@@ -85,7 +85,7 @@ status, body, headers = request("GET", "/api/todos")
 check("控制器返回 List<Todo> → JSON", status == 200 and body.startswith(b"["))
 check("Content-Type 是 JSON", "application/json" in headers.get("Content-Type", ""))
 check("JSON 字段来自 public 字段(ADR-010)",
-      all(k in todos[0] for k in ("id", "title", "done", "createdAt")),
+      all(k in todos[0] for k in ("id", "title", "done", "created_at")),
       "字段: %s" % list(todos[0].keys()))
 
 # ============ 5. 路径参数绑定 ============

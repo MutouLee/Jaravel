@@ -99,6 +99,28 @@ public final class QueryState {
         return c;
     }
 
+    /**
+     * 是否是一条「还没加任何东西」的查询。
+     *
+     * <p>按主键查询的快路径靠它判断能否生效。列得全而不是只看 wheres ——
+     * 漏掉任何一项(比如 orders)都会让快路径静默丢弃用户的意图,
+     * 那种 bug 查起来极痛苦。
+     */
+    public boolean isPristine() {
+        return columns.isEmpty()
+            && rawColumns.isEmpty()
+            && !distinct
+            && wheres.isEmpty()
+            && joins.isEmpty()
+            && groups.isEmpty()
+            && havings.isEmpty()
+            && orders.isEmpty()
+            && limit == null
+            && offset == null
+            && aggregate == null
+            && !orderCleared;
+    }
+
     public boolean hasConditions() {
         return !wheres.isEmpty();
     }

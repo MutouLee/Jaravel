@@ -26,6 +26,10 @@
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-routing</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-view</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-database</artifactId><version>${jaravel.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-eloquent</artifactId><version>${jaravel.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-eloquent-processor</artifactId><version>${jaravel.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-migration</artifactId><version>${jaravel.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-validation</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-spring-boot-starter</artifactId><version>${jaravel.version}</version></dependency>
     </dependencies>
   </dependencyManagement>

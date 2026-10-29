@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.jaravel</groupId>
+    <artifactId>jaravel-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>jaravel-eloquent-processor</artifactId>
+  <name>Jaravel :: Eloquent 注解处理器</name>
+  <description>为 @Model 生成元模型、基类与类型化 Query(替代 PHP 的魔术方法)</description>
+
+  <dependencies>
+    <!-- 读注解定义 + 生成代码引用的运行时类型 -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-eloquent</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-support</artifactId>
+    </dependency>
+
+    <!-- 编译失败测试:断言报错信息包含预期提示(docs/06 §6 的第一优先级) -->
+    <dependency>
+      <groupId>com.google.testing.compile</groupId>
+      <artifactId>compile-testing</artifactId>
+      <version>0.21.0</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.google.truth</groupId>
+      <artifactId>truth</artifactId>
+      <version>1.4.4</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <!-- 处理器自身编译时不要跑处理器 -->
+          <proc>none</proc>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <!-- compile-testing 需要访问 javac 内部 -->
+          <argLine>-Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8
+            --add-exports jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED
+            --add-exports jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED
+            --add-exports jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED
+            --add-exports jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED
+            --add-exports jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED
+            --add-exports jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED
+            --add-exports jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED
+            --add-exports jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED
+            --add-opens jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED</argLine>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

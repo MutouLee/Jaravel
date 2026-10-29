@@ -84,6 +84,13 @@ public final class Cast {
         try {
             return Instant.parse(v);
         } catch (Exception ignored) {
+            // 纯数字 = epoch。SQLite 的 setTimestamp、以及手写 unix 时间戳列都会这样,
+            // 遇到一次就会让「存进去再读出来」直接炸,所以必须容忍。
+            if (!v.isEmpty() && v.chars().allMatch(Character::isDigit)) {
+                long n = Long.parseLong(v);
+                // 10 位是秒(到 2286 年),13 位是毫秒
+                return v.length() <= 10 ? Instant.ofEpochSecond(n) : Instant.ofEpochMilli(n);
+            }
             // 容忍 "2026-10-28 14:30:00" 与 "2026-10-28"
             if (v.length() == 10) return LocalDate.parse(v).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant();
             return LocalDateTime.parse(v.replace(' ', 'T')).atZone(java.time.ZoneId.systemDefault()).toInstant();

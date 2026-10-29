@@ -8,6 +8,13 @@ import io.jaravel.database.query.QueryState;
 public class SqliteGrammar extends Grammar {
 
     @Override public String name() { return "sqlite"; }
+
+    /** SQLite 没有时间类型 —— 见 {@link Grammar#bindsTemporalAsString()} */
+    @Override
+    public boolean bindsTemporalAsString() {
+        return true;
+    }
+
     @Override protected char openQuote()  { return '"'; }
     @Override protected char closeQuote() { return '"'; }
 

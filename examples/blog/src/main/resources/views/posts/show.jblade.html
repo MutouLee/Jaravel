@@ -1,0 +1,33 @@
+@extends('layouts.app')
+@section('title', post.title)
+
+@section('content')
+  @params(app.models.Post post)
+
+  <h1>{{ post.title }}</h1>
+  <p class="muted">
+    {{ post.author().getLoaded().map(a -> a.name).orElse("佚名") }}
+    · {{ post.views }} 次浏览
+    @foreach(post.tags().getLoaded() as tag)
+      · <span class="tag">{{ tag.name }}</span>
+    @endforeach
+  </p>
+
+  <div>{{ post.body }}</div>
+
+  <h2>评论({{ post.comments().getLoaded().size() }})</h2>
+  @forelse(post.comments().getLoaded() as comment)
+    <div class="comment">
+      <strong>{{ comment.authorName }}</strong>
+      <p>{{ comment.body }}</p>
+    </div>
+  @empty
+    <p class="muted">还没有评论。</p>
+  @endforelse
+
+  <form class="add" method="post" action="/posts/{{ post.id }}/comments">
+    <input type="text" name="author_name" placeholder="你的名字">
+    <input type="text" name="body" placeholder="说点什么…">
+    <button type="submit">提交</button>
+  </form>
+@endsection

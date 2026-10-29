@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.jaravel</groupId>
+    <artifactId>jaravel-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>jaravel-validation</artifactId>
+  <name>Jaravel :: 验证</name>
+  <description>
+    规则校验器:字符串规则与类型安全 Builder 两种写法、嵌套与通配符、
+    错误本地化、FormRequest。不使用 Jakarta Bean Validation(见 docs/07 §7)。
+  </description>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-core</artifactId>
+    </dependency>
+    <!-- FormRequest 需要 Request/Response -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-http</artifactId>
+    </dependency>
+    <!-- unique / exists 需要查库;不用这两条规则的人不该被牵连 -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-database</artifactId>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-eloquent</artifactId>
+      <optional>true</optional>
+    </dependency>
+
+    <dependency>
+      <groupId>org.xerial</groupId>
+      <artifactId>sqlite-jdbc</artifactId>
+      <version>${sqlite.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

@@ -77,9 +77,8 @@ def collect(label, files, skip_css):
 JARAVEL = [
     ("路由",     "examples/todo/src/main/java/routes/WebRoutes.java"),
     ("模型",     "examples/todo/src/main/java/app/models/Todo.java"),
-    ("数据访问", "examples/todo/src/main/java/app/models/TodoRepository.java"),
     ("控制器",   "examples/todo/src/main/java/app/http/controllers/TodoController.java"),
-    ("建表",     "examples/todo/src/main/resources/schema.sql"),
+    ("迁移",     "examples/todo/src/main/java/database/migrations/m2026_10_29_000000/CreateTodosTable.java"),
     ("布局",     "examples/todo/src/main/resources/views/layouts/app.jblade.html"),
     ("列表页",   "examples/todo/src/main/resources/views/todos/index.jblade.html"),
     ("关于页",   "examples/todo/src/main/resources/views/todos/about.jblade.html"),
@@ -96,16 +95,67 @@ LARAVEL = [
 ]
 
 
-def report(skip_css):
+# ---- 功能切片 02:Blog(关联 + 预加载 + 迁移 + FormRequest 校验 + 软删除) ----
+#
+# 与切片 01 的区别:01 只验证「最小闭环」,02 压的是 v0.2 真正新增的能力。
+# 关联与校验是 Laravel 最省代码的两处,所以这个切片对 Jaravel 更不利 ——
+# 正因如此它才是 v0.2 的有效标尺。
+
+BLOG_JARAVEL = [
+    ("路由",      "examples/blog/src/main/java/routes/WebRoutes.java"),
+    ("模型",      "examples/blog/src/main/java/app/models/Post.java"),
+    ("模型",      "examples/blog/src/main/java/app/models/Author.java"),
+    ("模型",      "examples/blog/src/main/java/app/models/Comment.java"),
+    ("模型",      "examples/blog/src/main/java/app/models/Tag.java"),
+    ("表单请求",  "examples/blog/src/main/java/app/http/requests/StorePostRequest.java"),
+    ("表单请求",  "examples/blog/src/main/java/app/http/requests/StoreCommentRequest.java"),
+    ("控制器",    "examples/blog/src/main/java/app/http/controllers/PostController.java"),
+    ("控制器",    "examples/blog/src/main/java/app/http/controllers/CommentController.java"),
+    ("迁移",      "examples/blog/src/main/java/database/migrations/m2026_10_29_000100/CreateBlogTables.java"),
+    ("迁移",      "examples/blog/src/main/java/database/migrations/m2026_10_29_000200/CreateTagTables.java"),
+    ("种子",      "examples/blog/src/main/java/database/seeders/BlogSeeder.java"),
+    ("布局",      "examples/blog/src/main/resources/views/layouts/app.jblade.html"),
+    ("列表页",    "examples/blog/src/main/resources/views/posts/index.jblade.html"),
+    ("详情页",    "examples/blog/src/main/resources/views/posts/show.jblade.html"),
+    ("表单页",    "examples/blog/src/main/resources/views/posts/form.jblade.html"),
+]
+
+L2 = "benchmark/laravel-parity/02-crud-blog/laravel/"
+BLOG_LARAVEL = [
+    ("路由",      L2 + "routes/web.php"),
+    ("模型",      L2 + "app/Models/Post.php"),
+    ("模型",      L2 + "app/Models/Author.php"),
+    ("模型",      L2 + "app/Models/Comment.php"),
+    ("模型",      L2 + "app/Models/Tag.php"),
+    ("表单请求",  L2 + "app/Http/Requests/StorePostRequest.php"),
+    ("表单请求",  L2 + "app/Http/Requests/StoreCommentRequest.php"),
+    ("控制器",    L2 + "app/Http/Controllers/PostController.php"),
+    ("控制器",    L2 + "app/Http/Controllers/CommentController.php"),
+    ("迁移",      L2 + "database/migrations/2026_10_29_000100_create_blog_tables.php"),
+    ("迁移",      L2 + "database/migrations/2026_10_29_000200_create_tag_tables.php"),
+    ("种子",      L2 + "database/seeders/BlogSeeder.php"),
+    ("布局",      L2 + "resources/views/layouts/app.blade.php"),
+    ("列表页",    L2 + "resources/views/posts/index.blade.php"),
+    ("详情页",    L2 + "resources/views/posts/show.blade.php"),
+    ("表单页",    L2 + "resources/views/posts/form.blade.php"),
+]
+
+SLICES = [
+    ("01:Todo CRUD", JARAVEL, LARAVEL),
+    ("02:Blog(关联/校验/迁移)", BLOG_JARAVEL, BLOG_LARAVEL),
+]
+
+
+def report(title, jaravel_files, laravel_files, skip_css):
     out = []
     tag = "不含共享 CSS" if skip_css else "含共享 CSS"
     out.append("")
     out.append("─" * 62)
-    out.append(" 功能切片 01:Todo CRUD    [%s]" % tag)
+    out.append(" 功能切片 %s    [%s]" % (title, tag))
     out.append("─" * 62)
 
-    jr, jt = collect("Jaravel", JARAVEL, skip_css)
-    lr, lt = collect("Laravel", LARAVEL, skip_css)
+    jr, jt = collect("Jaravel", jaravel_files, skip_css)
+    lr, lt = collect("Laravel", laravel_files, skip_css)
 
     out.append("")
     out.append("  Jaravel")
@@ -131,26 +181,35 @@ def main():
         max_ratio = float(sys.argv[sys.argv.index("--max") + 1])
 
     lines = ["=" * 62, " parity 门禁:Jaravel vs 等价 Laravel 实现", "=" * 62]
+    summary = []
+    worst = 0.0
 
-    all_out, ratio_with = report(False)
-    lines += all_out
-    all_out, ratio_without = report(True)
-    lines += all_out
+    for title, jf, lf in SLICES:
+        out, ratio_with = report(title, jf, lf, False)
+        lines += out
+        out, ratio_without = report(title, jf, lf, True)
+        lines += out
+        summary.append((title, ratio_with, ratio_without))
+        worst = max(worst, ratio_without)
 
     lines.append("")
     lines.append("=" * 62)
-    lines.append(" 门禁上限: %.2f" % max_ratio)
-    lines.append(" 含 CSS   : %.2f   %s" % (ratio_with, "通过" if ratio_with <= max_ratio else "超标"))
-    lines.append(" 不含 CSS : %.2f   %s  ← 以此为准" %
-                 (ratio_without, "通过" if ratio_without <= max_ratio else "超标"))
+    lines.append(" 门禁上限: %.2f    以「不含 CSS」为准" % max_ratio)
+    lines.append("-" * 62)
+    for title, rw, rwo in summary:
+        lines.append(" %-30s 含 CSS %.2f   不含 CSS %.2f   %s"
+                     % (title, rw, rwo, "通过" if rwo <= max_ratio else "超标"))
+    lines.append("-" * 62)
+    lines.append(" 最差切片: %.2f   %s" % (worst, "通过" if worst <= max_ratio else "超标"))
     lines.append("=" * 62)
 
     text = "\n".join(lines) + "\n"
     open(os.path.join(ROOT, "parity-result.txt"), "w", encoding="utf-8").write(text)
-    print("ratio_with_css=%.2f ratio_without_css=%.2f gate=%.2f"
-          % (ratio_with, ratio_without, max_ratio))
+    for title, rw, rwo in summary:
+        print("slice=%s with_css=%.2f without_css=%.2f" % (title, rw, rwo))
+    print("worst=%.2f gate=%.2f" % (worst, max_ratio))
 
-    return 0 if ratio_without <= max_ratio else 1
+    return 0 if worst <= max_ratio else 1
 
 
 if __name__ == "__main__":

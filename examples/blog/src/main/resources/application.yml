@@ -1,0 +1,13 @@
+server:
+  port: ${SERVER_PORT:8001}
+
+spring:
+  datasource:
+    # 文件型 SQLite:重启后数据还在
+    url: ${DB_URL:jdbc:sqlite:storage/blog.db}
+    driver-class-name: org.sqlite.JDBC
+
+logging:
+  level:
+    root: WARN
+    io.jaravel: INFO

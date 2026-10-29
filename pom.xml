@@ -28,6 +28,11 @@
     <module>jaravel-routing</module>
     <module>jaravel-view</module>
     <module>jaravel-database</module>
+    <module>jaravel-eloquent</module>
+    <module>jaravel-eloquent-processor</module>
+    <module>jaravel-migration</module>
+    <module>jaravel-validation</module>
+    <module>jaravel-eloquent-tests</module>
     <module>jaravel-spring-boot-starter</module>
     <module>jaravel-archunit-rules</module>
   </modules>
@@ -64,6 +69,10 @@
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-routing</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-view</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-database</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-eloquent</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-eloquent-processor</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-migration</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-validation</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-spring-boot-starter</artifactId><version>${project.version}</version></dependency>
     </dependencies>
   </dependencyManagement>

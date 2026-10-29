@@ -47,10 +47,42 @@ final class ArgumentBinder {
                 continue;
             }
 
-            // 复杂类型 → 容器解析(v0.2 会在此接入 FormRequest 自动校验)
+            // FormRequest:实例化 → prepareForValidation → authorize → 校验 → 注入。
+            // 不走容器:它每次请求都要新实例并绑定当次输入,做成 bean
+            // 就成了跨请求共享的可变状态 —— 那是最糟的一类 bug。
+            if (io.jaravel.validation.FormRequest.class.isAssignableFrom(type)) {
+                args[i] = bindFormRequest(request, type);
+                continue;
+            }
+
+            // 其余复杂类型 → 容器解析(服务、仓储等)
             args[i] = container.make(type);
         }
         return args;
+    }
+
+    /**
+     * 构造并绑定一个 {@link io.jaravel.validation.FormRequest}。
+     *
+     * <p>{@code bind()} 内部会抛 403(鉴权失败)或 422(校验失败),
+     * 由异常处理器转成响应 —— 控制器方法体因此只在数据合法时才会执行。
+     */
+    private static Object bindFormRequest(Request request, Class<?> type) {
+        io.jaravel.validation.FormRequest form;
+        try {
+            var ctor = type.getDeclaredConstructor();
+            ctor.setAccessible(true);
+            form = (io.jaravel.validation.FormRequest) ctor.newInstance();
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("""
+                    无法实例化 FormRequest %s:%s
+                      FormRequest 需要一个可访问的无参构造函数 ——
+                      它由框架在每次请求时新建,不能有构造依赖。
+                      需要注入服务时,请在控制器里注入,再传给 FormRequest 的方法。"""
+                    .formatted(type.getName(), e.getMessage()), e);
+        }
+        form.bind(request);
+        return form;
     }
 
     private static Object bindSimple(Request request, Route route,

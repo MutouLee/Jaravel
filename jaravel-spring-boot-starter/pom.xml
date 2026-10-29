@@ -26,6 +26,18 @@
       <artifactId>jaravel-database</artifactId>
     </dependency>
     <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-eloquent</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-migration</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-validation</artifactId>
+    </dependency>
+    <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-web</artifactId>
     </dependency>

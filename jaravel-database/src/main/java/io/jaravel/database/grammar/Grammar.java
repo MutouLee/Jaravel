@@ -44,6 +44,25 @@ public abstract class Grammar {
 
     public abstract String name();
 
+    /**
+     * 时间类型怎么进数据库。
+     *
+     * <p>默认 {@code false} = 交给 JDBC 的 {@code setTimestamp},由驱动决定。
+     * 这对有原生时间类型的库(MySQL/Postgres)是对的。
+     *
+     * <p>SQLite 没有时间类型,{@code setTimestamp} 写进去是 epoch 毫秒**文本**,
+     * 读回来按 ISO 解析必然失败 —— 这是真实踩过的坑。覆盖成 {@code true} 后
+     * 统一写 ISO-8601 UTC 字符串,好处有三:
+     * <ul>
+     *   <li>读回来能直接 {@code Instant.parse()};</li>
+     *   <li>字典序 = 时间序,{@code order by created_at} 正确;</li>
+     *   <li>打开 .db 文件肉眼可读。</li>
+     * </ul>
+     */
+    public boolean bindsTemporalAsString() {
+        return false;
+    }
+
     /** PostgreSQL 支持 ILIKE,其余方言需降级 */
     protected boolean supportsIlike() { return false; }
 

@@ -1,71 +1,63 @@
 package app.http.controllers;
 
+import java.util.Map;
+
 import org.springframework.stereotype.Component;
 
-import app.models.TodoRepository;
+import app.models.Todo;
+import app.models.Todo_;
 import io.jaravel.http.Redirect;
 import io.jaravel.http.Request;
 import io.jaravel.http.Response;
 import io.jaravel.http.View;
+import io.jaravel.validation.Validator;
 
 /**
  * Todo 控制器。
  *
- * <p>控制器实例由容器解析,因此**构造注入直接可用**。
- * 返回值可以是 {@link View} / {@link Redirect} / 任意 POJO —— 由返回值归一化处理。
+ * <p>与 v0.1 的差别:不再注入 Repository —— 查询与持久化都在模型上
+ * ({@code Todo.latest()} / {@code todo.save()}),校验交给 {@code Validator}。
  */
 @Component
 public class TodoController {
 
-    private final TodoRepository todos;
-
-    public TodoController(TodoRepository todos) {
-        this.todos = todos;
-    }
-
     /** GET / */
     public View index() {
         return View.of("todos.index")
-                   .with("todos", todos.all().toList())
-                   .with("pending", todos.countPending());
+                   .with("todos", Todo.query().orderByKeyDesc().get().toList())
+                   .with("pending", Todo.query().whereDone(false).count());
     }
 
     /** POST /todos */
     public Response store(Request request) {
-        String title = request.input("title", "").trim();
+        var validated = Validator.make(request.all(), Map.of(
+                "title", "required|string|max:100")).validate();
 
-        // v0.1 还没有验证器模块(v0.2),先手工校验
-        if (title.isEmpty()) {
-            return Redirect.to("/").with("error", "标题不能为空");
-        }
-        if (title.length() > 100) {
-            return Redirect.to("/").with("error", "标题不能超过 100 个字符");
-        }
-
-        todos.create(title);
+        Todo.create(validated.only("title"));
         return Redirect.to("/").with("status", "已添加");
     }
 
     /** POST /todos/{id}/toggle */
     public Response toggle(Long id) {
-        todos.toggle(id);
+        Todo todo = Todo.findOrFail(id);
+        todo.done = !todo.done;
+        todo.save();
         return Redirect.to("/");
     }
 
     /** POST /todos/{id}/delete */
     public Response destroy(Long id) {
-        todos.delete(id);
+        Todo.findOrFail(id).delete();
         return Redirect.to("/").with("status", "已删除");
     }
 
     /** GET /api/todos —— 返回 POJO 列表,自动序列化为 JSON */
     public Object apiIndex() {
-        return todos.all().toList();
+        return Todo.query().orderByKeyDesc().get().toList();
     }
 
     /** GET /api/todos/{id} */
     public Object apiShow(Long id) {
-        return todos.find(id)
-                .orElseThrow(() -> new io.jaravel.http.HttpException(404, "Todo " + id + " 不存在"));
+        return Todo.findOrFail(id);
     }
 }

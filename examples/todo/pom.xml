@@ -73,6 +73,14 @@
         <version>3.13.0</version>
         <configuration>
           <compilerArgs><arg>-parameters</arg></compilerArgs>
+          <!-- @Model 的代码生成。没有它 Todo 的父类 TodoBase 不存在,编译就过不去。 -->
+          <annotationProcessorPaths>
+            <path>
+              <groupId>io.jaravel</groupId>
+              <artifactId>jaravel-eloquent-processor</artifactId>
+              <version>${jaravel.version}</version>
+            </path>
+          </annotationProcessorPaths>
         </configuration>
       </plugin>
     </plugins>

@@ -33,6 +33,20 @@ public final class Row {
         return new Row(m);
     }
 
+    /**
+     * 接管一个**已经小写化**的 map,不再拷贝。
+     *
+     * <p>只给 {@link JdbcConnection} 用:它刚刚新建了这个 map,没有别人持有引用,
+     * 再拷一遍纯属浪费。{@link #of} 保留拷贝语义给外部调用者 ——
+     * 公开 API 收到别人的 map 时必须防御性复制。
+     *
+     * <p>这不是微优化:原先每行要建**两个** LinkedHashMap,
+     * 千行结果集就是两千次哈希表分配。
+     */
+    static Row adopt(Map<String, Object> lowercasedValues) {
+        return new Row(lowercasedValues);
+    }
+
     // ---------- 取值 ----------
 
     public Object get(String column) {

@@ -33,6 +33,9 @@ class ArchitectureBoundaryTest {
             "io.jaravel.routing..",
             "io.jaravel.view..",
             "io.jaravel.database..",
+            "io.jaravel.eloquent..",
+            "io.jaravel.migration..",
+            "io.jaravel.validation..",
     };
 
     /** 唯一允许接触 Spring 的地方 */
@@ -100,14 +103,16 @@ class ArchitectureBoundaryTest {
                 .that().resideInAPackage("io.jaravel.support..")
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "io.jaravel.core..", "io.jaravel.http..", "io.jaravel.routing..",
-                        "io.jaravel.view..", "io.jaravel.database..", "io.jaravel.spring..")
+                        "io.jaravel.view..", "io.jaravel.database..", "io.jaravel.eloquent..",
+                        "io.jaravel.spring..")
                 .because("support 是最底层,依赖任何上层模块都会形成环");
 
         ArchRule coreDependsOnlyOnSupport = noClasses()
                 .that().resideInAPackage("io.jaravel.core..")
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "io.jaravel.http..", "io.jaravel.routing..",
-                        "io.jaravel.view..", "io.jaravel.database..", "io.jaravel.spring..")
+                        "io.jaravel.view..", "io.jaravel.database..", "io.jaravel.eloquent..",
+                        "io.jaravel.spring..")
                 .because("core 只能依赖 support");
 
         ArchRule httpDoesNotDependOnRouting = noClasses()
@@ -121,8 +126,36 @@ class ArchitectureBoundaryTest {
                 .that().resideInAPackage("io.jaravel.database..")
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "io.jaravel.http..", "io.jaravel.routing..",
+                        "io.jaravel.view..", "io.jaravel.eloquent..", "io.jaravel.spring..")
+                .because("数据层不该知道 HTTP 的存在 —— 这让它在 CLI / 队列场景同样可用;"
+                       + "也不该知道 Eloquent —— 查询构造器要能脱离 ORM 单独使用");
+
+        // v0.2 新增:迁移不该知道 web,也不该依赖 ORM
+        // (只用 Schema + 迁移、不用 Eloquent 是正当用法,pom 里是 optional)
+        ArchRule migrationIsIndependentOfWeb = noClasses()
+                .that().resideInAPackage("io.jaravel.migration..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "io.jaravel.http..", "io.jaravel.routing..",
                         "io.jaravel.view..", "io.jaravel.spring..")
-                .because("数据层不该知道 HTTP 的存在 —— 这让它在 CLI / 队列场景同样可用");
+                .because("迁移在命令行和测试里跑,拉进 Web 栈就没法单独使用");
+
+        // 验证器可以依赖 http(FormRequest 需要 Request/Response),
+        // 但不该知道路由与模板
+        ArchRule validationIsIndependentOfRouting = noClasses()
+                .that().resideInAPackage("io.jaravel.validation..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "io.jaravel.routing..", "io.jaravel.view..", "io.jaravel.spring..")
+                .because("校验是纯数据判断,接管路由或渲染会让它无法在队列任务里复用");
+
+        // v0.2 新增:Eloquent 的位置是「database 之上、web 之下」
+        ArchRule eloquentIsIndependentOfWeb = noClasses()
+                .that().resideInAPackage("io.jaravel.eloquent..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "io.jaravel.http..", "io.jaravel.routing..",
+                        "io.jaravel.view..", "io.jaravel.spring..")
+                .because("ORM 不该知道 HTTP / 路由 / 模板的存在。"
+                       + "这条规则守的是一个具体承诺:同一套模型能在 Web 请求、"
+                       + "队列任务、命令行脚本里原样使用,不必为了跑一个脚本而拉起整个 Web 栈");
 
         ArchRule viewIsIndependentOfWeb = noClasses()
                 .that().resideInAPackage("io.jaravel.view..")
@@ -134,6 +167,9 @@ class ArchitectureBoundaryTest {
         coreDependsOnlyOnSupport.check(jaravelClasses);
         httpDoesNotDependOnRouting.check(jaravelClasses);
         databaseIsIndependentOfWeb.check(jaravelClasses);
+        eloquentIsIndependentOfWeb.check(jaravelClasses);
+        migrationIsIndependentOfWeb.check(jaravelClasses);
+        validationIsIndependentOfRouting.check(jaravelClasses);
         viewIsIndependentOfWeb.check(jaravelClasses);
     }
 

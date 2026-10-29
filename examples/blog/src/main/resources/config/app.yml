@@ -1,0 +1,5 @@
+app:
+  name: ${APP_NAME:Jaravel Todo}
+  env: ${APP_ENV:local}
+  debug: ${APP_DEBUG:true}
+  url: ${APP_URL:http://localhost:8000}

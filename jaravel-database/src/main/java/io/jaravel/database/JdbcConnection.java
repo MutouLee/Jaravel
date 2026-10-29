@@ -54,20 +54,29 @@ public class JdbcConnection implements Connection {
     public Coll<Row> select(String sql, List<Object> bindings) {
         return run(sql, bindings, ps -> {
             try (ResultSet rs = ps.executeQuery()) {
-                var out = new ArrayList<Row>();
                 ResultSetMetaData meta = rs.getMetaData();
                 int columns = meta.getColumnCount();
-                while (rs.next()) {
-                    var values = new LinkedHashMap<String, Object>(columns);
-                    for (int i = 1; i <= columns; i++) {
-                        // 优先用别名(label),没有别名时才用列名
-                        String label = meta.getColumnLabel(i);
-                        if (label == null || label.isBlank()) label = meta.getColumnName(i);
-                        values.put(label, rs.getObject(i));
-                    }
-                    out.add(Row.of(values));
+
+                // 列标签在整个 ResultSet 内不变,所以**解析一次**。
+                // 原先放在逐行循环里:1000 行 × 4 列 = 4000 次多余的 JDBC
+                // 元数据调用,而且 toLowerCase 也跟着重复了 4000 次。
+                String[] labels = new String[columns];
+                for (int i = 0; i < columns; i++) {
+                    String label = meta.getColumnLabel(i + 1);
+                    if (label == null || label.isBlank()) label = meta.getColumnName(i + 1);
+                    labels[i] = label.toLowerCase();
                 }
-                return Coll.wrap(List.copyOf(out));
+
+                var out = new ArrayList<Row>();
+                while (rs.next()) {
+                    var values = new LinkedHashMap<String, Object>(columns * 2);
+                    for (int i = 0; i < columns; i++) {
+                        values.put(labels[i], rs.getObject(i + 1));
+                    }
+                    // adopt 而非 of:map 刚建好、无人持有,不必再拷一份
+                    out.add(Row.adopt(values));
+                }
+                return Coll.wrap(java.util.Collections.unmodifiableList(out));
             }
         });
     }
@@ -160,6 +169,7 @@ public class JdbcConnection implements Connection {
                 transactional.remove();
                 depth.remove();
                 afterCommitHooks.remove();
+                restoreAutoCommit(conn);
                 close(conn);
             }
         }
@@ -185,6 +195,25 @@ public class JdbcConnection implements Connection {
             throw e;
         } finally {
             depth.set(level - 1);
+        }
+    }
+
+    /**
+     * 把 autoCommit 恢复成 true 再归还连接。
+     *
+     * <p>不能指望连接池来重置。HikariCP 默认会(可配置关掉),但
+     * 「同一条物理连接复用」的 DataSource 不会 —— 那种情况下连接会**永久停在
+     * autoCommit = false**,之后所有写入都不提交,直到下一次 rollback 把它们
+     * 一起抹掉。症状是「数据写了又没了,而且没有任何报错」。
+     *
+     * <p>这个 bug 是 v0.2 的迁移测试发现的:一个迁移失败后,记账表里之前
+     * 成功的记录全部消失,于是再次 migrate 会重跑已应用的迁移。
+     */
+    private void restoreAutoCommit(java.sql.Connection conn) {
+        try {
+            if (!conn.getAutoCommit()) conn.setAutoCommit(true);
+        } catch (SQLException ignored) {
+            // 连接已经坏了,close 时会处理;这里不该掩盖原始业务异常
         }
     }
 
@@ -266,16 +295,32 @@ public class JdbcConnection implements Connection {
         }
     }
 
-    private static void bind(PreparedStatement ps, List<Object> bindings) throws SQLException {
+    private void bind(PreparedStatement ps, List<Object> bindings) throws SQLException {
+        boolean temporalAsString = grammar.bindsTemporalAsString();
+
         for (int i = 0; i < bindings.size(); i++) {
             Object v = bindings.get(i);
             // java.time 类型多数驱动不直接认,转成 JDBC 标准类型
             if (v instanceof java.time.Instant inst) {
-                ps.setTimestamp(i + 1, java.sql.Timestamp.from(inst));
+                if (temporalAsString) {
+                    ps.setString(i + 1, ISO_INSTANT.format(inst));
+                } else {
+                    ps.setTimestamp(i + 1, java.sql.Timestamp.from(inst));
+                }
             } else if (v instanceof java.time.LocalDateTime ldt) {
-                ps.setTimestamp(i + 1, java.sql.Timestamp.valueOf(ldt));
+                if (temporalAsString) {
+                    ps.setString(i + 1, ldt.toString());
+                } else {
+                    ps.setTimestamp(i + 1, java.sql.Timestamp.valueOf(ldt));
+                }
             } else if (v instanceof java.time.LocalDate ld) {
-                ps.setDate(i + 1, java.sql.Date.valueOf(ld));
+                if (temporalAsString) {
+                    ps.setString(i + 1, ld.toString());
+                } else {
+                    ps.setDate(i + 1, java.sql.Date.valueOf(ld));
+                }
+            } else if (v instanceof java.time.LocalTime lt) {
+                ps.setString(i + 1, lt.toString());
             } else if (v instanceof Enum<?> en) {
                 ps.setString(i + 1, en.name());
             } else {
@@ -284,10 +329,26 @@ public class JdbcConnection implements Connection {
         }
     }
 
+    /**
+     * 固定毫秒精度的 ISO-8601 UTC。
+     *
+     * <p>不用 {@code DateTimeFormatter.ISO_INSTANT}:它的小数位是**可变**的
+     * ({@code ...:00Z} / {@code ...:00.5Z} / {@code ...:00.123Z}),于是字典序
+     * 不等于时间序,{@code order by created_at} 会在整秒和带毫秒的记录之间排错。
+     * 定长三位小数才能让文本比较与时间比较一致。
+     */
+    private static final java.time.format.DateTimeFormatter ISO_INSTANT =
+            new java.time.format.DateTimeFormatterBuilder()
+                    .appendInstant(3)
+                    .toFormatter();
+
     private void record(String sql, List<Object> bindings, long startNanos) {
         if (!logging) return;
         long micros = (System.nanoTime() - startNanos) / 1000;
-        log.add(new QueryLog(sql, List.copyOf(bindings), micros, callerHint()));
+        // 不能用 List.copyOf —— 它拒绝 null 元素,而 `set x = null` 是完全正常的绑定。
+        // 开着查询日志时,第一次写 NULL 就会 NPE。
+        var snapshot = java.util.Collections.unmodifiableList(new java.util.ArrayList<>(bindings));
+        log.add(new QueryLog(sql, snapshot, micros, callerHint()));
     }
 
     /**

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.jaravel</groupId>
+    <artifactId>jaravel-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>jaravel-migration</artifactId>
+  <name>Jaravel :: Schema DSL 与迁移</name>
+  <description>Schema DSL、迁移执行器(含 checksum 漂移检测)、Seeder 与模型工厂</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-database</artifactId>
+    </dependency>
+    <!-- 工厂需要给模型赋值,因此依赖 eloquent;optional 让只用 Schema 的人不被牵连 -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-eloquent</artifactId>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.xerial</groupId>
+      <artifactId>sqlite-jdbc</artifactId>
+      <version>${sqlite.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

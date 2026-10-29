@@ -2,9 +2,10 @@
 
 > Laravel 级开发体验,构建在 Spring Boot 之上的 Java 应用框架。
 
-**当前状态:v0.1 垂直切片已完成。** 8 个模块、244 个测试通过、示例应用端到端跑通。
-距离可用还很远(没有 Eloquent / 认证 / 队列),但「路由 + 模板 + 数据库」这条主干已经通了。
-详见 [V0.1-RESULT.md](V0.1-RESULT.md)。
+**当前状态:v0.2 已完成。** 13 个模块、**519 个测试**通过,两个示例应用端到端跑通
+(Todo 35/35、Blog 33/33)。Eloquent、迁移、验证三块到位,**parity 从 1.27 降到 1.05**。
+距离可用还差认证 / 会话 / 缓存 / 队列。
+详见 [V0.2-RESULT.md](V0.2-RESULT.md) · [V0.1-RESULT.md](V0.1-RESULT.md)。
 
 | 项 | 值 |
 |---|---|
@@ -93,6 +94,7 @@ p.save();                  // 与快照比对,只 UPDATE 变化的列
 
 ```
 DESIGN.md                 设计总纲:可行性结论、三条顶层决策、模块结构、路线图
+V0.2-RESULT.md            v0.2 落地结果(含 8 个真 bug 与 1 条定错了的验收标准)
 V0.1-RESULT.md            v0.1 验收结果(含未达成项与修掉的 bug)
 docs/                     18 篇模块细化设计(约 8700 行)
 verification/             v0.0 技术验证:四个会推翻架构的技术点,含可运行代码
@@ -103,20 +105,34 @@ jaravel-http/             Request / Response / View / 中间件
 jaravel-routing/          路由 DSL(方法引用)
 jaravel-view/             jblade 模板引擎(Blade 前端 + jte 后端)
 jaravel-database/         查询构造器 + 三方言 Grammar
+jaravel-eloquent/         Active Record、七种关联、预加载、软删除、作用域、事件
+jaravel-eloquent-processor/    @Model 的 APT:元模型 / 基类 / 类型化 Query
+jaravel-migration/        Schema DSL、迁移(含 checksum 漂移检测)、Seeder、工厂
+jaravel-validation/       60+ 规则、嵌套通配符、本地化、FormRequest
 jaravel-spring-boot-starter/   自动装配与 Spring 适配(唯一接触 Spring 的模块)
 jaravel-archunit-rules/   ADR-001 的阻断式强制
 
-examples/todo/            v0.1 垂直切片的示例应用
+examples/todo/            v0.1 的垂直切片(v0.2 已迁到 Eloquent)
+examples/blog/            v0.2 切片:关联 + 预加载 + 迁移 + FormRequest,零裸 SQL
 benchmark/laravel-parity/ parity 门禁:与等价 Laravel 实现的代码量对比
+benchmark/jpa-comparison/ 与 Spring Data JPA 的单条主键查询对照基准
 ```
 
 ## 快速开始
 
 ```bash
-mvn install                                  # 构建 + 244 个测试
-cd examples/todo && mvn spring-boot:run      # → http://localhost:8000
-python verify-todo.py                        # 35 项端到端验收
-python benchmark/laravel-parity/parity.py    # parity 门禁
+mvn install                                  # 构建 + 519 个测试
+
+# Todo 切片(:8000)
+cd examples/todo && mvn spring-boot:run
+python verify-todo.py                        # 35 项端到端检查
+
+# Blog 切片(:8001)—— v0.2 的能力都在这里
+cd examples/blog && SEED_ON_BOOT=true mvn spring-boot:run
+python verify-blog.py                        # 33 项端到端检查
+
+python benchmark/laravel-parity/parity.py --max 1.2
+cd benchmark/jpa-comparison && mvn exec:java  # 与 JPA 的对照基准
 ```
 
 ### 文档入口

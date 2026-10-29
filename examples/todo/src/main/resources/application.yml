@@ -6,10 +6,6 @@ spring:
     # 文件型 SQLite:重启后数据还在
     url: ${DB_URL:jdbc:sqlite:storage/todo.db}
     driver-class-name: org.sqlite.JDBC
-  sql:
-    init:
-      mode: always
-      schema-locations: classpath:schema.sql
 
 logging:
   level:

@@ -53,3 +53,9 @@ benchmark/laravel-parity/parity-result.txt
 # 一次性诊断脚本
 diag.py
 check.py
+
+# v0.2 新增的输出
+verify-blog-result.txt
+benchmark/jpa-comparison/benchmark-result.txt
+examples/*/cp.txt
+benchmark/jpa-comparison/target/

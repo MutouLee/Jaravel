@@ -1,0 +1,24 @@
+@extends('layouts.app')
+@section('title', '写文章')
+
+@section('content')
+  <h1>写文章</h1>
+
+  <form method="post" action="/posts">
+    <input type="text" name="title" placeholder="标题">
+    <textarea name="body" rows="8" placeholder="正文"></textarea>
+
+    <select name="author_id">
+      @foreach($authors as $author)
+        <option value="{{ $author->id }}">{{ $author->name }}</option>
+      @endforeach
+    </select>
+
+    @foreach($tags as $tag)
+      <label><input type="checkbox" name="tags" value="{{ $tag->id }}"> {{ $tag->name }}</label>
+    @endforeach
+
+    <label><input type="checkbox" name="published" value="1"> 立即发布</label>
+    <button type="submit">保存</button>
+  </form>
+@endsection

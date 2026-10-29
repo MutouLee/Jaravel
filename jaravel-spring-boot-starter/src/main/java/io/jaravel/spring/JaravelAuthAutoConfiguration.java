@@ -516,12 +516,15 @@ public class JaravelAuthAutoConfiguration {
     @ConditionalOnMissingBean
     public PasswordBroker jaravelPasswordBroker(AuthManager auth, ConfigRepository config,
                                                 ObjectProvider<Connection> connection) {
-        return new PasswordBroker(
+        var broker = new PasswordBroker(
                 auth.provider(config.string("auth.passwords.provider", "users")),
                 requireConnection(connection, "password-reset"),
                 config.string("auth.passwords.table", "password_reset_tokens"),
                 config.duration("auth.passwords.expire", Duration.ofHours(1)),
                 config.duration("auth.passwords.throttle", Duration.ofSeconds(60)));
+
+        io.jaravel.auth.passwords.Password.use(broker);
+        return broker;
     }
 
     @Bean
@@ -531,8 +534,11 @@ public class JaravelAuthAutoConfiguration {
         // hash key 从 app.key 派生而不是复用它:这个 HMAC 的输出进 URL,
         // 与加密密钥分离是惯例(一个密钥只做一件事)
         byte[] hashKey = Keys.derive(requireAppKey(config), "jaravel:email-verification");
-        return new EmailVerification(signer, hashKey,
+        var verification = new EmailVerification(signer, hashKey,
                 config.duration("auth.verification.expire", Duration.ofHours(24)));
+
+        io.jaravel.auth.Verification.use(verification);
+        return verification;
     }
 
     @Bean

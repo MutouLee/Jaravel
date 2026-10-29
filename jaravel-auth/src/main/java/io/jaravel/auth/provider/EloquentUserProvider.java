@@ -188,6 +188,28 @@ public class EloquentUserProvider<M extends Model<M>> extends AbstractUserProvid
 
     // ================= 包装 =================
 
+    /**
+     * 包装任意对象。
+     *
+     * <p>类型不符时报错而不是返回空 —— 多 provider 的应用里
+     * {@code Auth.login(admin)} 走到 users provider 是个配置错误,
+     * 静默失败会表现为「登录了但 Auth.check() 是 false」。
+     */
+    @Override
+    public Authenticatable wrap(Object model) {
+        if (model instanceof Authenticatable ready) return ready;
+
+        if (!meta.type().isInstance(model)) {
+            throw new IllegalArgumentException("""
+                    provider "%s" 管的是 %s,不能包装 %s。
+                      多 guard 的应用里这通常是用错了 provider:
+                      检查 Auth.guard("...") 或 config/auth.yml 里的 provider 指向。"""
+                    .formatted(name(), meta.type().getSimpleName(),
+                               model == null ? "null" : model.getClass().getSimpleName()));
+        }
+        return wrap(meta.type().cast(model));
+    }
+
     private Authenticatable wrap(M model) {
         return new ModelUser<>(model, meta, identifierColumn, passwordColumn, rememberColumn);
     }

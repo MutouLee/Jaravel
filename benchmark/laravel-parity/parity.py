@@ -140,9 +140,64 @@ BLOG_LARAVEL = [
     ("表单页",    L2 + "resources/views/posts/form.blade.php"),
 ]
 
+# ---- 功能切片 03:认证(注册/登录/记住我/登出/密码重置/邮箱验证/Policy/API token) ----
+#
+# 这个切片**对 Jaravel 最不利**,因为认证是 Laravel 最省代码的地方:
+# 「加个登录 = 3 行」这句话在 Laravel 侧是字面意义上的真话。
+# 正因如此它才是 v0.3 的有效标尺 —— 挑一个 Jaravel 占优的切片去量
+# 只会得到一个自我安慰的数字。
+#
+# 两条口径上的决定,都刻意选了**不利于 Jaravel** 的那一侧:
+#
+# 1. Jaravel 的 config/auth.yml 计入,Laravel 的 config/auth.php 不计入。
+#    理由:Laravel 的 auth.php 随框架发布、且已经填好了默认的 User 模型,
+#    这个应用一行都不用改;而 Jaravel 的 auth.yml 里 guards / providers
+#    是真要写的。这是 Laravel 的一个真实优势,排除它等于把它藏起来。
+#    (session / cache / hashing 的配置两侧都不计 —— Jaravel 侧那三个
+#     文件在本切片里也没有认证相关的必填项。)
+#
+# 2. 两侧都不计入脚手架:Jaravel 的 Application.java、
+#    Laravel 的 public/index.php + bootstrap/app.php + Controller.php 基类。
+#
+# 本切片没有视图:examples/auth 返回 JSON,Laravel 侧照样返回 JSON。
+# 于是比的是纯控制流 —— Java 的类型声明与 import 在这里完全没有遮掩,
+# 又是一处对 Jaravel 不利但更诚实的安排。
+
+AUTH_JARAVEL = [
+    ("路由",      "examples/auth/src/main/java/routes/WebRoutes.java"),
+    ("认证配置",  "examples/auth/src/main/resources/config/auth.yml"),
+    ("模型",      "examples/auth/src/main/java/app/models/User.java"),
+    ("模型",      "examples/auth/src/main/java/app/models/Note.java"),
+    ("表单请求",  "examples/auth/src/main/java/app/http/requests/RegisterRequest.java"),
+    ("表单请求",  "examples/auth/src/main/java/app/http/requests/LoginRequest.java"),
+    ("表单请求",  "examples/auth/src/main/java/app/http/requests/ResetPasswordRequest.java"),
+    ("Policy",    "examples/auth/src/main/java/app/policies/NotePolicy.java"),
+    ("控制器",    "examples/auth/src/main/java/app/http/controllers/AuthController.java"),
+    ("控制器",    "examples/auth/src/main/java/app/http/controllers/DashboardController.java"),
+    ("控制器",    "examples/auth/src/main/java/app/http/controllers/NoteController.java"),
+    ("迁移",      "examples/auth/src/main/java/database/migrations/m2026_10_29_100100/CreateAuthTables.java"),
+]
+
+L3 = "benchmark/laravel-parity/03-auth/laravel/"
+AUTH_LARAVEL = [
+    ("路由",      L3 + "routes/web.php"),
+    ("模型",      L3 + "app/Models/User.php"),
+    ("模型",      L3 + "app/Models/Note.php"),
+    ("表单请求",  L3 + "app/Http/Requests/RegisterRequest.php"),
+    ("表单请求",  L3 + "app/Http/Requests/LoginRequest.php"),
+    ("表单请求",  L3 + "app/Http/Requests/ResetPasswordRequest.php"),
+    ("Policy",    L3 + "app/Policies/NotePolicy.php"),
+    ("控制器",    L3 + "app/Http/Controllers/AuthController.php"),
+    ("控制器",    L3 + "app/Http/Controllers/DashboardController.php"),
+    ("控制器",    L3 + "app/Http/Controllers/NoteController.php"),
+    ("迁移",      L3 + "database/migrations/2026_10_29_100100_create_auth_tables.php"),
+]
+
+
 SLICES = [
     ("01:Todo CRUD", JARAVEL, LARAVEL),
     ("02:Blog(关联/校验/迁移)", BLOG_JARAVEL, BLOG_LARAVEL),
+    ("03:认证(guard/Policy/重置/验证)", AUTH_JARAVEL, AUTH_LARAVEL),
 ]
 
 

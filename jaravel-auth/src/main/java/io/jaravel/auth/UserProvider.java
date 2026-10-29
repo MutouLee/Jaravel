@@ -50,6 +50,33 @@ public interface UserProvider {
     boolean validateCredentials(Authenticatable user, Map<String, Object> credentials);
 
     /**
+     * 把一个已有的领域对象包装成 {@link Authenticatable}。
+     *
+     * <p>用途是**注册后立刻登录**这个场景:
+     *
+     * <pre>{@code
+     * user.save();
+     * Auth.login(user);      // 不需要再把它从库里查一遍
+     * }</pre>
+     *
+     * <p>没有这个方法时调用方只能写
+     * {@code Auth.login(provider.retrieveById(user.id).orElseThrow())} ——
+     * 多两行代码,以及**多一次查库**去取一条刚刚才写进去的记录。
+     *
+     * <p>默认实现拒绝。不支持包装的提供器(LDAP、远程 API)确实做不到这件事:
+     * 它们的主体不是本地对象。静默返回一个半空的包装体会更糟。
+     */
+    default Authenticatable wrap(Object model) {
+        if (model instanceof Authenticatable ready) return ready;
+
+        throw new UnsupportedOperationException("""
+                provider "%s" 不支持把 %s 包装成 Authenticatable。
+                  这个提供器的用户主体不是本地对象(LDAP / 远程 API 等)。
+                  改用 Auth.loginUsingId(id)。"""
+                .formatted(name(), model == null ? "null" : model.getClass().getName()));
+    }
+
+    /**
      * 哈希参数升级后,在登录成功时静默重算。
      *
      * <p>只有此刻手里有明文密码,不做就等于永不升级。

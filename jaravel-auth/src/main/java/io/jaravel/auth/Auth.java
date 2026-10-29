@@ -106,6 +106,28 @@ public final class Auth {
         stateful().login(user, remember);
     }
 
+    /**
+     * 登录一个领域对象(通常是刚保存的 Eloquent 模型)。
+     *
+     * <pre>{@code
+     * user.save();
+     * Auth.login(user);
+     * }</pre>
+     *
+     * <p>由当前 guard 的 provider 负责包装 —— 见
+     * {@link UserProvider#wrap}。比
+     * {@code Auth.login(provider.retrieveById(user.id).orElseThrow())}
+     * 少两行,也少一次查库。
+     */
+    public static void login(Object user) {
+        login(user, false);
+    }
+
+    public static void login(Object user, boolean remember) {
+        Guard guard = guard();
+        login(guard.provider().wrap(user), remember);
+    }
+
     public static void login(Authenticatable user) {
         login(user, false);
     }

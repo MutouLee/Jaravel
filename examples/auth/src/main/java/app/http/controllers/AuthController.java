@@ -10,12 +10,12 @@ import app.http.requests.RegisterRequest;
 import app.http.requests.ResetPasswordRequest;
 import app.models.User;
 import io.jaravel.auth.Auth;
-import io.jaravel.auth.Authenticatable;
 import io.jaravel.auth.EmailVerification;
 import io.jaravel.auth.LoginThrottle;
-import io.jaravel.auth.StatefulGuard;
+import io.jaravel.auth.Verification;
 import io.jaravel.auth.hash.Hash;
 import io.jaravel.auth.middleware.ConfirmPassword;
+import io.jaravel.auth.passwords.Password;
 import io.jaravel.auth.passwords.PasswordBroker;
 import io.jaravel.http.HttpException;
 import io.jaravel.http.Redirect;
@@ -31,20 +31,25 @@ import io.jaravel.validation.Validator;
  * (该跳哪、该闪存什么消息),安全相关的部分都在框架里:
  * 会话重建、令牌哈希、时序攻击防护、constant-time 比对都不出现在这里。
  *
- * <p>{@link #login} 最能说明问题 —— 一句 {@code attempt},
+ * <p>{@link #login} 最能说明问题 —— 一句 {@code Auth.attempt},
  * 外面两行是节流的记账。
  */
 @Component
 public class AuthController {
 
-    private final PasswordBroker passwords;
-    private final EmailVerification verification;
+    /**
+     * 只注入节流器。
+     *
+     * <p>密码重置与邮箱验证走 {@link Password} / {@link Verification} 门面,
+     * 与 {@link Hash} / {@link Auth} 一致 —— 一个控制器里一半静态调用
+     * 一半构造注入,那条界线没有道理可讲。
+     *
+     * <p>节流器留作注入是因为它**按用途有多个实例**(登录节流的阈值与
+     * 发邮件节流不同),静态门面表达不了「这一个是哪一个」。
+     */
     private final LoginThrottle throttle;
 
-    public AuthController(PasswordBroker passwords, EmailVerification verification,
-                          LoginThrottle throttle) {
-        this.passwords = passwords;
-        this.verification = verification;
+    public AuthController(LoginThrottle throttle) {
         this.throttle = throttle;
     }
 
@@ -60,15 +65,15 @@ public class AuthController {
         user.password = Hash.make(form.password());
         user.save();
 
-        var principal = principalOf(user.id);
-        ((StatefulGuard) Auth.guard("web")).login(principal);
+        // 直接登录刚保存的模型 —— provider 负责包装,不用再查一次库
+        Auth.login(user);
 
         // 真实项目里这里是 Mail.send(...);示例直接闪存出来,
         // 好让集成测试拿得到链接
         return Redirect.to("/dashboard")
                 .with("status", "注册成功,请验证邮箱")
                 .with("verification_link",
-                      verification.verificationUrl(appUrl(request), principal));
+                      Verification.url(appUrl(request), Auth.guard().user().orElseThrow()));
     }
 
     // ================= 登录 =================
@@ -82,8 +87,7 @@ public class AuthController {
         // 节流的意义就是在查库 + 哈希这两件昂贵的事之前挡住洪水
         throttle.guardAttempt(email, ip);
 
-        if (((StatefulGuard) Auth.guard("web"))
-                .attempt(form.credentials(), form.remember())) {
+        if (Auth.attempt(form.credentials(), form.remember())) {
             throttle.clear(email, ip);
             return Redirect.to(intendedUrl());
         }
@@ -99,7 +103,7 @@ public class AuthController {
     /** POST /logout */
     public Response logout() {
         // 清会话 + 换 CSRF token + 让 remember cookie 失效,都在这一句里
-        ((StatefulGuard) Auth.guard("web")).logout();
+        Auth.logout();
         return Redirect.to("/").with("status", "已登出");
     }
 
@@ -111,22 +115,16 @@ public class AuthController {
                 .validate();
         var captured = new String[1];
 
-        var status = passwords.sendResetLink(
+        var status = Password.sendResetLink(
                 Map.of("email", data.string("email")),
                 (user, token) -> captured[0] = token);
 
         return switch (status) {
             // SENT 也覆盖「这个邮箱没注册」—— 区分开来的话,
-            // 这个接口就是最方便的邮箱枚举工具
-            // captured[0] 为 null 时说明这个邮箱没注册 —— 回应与注册过的
-            // 完全一样,只是没有令牌。闪存 null 是合法的(读取端拿到空),
-            // 但这里直接不放,免得调试时误以为生成了一个空令牌
-            case SENT -> captured[0] == null
-                    ? Redirect.to("/login")
-                            .with("status", "若该邮箱已注册,重置链接已发出")
-                    : Redirect.to("/login")
-                            .with("status", "若该邮箱已注册,重置链接已发出")
-                            .with("reset_token", captured[0]);
+            // 这个接口就是最方便的邮箱枚举工具。此时 captured[0] 为 null
+            case SENT -> Redirect.to("/login")
+                    .with("status", "若该邮箱已注册,重置链接已发出")
+                    .with("reset_token", captured[0]);
             case THROTTLED -> Redirect.to("/forgot-password")
                     .withErrors(Map.of("email", "请求过于频繁,请稍后再试"));
             default -> Redirect.to("/forgot-password")
@@ -136,7 +134,7 @@ public class AuthController {
 
     /** POST /reset-password */
     public Response resetPassword(ResetPasswordRequest form) {
-        var status = passwords.reset(form.credentials(), (principal, plaintext) -> {
+        var status = Password.reset(form.credentials(), (principal, plaintext) -> {
             User user = (User) principal.unwrap();
             user.password = Hash.make(plaintext);
             user.save();
@@ -169,7 +167,7 @@ public class AuthController {
         var principal = Auth.manager().provider("users").retrieveById(id)
                 .orElseThrow(() -> new HttpException(404, "用户不存在"));
 
-        var result = verification.verify(request.fullUrl(), principal, hash, user -> {
+        var result = Verification.verify(request.fullUrl(), principal, hash, user -> {
             User model = (User) user.unwrap();
             model.emailVerifiedAt = Instant.now();
             model.save();
@@ -188,7 +186,7 @@ public class AuthController {
 
     /** POST /email/verification-notification */
     public Response resendVerification(Request request) {
-        var principal = Auth.guard("web").user()
+        var principal = Auth.guard().user()
                 .orElseThrow(() -> new HttpException(401, "未登录"));
 
         if (EmailVerification.isVerified(principal)) {
@@ -197,8 +195,7 @@ public class AuthController {
 
         return Redirect.to("/dashboard")
                 .with("status", "验证邮件已重新发送")
-                .with("verification_link",
-                      verification.verificationUrl(appUrl(request), principal));
+                .with("verification_link", Verification.url(appUrl(request), principal));
     }
 
     // ================= 二次密码确认 =================
@@ -209,9 +206,8 @@ public class AuthController {
                 .validate();
 
         // validate 而不是 attempt —— 后者会写会话,而这里只是确认身份
-        if (!Auth.guard("web").validate(Map.of(
-                "email", Auth.userOrFail(User.class).email,
-                "password", data.string("password")))) {
+        if (!Auth.validate(Map.of("email", Auth.userOrFail(User.class).email,
+                                  "password", data.string("password")))) {
             return Redirect.to("/confirm-password")
                     .withErrors(Map.of("password", "密码不正确"));
         }
@@ -221,10 +217,6 @@ public class AuthController {
     }
 
     // ================= 内部 =================
-
-    private static Authenticatable principalOf(Long id) {
-        return Auth.manager().provider("users").retrieveById(id).orElseThrow();
-    }
 
     /**
      * 登录前想去的那个地址。

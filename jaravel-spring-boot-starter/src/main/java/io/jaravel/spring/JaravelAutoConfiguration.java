@@ -216,12 +216,17 @@ public class JaravelAutoConfiguration {
     }
 
     /**
-     * HTTP 内核。用户不提供就用空内核 —— 「不写 Kernel 也能跑」。
+     * HTTP 内核。
+     *
+     * <p>用户不提供就用 {@link DefaultKernel} —— 它预置了 web/api 两组
+     * 与 auth / can / throttle 等标准别名,所以「不写 Kernel」时
+     * {@code middleware("auth")} 也能用。见 DefaultKernel 的类注释里
+     * 「为什么 install:auth 不需要生成一份 Kernel」。
      */
     @Bean
     @ConditionalOnMissingBean
     public io.jaravel.http.Kernel jaravelKernel() {
-        return io.jaravel.http.Kernel.empty();
+        return new DefaultKernel();
     }
 
     @Bean

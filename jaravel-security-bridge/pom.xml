@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.jaravel</groupId>
+    <artifactId>jaravel-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>jaravel-security-bridge</artifactId>
+  <name>Jaravel :: Security Bridge</name>
+  <description>
+    Spring Security 与 Jaravel Auth 的双向桥接。
+
+    这是**唯一一个刻意依赖 Spring Security 全栈**的 Jaravel 模块,
+    与 jaravel-spring-boot-starter 同属「适配层」。ADR-001 的边界规则
+    把它和 starter 一起列入白名单(包名 io.jaravel.spring.security)。
+
+    不引入这个模块的项目完全不会接触 Spring Security 的 Filter 链。
+  </description>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-auth</artifactId>
+    </dependency>
+
+    <!--
+      依赖方向是刻意这样的:桥接 → starter,而不是反过来。
+      starter 若依赖本模块,每个 Jaravel 项目都会拉进 Spring Security 全栈。
+      见 GuardDriver 的类注释。
+    -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-spring-boot-starter</artifactId>
+      <optional>true</optional>
+    </dependency>
+
+    <!--
+      桥接的全部意义就是接触这两个 —— core 提供 SecurityContextHolder /
+      UserDetails / AuthenticationManager,web 提供 Filter 链上的类型。
+      web 是 optional:只做「Spring 认证 → Jaravel 读取」的项目不需要它。
+    -->
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-web</artifactId>
+      <optional>true</optional>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

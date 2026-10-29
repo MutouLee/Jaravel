@@ -41,7 +41,14 @@ class ArchitectureBoundaryTest {
             "io.jaravel.auth..",
     };
 
-    /** 唯一允许接触 Spring 的地方 */
+    /**
+     * 唯一允许接触 Spring 的地方。
+     *
+     * <p>{@code io.jaravel.spring..} 覆盖两个模块:starter 与
+     * jaravel-security-bridge。后者刻意依赖 Spring Security 全栈
+     * (docs/08 §8.3 的企业桥接),所以它的包名就落在适配层里 ——
+     * 这样它受的约束与 starter 完全一致,不需要为它单开一条例外。
+     */
     private static final String[] ADAPTER_PACKAGES = {
             "io.jaravel.spring..",
             "io.jaravel.facades..",

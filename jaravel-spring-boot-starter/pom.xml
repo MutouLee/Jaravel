@@ -35,6 +35,10 @@
     </dependency>
     <dependency>
       <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-devtools</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.jaravel</groupId>
       <artifactId>jaravel-cache</artifactId>
     </dependency>
     <dependency>
@@ -61,6 +65,16 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-configuration-processor</artifactId>
       <scope>provided</scope>
+    </dependency>
+    <!--
+      L3 的双类加载器由 devtools 提供 —— 重新实现一遍它是性价比极低的
+      自研(docs/15 明确说「复用其思路」)。Jaravel 加的是它没有的两件事:
+      请求挂起 与 按需重启。optional:生产部署不该带它。
+    -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-devtools</artifactId>
+      <optional>true</optional>
     </dependency>
   </dependencies>
 </project>

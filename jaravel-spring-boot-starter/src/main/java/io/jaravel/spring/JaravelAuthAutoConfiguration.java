@@ -269,12 +269,20 @@ public class JaravelAuthAutoConfiguration {
     @ConditionalOnMissingBean
     public SessionStore jaravelSessionStore(ConfigRepository config, CacheManager caches,
                                             Encrypter encrypter) {
-        String driver = config.string("session.driver", "cache");
+        // 空白也当作「没配」—— config/session.yml 里写 ${SESSION_DRIVER:}
+        // 是个常见写法(让环境变量可选),它解析出来是空串而不是 null
+        String configured = config.string("session.driver", "");
+        String driver = configured == null || configured.isBlank()
+                ? defaultSessionDriver(config)
+                : configured;
         return switch (driver) {
             case "memory", "array" -> new MemoryStore();
-            case "cache", "redis", "database", "file" -> new CacheSessionStore(
+            case "file" -> new io.jaravel.session.store.FileSessionStore(
+                    Path.of(config.string("session.files",
+                                          "storage/framework/sessions")));
+            case "cache", "redis", "database" -> new CacheSessionStore(
                     // session.store 指定用哪个 cache store;不写就用默认的。
-                    // redis/database/file 都走同一条路径 —— 它们是 cache 的
+                    // redis/database 都走同一条路径 —— 它们是 cache 的
                     // 驱动而不是 session 的,这样「换 session 存储」与
                     // 「换缓存存储」是同一个决定,不会出现两边配置打架
                     config.has("session.store")
@@ -283,13 +291,30 @@ public class JaravelAuthAutoConfiguration {
             case "cookie" -> new CookieStore(encrypter);
             default -> throw new IllegalStateException("""
                     未知的 session.driver "%s"。%s
-                      可选:cache(默认)/ cookie / memory
-                      redis / database / file 请配 cache.default,
+                      可选:cache / file / cookie / memory
+                      redis / database 请配 cache.default,
                       session 侧写 driver: cache 即可。"""
                     .formatted(driver,
-                               Arr.closest(driver, List.of("cache", "cookie", "memory"))
+                               Arr.closest(driver,
+                                           List.of("cache", "file", "cookie", "memory"))
                                   .map(c -> "\n  是否想写 \"" + c + "\" ?").orElse("")));
         };
+    }
+
+    /**
+     * 没写 {@code session.driver} 时用哪个。
+     *
+     * <p><b>开发模式默认 file,生产默认 cache。</b>
+     *
+     * <p>理由是 docs/15 §3.5:热重启会丢掉进程内状态。如果会话跟着丢,
+     * **每改一行代码就要重新登录一次** —— 开发一个需要登录的页面时,
+     * 这个摩擦大到足以让人放弃热重载直接用重启,那整个 L1/L3 就白做了。
+     *
+     * <p>生产不用 file:它不跨机器共享,多实例部署会出现
+     * 「刷新页面随机掉登录」。
+     */
+    private static String defaultSessionDriver(ConfigRepository config) {
+        return config.bool("app.debug", false) ? "file" : "cache";
     }
 
     // ================= 认证 =================

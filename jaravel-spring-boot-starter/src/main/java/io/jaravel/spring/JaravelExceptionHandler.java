@@ -79,10 +79,31 @@ public class JaravelExceptionHandler {
             return Response.json(e.toJson()).status(422);
         }
 
+        // 闪存**纯数据**而不是 ErrorBag 对象。
+        //
+        // 对象进会话的代价:任何需要序列化的存储(file / cookie / redis /
+        // database)都写不进去,而症状是校验失败时整个请求变成 500 ——
+        // 一个本该展示「邮箱格式不对」的页面变成了错误页。
+        // 只有进程内的 memory/caffeine 驱动碰巧能存下它,
+        // 于是这个问题在开发机上看不见,换驱动才爆。
         var redirect = io.jaravel.http.Redirect.back(request, "/")
-                .with("errors", e.errors())
-                .with("old", request.all());
+                .with("errors", e.errors().messages())
+                .with("old", formInput(request));
         return redirect;
+    }
+
+    /**
+     * 回填用的旧输入。
+     *
+     * <p>**排除密码类字段**:它们会被写进会话存储(可能是 Redis、数据库、
+     * 甚至 cookie),而「校验失败后把明文密码存进会话」是一条真实的泄露路径。
+     *
+     * <p>同时排除 {@code _token} —— 回填一个过期的 CSRF 令牌没有意义。
+     */
+    private static Map<String, Object> formInput(Request request) {
+        var input = new LinkedHashMap<String, Object>(request.all());
+        input.keySet().removeIf(key -> key.startsWith("password") || key.equals("_token"));
+        return input;
     }
 
     protected Response renderJson(Request request, Throwable t, int status) {

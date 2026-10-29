@@ -78,8 +78,16 @@ public class JaravelHandlerAdapter implements HandlerAdapter {
             // 表达的,那时 StartSession 的收尾代码被跳过,
             // url.intended 与校验错误的闪存会一起丢掉。
             // 见 SessionLifecycle 的类注释
-            response = io.jaravel.session.SessionLifecycle
-                    .finalizeResponse(response, request);
+            //
+            // 它自己也可能失败(往会话里放了个序列化不了的对象、
+            // 磁盘满)。那时要走 Jaravel 的错误页,而不是让异常冒到
+            // 容器那里换成一个没有任何信息的裸 500
+            try {
+                response = io.jaravel.session.SessionLifecycle
+                        .finalizeResponse(response, request);
+            } catch (Throwable sessionFailure) {
+                response = exceptionHandler.render(request, sessionFailure);
+            }
 
             // 把本请求内排队的 cookie 附加上去(remember me 等)。
             // 放在这里而不是某个中间件里:异常路径也要附加 ——

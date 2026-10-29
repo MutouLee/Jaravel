@@ -1,7 +1,14 @@
 session:
-  # cache 驱动:会话存进 cache.default 指定的存储。
-  # 「换 session 存储」与「换缓存存储」于是是同一个决定,两边不会打架。
-  driver: ${SESSION_DRIVER:cache}
+  # **刻意不写 driver** —— 框架按环境选:
+  #   · 开发(app.debug=true)→ file,会话落盘,热重启后不用重新登录;
+  #   · 生产              → cache,走 cache.default 指定的存储。
+  #
+  # 写死 driver: cache 的代价是开发时每改一行代码重新登录一次 ——
+  # 那个摩擦足以让人放弃热重载(docs/15 §3.5)。
+  # 需要固定时用环境变量:SESSION_DRIVER=cache
+  driver: ${SESSION_DRIVER:}
+
+  files: ${SESSION_FILES:storage/framework/sessions}
   cookie: jaravel_session
   lifetime: PT2H
   # secure 不在这里写 —— 它默认跟随 app.env(local 之外一律 true)。

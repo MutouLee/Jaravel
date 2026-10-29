@@ -1,2 +1,3 @@
 io.jaravel.spring.JaravelAutoConfiguration
 io.jaravel.spring.JaravelAuthAutoConfiguration
+io.jaravel.spring.JaravelDevToolsAutoConfiguration

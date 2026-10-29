@@ -4,6 +4,57 @@ Laravel 的测试体验是其被低估的优势:一行 `$this->get('/users')->as
 
 ---
 
+## 实现状态(v0.3 之后提前交付)
+
+本模块原计划在 v0.5。**提前到 v0.4 之前**,理由是 v0.3 有 6 个缺陷属于
+「单元测试全绿、真实运行下完全不工作」—— 它们都有覆盖对应类的单元测试,
+缺的是类之间的接线,而只有走完整管道的测试能发现那一层。
+队列(v0.4)会让这个失效模式更严重:任务跑在请求作用域之外、
+有自己的序列化与重试,而且**失败是静默的**(进 failed_jobs 表,没人看着浏览器)。
+
+| 能力 | 状态 |
+|---|---|
+| `FeatureTest` + 全部请求构造 API | ✅ |
+| `TestResponse` 的状态/内容/Cookie/JSON/视图/会话断言 | ✅(25 条自测) |
+| 数据库断言 + 每测试自动回滚 | ✅ |
+| `assertQueryCount`(N+1 回归测试) | ✅ |
+| 认证断言 `assertAuthenticated` / `assertGuest` | ✅ |
+| 模型工厂(§3) | ⏳ 已有 `Factory` 基类(v0.2),`Post.factory()` 的 APT 生成留到 v0.5 |
+| Fake(§4:Queue / Mail / Event / Storage / Notification) | ⏳ 这些子系统本身在 v0.4 |
+| Testcontainers 自动注入(§2.2) | ⏳ v0.5 |
+| `@RefreshDatabase` 等隔离策略注解 | ⏳ 目前只有默认的事务回滚 |
+| `UploadedFile.fake()`、`Clock.freeze` | ⏳ v0.4 |
+
+### 写出来之后发现的三件事
+
+都是只有**真的用它写测试**才会暴露的:
+
+1. **API 必须是 `public` 而不是 `protected`。** `@Nested` 内部类不是
+   `FeatureTest` 的子类,Java 的 protected 规则不允许它访问继承来的
+   protected 成员 —— 而 `@Nested` 分组是组织测试最常用的方式,
+   用 protected 会让「按场景分组」直接编译不过。
+2. **测试类不能依赖「向上搜 `@SpringBootConfiguration`」。**
+   Jaravel 的约定把应用放 `app` 包,测试自然写在 `apptest` 之类的兄弟包里,
+   而 Spring 只向上搜。为此让用户调整包结构是错的 ——
+   改成由 `JaravelTestApplication` 引导,测试类放哪个包都行。
+3. **`withoutMiddleware` 不能改 `Route`。** 中间件链是**按路由缓存**的
+   且永不失效,改了在路由被命中过之后就不生效 ——
+   症状是「单独跑绿、整体跑红」。改走按请求的排除属性。
+
+### 一个对照数字
+
+`examples/auth` 里两套测试覆盖同样的 31 个场景:
+
+| | 有效行数 | 说明 |
+|---|---|---|
+| `AuthFlowTest` | 617 | 手写真 HTTP 客户端(140 行的 Browser 类、cookie 罐、CSRF 刷新、重定向控制) |
+| `AuthFeatureTest` | 352 | 用 `FeatureTest` |
+
+两套都保留:`AuthFlowTest` 额外覆盖真实 Servlet 容器那一层
+(cookie 属性的实际序列化、容器的字符编码),而那一层也确实出过问题。
+
+---
+
 ## 设计目标
 
 1. 一个功能测试 ≤ 5 行;

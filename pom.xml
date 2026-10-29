@@ -38,6 +38,7 @@
     <module>jaravel-auth-tests</module>
     <module>jaravel-eloquent-tests</module>
     <module>jaravel-devtools</module>
+    <module>jaravel-testing</module>
     <module>jaravel-security-bridge</module>
     <module>jaravel-spring-boot-starter</module>
     <module>jaravel-archunit-rules</module>
@@ -83,6 +84,7 @@
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-session</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-auth</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-devtools</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-testing</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-security-bridge</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-spring-boot-starter</artifactId><version>${project.version}</version></dependency>
     </dependencies>

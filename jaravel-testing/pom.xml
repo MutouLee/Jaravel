@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.jaravel</groupId>
+    <artifactId>jaravel-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>jaravel-testing</artifactId>
+  <name>Jaravel :: 测试支持</name>
+  <description>
+    FeatureTest / TestResponse / 数据库断言 / 每测试自动回滚。
+
+    不发明测试框架 —— 底层仍是 JUnit 5,本模块只提供基类与断言。
+  </description>
+
+  <dependencies>
+    <!--
+      compile 作用域而不是 test:使用者在**他们的** test 作用域里引入本模块,
+      那时本模块自身的依赖必须是 compile 才传递得过去。
+    -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-spring-boot-starter</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+    </dependency>
+  </dependencies>
+</project>

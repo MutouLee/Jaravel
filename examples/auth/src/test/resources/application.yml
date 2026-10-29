@@ -1,0 +1,29 @@
+# 测试配置。
+#
+# ⚠ src/test/resources/application.yml 会**整体覆盖** main 里的那一份
+#   (测试资源在 classpath 上排在前面),不是合并 —— 所以这里必须写全。
+#   只写几个想改的键,症状是「Failed to determine a suitable driver class」,
+#   而那看起来完全像是数据源配置写错了。
+
+spring:
+  datasource:
+    # 内存库 + 共享缓存。cache=shared 是必需的:没有它连接池里每条连接
+    # 各看到一个**空的**独立数据库,于是「迁移在连接 A 上建了表,
+    # 查询走连接 B 就报 no such table」—— 那看起来像迁移没跑。
+    url: jdbc:sqlite:file:authtest?mode=memory&cache=shared
+    driver-class-name: org.sqlite.JDBC
+
+logging:
+  level:
+    root: WARN
+    io.jaravel: WARN
+
+# ⚠ 这里刻意**不设** APP_DEBUG / APP_ENV / SESSION_DRIVER / SESSION_FILES。
+#
+#   application.yml 的优先级**高于** SpringApplicationBuilder.properties
+#   (后者加的是优先级最低的属性源)。在这里写死它们会盖掉
+#   HotReloadAcceptanceTest 按 context 设的值,而那个测试断言的恰好是
+#   「开发模式默认 file 驱动、生产默认 cache」。
+#
+#   不设的结果:走 config/*.yml 里的占位符默认值
+#   (APP_DEBUG 默认 true),与本地开发一致。

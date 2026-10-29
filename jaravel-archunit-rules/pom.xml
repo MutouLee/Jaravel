@@ -27,7 +27,9 @@
     <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-cache</artifactId></dependency>
     <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-session</artifactId></dependency>
     <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-auth</artifactId></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-devtools</artifactId></dependency>
     <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-security-bridge</artifactId></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-testing</artifactId></dependency>
     <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-spring-boot-starter</artifactId></dependency>
 
     <dependency>

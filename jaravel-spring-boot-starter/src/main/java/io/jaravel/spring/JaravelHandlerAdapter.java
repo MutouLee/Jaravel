@@ -51,6 +51,22 @@ public class JaravelHandlerAdapter implements HandlerAdapter {
         return handler instanceof JaravelHandlerMapping.Handler;
     }
 
+    /** 最终 {@link Response} 的请求属性名 */
+    public static final String RESPONSE_ATTRIBUTE = "jaravel.response";
+
+    /**
+     * 本请求要跳过哪些中间件({@code Set<String>},类的简单名)。
+     *
+     * <p>**必须是按请求的,不能改 Route。** {@link MiddlewareResolver#of}
+     * 按路由缓存解析结果且永不失效 —— 改 {@code route.withoutMiddleware(...)}
+     * 在这条路由被命中过之后就不再生效,而那是个只在「测试单独跑绿、
+     * 整体跑红」时才会暴露的坑。
+     *
+     * <p>用途:{@code jaravel-testing} 的 {@code withoutMiddleware(...)};
+     * 以及健康检查之类想绕过会话/认证的入口。
+     */
+    public static final String EXCLUDED_MIDDLEWARE_ATTRIBUTE = "jaravel.excluded-middleware";
+
     @Override
     public ModelAndView handle(HttpServletRequest servletRequest,
                                HttpServletResponse servletResponse,
@@ -100,6 +116,13 @@ public class JaravelHandlerAdapter implements HandlerAdapter {
             // 「登录成功但渲染时抛了异常」仍然应该下发 remember cookie
             response = io.jaravel.http.PendingCookies.applyTo(response);
 
+            // 把最终响应挂在请求属性上。
+            //
+            // 用途:jaravel-testing 要断言「返回的是哪个视图、视图数据是什么」,
+            // 而那个信息在序列化成字节之后就没了。请求属性是 Servlet 的
+            // 标准机制(日志、指标也用它),不是为测试新开的通道。
+            servletRequest.setAttribute(RESPONSE_ATTRIBUTE, response);
+
             try {
                 return writer.serialize(response, servletResponse);
             } catch (Throwable renderFailure) {
@@ -117,11 +140,32 @@ public class JaravelHandlerAdapter implements HandlerAdapter {
     }
 
     private Response runPipeline(Request request, Route route) {
-        List<Middleware> pipes = middleware.resolve(route);
+        List<Middleware> pipes = applyExclusions(request, middleware.resolve(route));
 
         return Pipeline.<Request, Response>of(request)
                 .through(pipes)
                 .then(req -> invokeController(req, route));
+    }
+
+    /**
+     * 滤掉本请求显式排除的中间件。
+     *
+     * <p>在**解析之后**过滤而不是在解析时排除:解析结果是按路由缓存的
+     * (见 {@link #EXCLUDED_MIDDLEWARE_ATTRIBUTE}),按请求变化的东西
+     * 只能在缓存之外处理。
+     */
+    @SuppressWarnings("unchecked")
+    private List<Middleware> applyExclusions(Request request, List<Middleware> pipes) {
+        var raw = request.raw().orElse(null);
+        if (!(raw instanceof HttpServletRequest servletRequest)) return pipes;
+
+        var excluded = servletRequest.getAttribute(EXCLUDED_MIDDLEWARE_ATTRIBUTE);
+        if (!(excluded instanceof java.util.Set<?> names) || names.isEmpty()) return pipes;
+
+        return pipes.stream()
+                .filter(m -> !names.contains(m.getClass().getSimpleName())
+                          && !names.contains(m.getClass().getName()))
+                .toList();
     }
 
     private Response invokeController(Request request, Route route) {

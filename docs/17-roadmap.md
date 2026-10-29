@@ -224,7 +224,7 @@ L3 的 < 2s 重启是兜底保证」。
 | `jaravel-cli`(picocli)+ 本地命令通道 + 离线/在线分流 | 2 |
 | `tinker`(JShell 集成 + 格式化器 + `:reload`) | 1.5 |
 | `jaravel doctor` + `analyze:*` | 1 |
-| `jaravel-testing`:三层基类 + HTTP 断言 + 数据库断言 + 全部 fake | 2.5 |
+| ~~`jaravel-testing`:三层基类 + HTTP 断言 + 数据库断言~~ **已在 v0.3 后提前交付** | ~~2.5~~ 1 |
 | API 资源 + 分页 + 异常映射 + Problem JSON | 2 |
 | OpenAPI 生成 + diff | 1.5 |
 

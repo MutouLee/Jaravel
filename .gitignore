@@ -41,7 +41,7 @@ desktop.ini
 logs/
 
 # 示例应用的运行时产物
-examples/*/storage/*.db
+examples/*/storage/
 examples/*/target/
 
 # 验收脚本的输出(每次运行重新生成)
@@ -61,4 +61,4 @@ examples/*/cp.txt
 benchmark/jpa-comparison/target/
 
 # 示例应用的运行时产物
-examples/*/storage/*.db
+examples/*/storage/

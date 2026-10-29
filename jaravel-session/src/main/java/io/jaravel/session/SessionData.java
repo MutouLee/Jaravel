@@ -314,7 +314,17 @@ public final class SessionData {
     }
 
     /** 存储层回填时用,绕过保留键检查 */
-    void replaceAll(Map<String, Object> loaded) {
+    /**
+     * 整体替换属性。
+     *
+     * <p>public 是为了让 {@code jaravel-testing} 能预置会话 ——
+     * 它要往存储里写一份**真正的**登录态,好让 StartSession 按正常路径
+     * 读出来。绕过 load/persist 去直接塞 SessionData 会让那两段
+     * (最容易出问题的)代码在测试里完全不被执行。
+     *
+     * <p>业务代码不该调它:它会跳过 {@link #put} 的保留键检查。
+     */
+    public void replaceAll(Map<String, Object> loaded) {
         attributes.clear();
         if (loaded != null) attributes.putAll(loaded);
         dirty = false;

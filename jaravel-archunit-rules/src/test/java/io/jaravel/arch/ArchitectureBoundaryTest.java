@@ -48,9 +48,22 @@ class ArchitectureBoundaryTest {
      * jaravel-security-bridge。后者刻意依赖 Spring Security 全栈
      * (docs/08 §8.3 的企业桥接),所以它的包名就落在适配层里 ——
      * 这样它受的约束与 starter 完全一致,不需要为它单开一条例外。
+     *
+     * <p>{@code io.jaravel.testing..} 是第三个:它用 Spring 的
+     * {@code MockHttpServletRequest} 驱动真实管道(docs/14 §1.3)。
+     * 这是**刻意**的 —— 测试基类的全部价值就在于「走的是真实管道」,
+     * 而真实管道的入口是 Servlet。为它自研一套 mock 等于重新实现
+     * 一遍 Servlet API,且会让测试与生产走两条不同的路径,
+     * 那正是这个模块要消除的东西。
+     *
+     * <p>代价是 jaravel-testing 只能用于 Spring Boot 运行时。将来出
+     * jaravel-quarkus-starter 的话,需要一个对应的 testing 模块 ——
+     * 而 FeatureTest 的断言部分({@code TestResponse})不碰 Servlet,
+     * 可以直接复用。
      */
     private static final String[] ADAPTER_PACKAGES = {
             "io.jaravel.spring..",
+            "io.jaravel.testing..",
             "io.jaravel.facades..",
             "io.jaravel",            // Jaravel.run 入口
     };

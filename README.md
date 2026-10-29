@@ -2,10 +2,14 @@
 
 > Laravel 级开发体验,构建在 Spring Boot 之上的 Java 应用框架。
 
-**当前状态:v0.2 已完成。** 13 个模块、**519 个测试**通过,两个示例应用端到端跑通
-(Todo 35/35、Blog 33/33)。Eloquent、迁移、验证三块到位,**parity 从 1.27 降到 1.05**。
-距离可用还差认证 / 会话 / 缓存 / 队列。
-详见 [V0.2-RESULT.md](V0.2-RESULT.md) · [V0.1-RESULT.md](V0.1-RESULT.md)。
+**当前状态:v0.3 已完成。** 16 个模块、**1030 个测试**通过,三个示例应用端到端跑通
+(Todo 35/35、Blog 33/33、Auth 33/33)。认证 / 授权 / 会话 / 缓存 / 热重载到位,
+Spring Security 桥接可用。距离可用还差队列 / 事件 / 邮件 / CLI。
+
+v0.3 的五条验收里 4 条达成、1 条部分达成(L2「改方法体 0 重启」未实现,
+降级到 L3 的 136 ms),过程中发现并修掉 **12 个真实缺陷** ——
+其中 5 个属于「单元测试全绿、真实运行下完全不工作」。
+详见 [V0.3-RESULT.md](V0.3-RESULT.md) · [V0.2-RESULT.md](V0.2-RESULT.md) · [V0.1-RESULT.md](V0.1-RESULT.md)。
 
 | 项 | 值 |
 |---|---|
@@ -94,6 +98,7 @@ p.save();                  // 与快照比对,只 UPDATE 变化的列
 
 ```
 DESIGN.md                 设计总纲:可行性结论、三条顶层决策、模块结构、路线图
+V0.3-RESULT.md            v0.3 落地结果(含 12 个真缺陷与 1 条部分未达成的验收)
 V0.2-RESULT.md            v0.2 落地结果(含 8 个真 bug 与 1 条定错了的验收标准)
 V0.1-RESULT.md            v0.1 验收结果(含未达成项与修掉的 bug)
 docs/                     18 篇模块细化设计(约 8700 行)
@@ -109,11 +114,17 @@ jaravel-eloquent/         Active Record、七种关联、预加载、软删除�
 jaravel-eloquent-processor/    @Model 的 APT:元模型 / 基类 / 类型化 Query
 jaravel-migration/        Schema DSL、迁移(含 checksum 漂移检测)、Seeder、工厂
 jaravel-validation/       60+ 规则、嵌套通配符、本地化、FormRequest
-jaravel-spring-boot-starter/   自动装配与 Spring 适配(唯一接触 Spring 的模块)
+jaravel-cache/            6 个驱动、标签失效、原子锁、限流器
+jaravel-session/          4 个驱动、flash、CSRF、会话生命周期
+jaravel-auth/             Session/Token/JWT guard、Gate/Policy、哈希、密码重置、邮箱验证
+jaravel-devtools/         热重载:文件监听、变更分类、重启闸门(请求挂起 + 按需重启)
+jaravel-security-bridge/  Spring Security 双向桥接(企业 SSO 场景)
+jaravel-spring-boot-starter/   自动装配与 Spring 适配(与桥接模块是唯一接触 Spring 的地方)
 jaravel-archunit-rules/   ADR-001 的阻断式强制
 
 examples/todo/            v0.1 的垂直切片(v0.2 已迁到 Eloquent)
 examples/blog/            v0.2 切片:关联 + 预加载 + 迁移 + FormRequest,零裸 SQL
+examples/auth/            v0.3 切片:注册/登录/记住我/密码重置/邮箱验证/Policy,端到端
 benchmark/laravel-parity/ parity 门禁:与等价 Laravel 实现的代码量对比
 benchmark/jpa-comparison/ 与 Spring Data JPA 的单条主键查询对照基准
 ```

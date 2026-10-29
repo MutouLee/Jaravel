@@ -236,6 +236,27 @@ public class DatabaseQueue implements QueueStore {
 
     // ================= 其它 =================
 
+    /**
+     * 续约:把 reserved_at 推到现在。
+     *
+     * <p>条件里带上 {@code reserved_at is not null} —— 如果它已经被
+     * 判定失联并被别人取走,那一行的 reserved_at 会是**别人**写的时间,
+     * 我们更新它就等于把别人正在跑的任务抢回来。
+     *
+     * <p>所以这里按 uuid + 「仍处于保留中」更新,并用受影响行数判断。
+     * 返回 false 时 Worker 必须放弃这条任务 —— 继续跑会产生重复副作用。
+     */
+    @Override
+    public boolean touch(QueuedJob job, Duration retryAfter) {
+        var values = new LinkedHashMap<String, Object>();
+        values.put("reserved_at", Instant.now());
+
+        return connection.table(table)
+                .where("uuid", job.uuid())
+                .whereNotNull("reserved_at")
+                .update(values) == 1;
+    }
+
     @Override
     public long size(String queue) {
         return connection.table(table).where("queue", queue).count();

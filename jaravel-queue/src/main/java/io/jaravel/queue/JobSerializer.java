@@ -80,9 +80,24 @@ public final class JobSerializer {
 
     // ================= 序列化 =================
 
-    /** 任务字段 → Map */
+    /**
+     * 任务字段 → Map。
+     *
+     * <p>**没有字段的任务特殊处理。**
+     * {@code class CleanupTempFiles implements ShouldQueue} 是完全合理
+     * 且常见的 —— 一个不带参数的动作。而 Jackson 把「没有任何属性的 bean」
+     * 当成错误({@code FAIL_ON_EMPTY_BEANS}),报的是
+     * 「No serializer found」,与真正的原因毫无关系。
+     *
+     * <p>这里**不**关掉那个开关,而是直接短路:关掉它的副作用是
+     * 「字段是个不可序列化的对象」会静默变成 {@code {}} ——
+     * 一个带着空参数执行的任务,比投递时报错糟得多。
+     * 精确处理无字段的情形,保留对坏字段的检测。
+     */
     @SuppressWarnings("unchecked")
     public Map<String, Object> toData(ShouldQueue job) {
+        if (!hasSerializableFields(job.getClass())) return Map.of();
+
         try {
             return mapper.convertValue(job, Map.class);
         } catch (RuntimeException e) {
@@ -98,6 +113,24 @@ public final class JobSerializer {
                       那时调用栈离原因很远。"""
                     .formatted(job.getClass().getName(), e.getMessage()), e);
         }
+    }
+
+    /**
+     * 这个类(含父类)有没有需要序列化的实例字段。
+     *
+     * <p>跳过 {@code static} 与 {@code synthetic}(内部类持有的
+     * {@code this$0} 就是 synthetic —— 把它算进来会让所有非静态内部类
+     * 的任务都被判定为「有字段」,然后在序列化外层实例时炸)。
+     */
+    private static boolean hasSerializableFields(Class<?> type) {
+        for (Class<?> c = type; c != null && c != Object.class; c = c.getSuperclass()) {
+            for (var field : c.getDeclaredFields()) {
+                if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
+                if (field.isSynthetic()) continue;
+                return true;
+            }
+        }
+        return false;
     }
 
     public String encode(QueuedJob envelope) {

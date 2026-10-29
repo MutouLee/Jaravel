@@ -53,6 +53,28 @@ public interface QueueStore {
      */
     void release(QueuedJob job, Duration delay);
 
+    /**
+     * 续约 —— 把保留时间往后推。
+     *
+     * <p>Worker 在执行长任务期间周期性调用它。不续约的话 database 驱动
+     * 会在 {@code retryAfter} 之后认为「持有它的 worker 失联了」,
+     * 把任务重新放出去 —— 于是**一个还在跑的任务被另一个 worker 再取一遍**。
+     *
+     * <p>这是 database 驱动最容易踩的坑:它要求用户把 retryAfter 配得
+     * 比最长任务还长,而那个值很难估。续约把这个约束从「配置对」
+     * 变成「worker 活着」。
+     *
+     * <p>默认空实现:sync / null 没有保留的概念;Redis 之类的驱动
+     * 有自己的机制。
+     *
+     * @return 续约成功吗。false 表示这条任务已经不属于本 worker 了
+     *         (它被判定失联并被别人取走)—— 调用方应当**放弃**它,
+     *         继续执行只会产生重复副作用
+     */
+    default boolean touch(QueuedJob job, Duration retryAfter) {
+        return true;
+    }
+
     /** 队列里还有多少条(含延迟中的) */
     long size(String queue);
 

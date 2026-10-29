@@ -45,6 +45,12 @@
       <artifactId>jackson-datatype-jsr310</artifactId>
     </dependency>
 
+    <!-- 测试里断言「任务作用域里没有请求作用域」需要它 -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-http</artifactId>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>

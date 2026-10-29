@@ -51,6 +51,7 @@ abstract class AuthTestBase {
                         email text unique,
                         password text,
                         remember_token text,
+                        email_verified_at text,
                         status text default 'active',
                         created_at text,
                         updated_at text

@@ -31,9 +31,10 @@ public class NoteController {
     public Object store(Request request) {
         User me = Auth.userOrFail(User.class);
 
-        // create 不带模型参数 —— 它问的是「这个人能不能新建」。
-        // 失败抛 403,由 JaravelExceptionHandler 转成统一格式
-        Gate.authorize("create");
+        // create 没有实例可判 —— 传**类型**让 Gate 找到 NotePolicy。
+        // 不传的话 Gate 无从分派,会按「权限未定义」拒绝,
+        // 而那条消息看起来像「Policy 没注册」
+        Gate.authorize("create", Note.class);
 
         var data = Validator.make(request.all(), Map.of(
                 "title", "required|string|max:200",
@@ -47,25 +48,22 @@ public class NoteController {
     }
 
     /**
-     * GET /api/notes/{id}
+     * GET /api/notes/{note}
      *
-     * <p>路由上写的是 {@code can:view,note} —— 但 v0.3 的隐式模型绑定
-     * 还没有,中间件拿到的是字符串 "42"。所以这里的授权在**控制器里**
-     * 显式做,路由上不挂 can。
+     * <p>参数直接是 {@code Note} 实例 —— 隐式模型绑定。
+     * 授权在路由上({@code can:view,note}),这里不用再写一次:
+     * {@code SubstituteBindings} 把模型解析好放进请求级缓存,
+     * {@code Authorize} 与本方法**拿到的是同一个实例**。
      *
-     * <p>这个限制写在 {@code Authorize} 的类注释里,隐式绑定排在 v0.4。
+     * <p>同一个实例这一点不只是省一次查库:两次查询之间数据可能变了,
+     * 于是「授权时看到的状态」与「实际被返回/修改的状态」会不一致。
      */
-    public Object show(Long id) {
-        Note note = Note.findOrFail(id);
-        Gate.authorize("view", note);
+    public Object show(Note note) {
         return note;
     }
 
-    /** PUT /api/notes/{id} */
-    public Object update(Long id, Request request) {
-        Note note = Note.findOrFail(id);
-        Gate.authorize("update", note);
-
+    /** PUT /api/notes/{note} */
+    public Object update(Note note, Request request) {
         var data = Validator.make(request.all(), Map.of(
                 "title", "nullable|string|max:200",
                 "body", "nullable|string")).validate();
@@ -75,10 +73,9 @@ public class NoteController {
         return note;
     }
 
-    /** DELETE /api/notes/{id} */
-    public Object destroy(Long id) {
-        Note note = Note.findOrFail(id);
-        Gate.authorize("delete", note);
+    /** DELETE /api/notes/{note} */
+    public Object destroy(Note note) {
+        Long id = note.id;
         note.delete();
         return Map.of("deleted", true, "id", id);
     }

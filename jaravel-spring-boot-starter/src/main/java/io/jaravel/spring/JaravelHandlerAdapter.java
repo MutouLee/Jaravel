@@ -66,6 +66,12 @@ public class JaravelHandlerAdapter implements HandlerAdapter {
         // 若把 write 放到 runIn 之外,这些错误会绕过 ExceptionHandler 直接泄漏给 Spring
         // (实测:模板错误曾导致 500 且响应体为空,用户看不到任何有用信息)。
         byte[] body = RequestScope.runIn(request, () -> {
+            // 让中间件也能拿到路由对象。SubstituteBindings 需要它来知道
+            // 「这个路由参数对应的控制器参数是什么类型」——
+            // Request 刻意不持有 Route(那会让 jaravel-http 依赖 routing)
+            io.jaravel.core.context.ExecutionScope.current()
+                    .put(SubstituteBindings.ROUTE_KEY, route);
+
             Response response;
             try {
                 response = runPipeline(request, route);

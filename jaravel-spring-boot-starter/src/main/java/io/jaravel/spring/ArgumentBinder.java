@@ -48,6 +48,7 @@ final class ArgumentBinder {
         record TheRequest() implements Source {}
         record FormRequestType(Class<?> type) implements Source {}
         record PathParam(String name) implements Source {}
+        record BoundModel(String name, Class<?> modelType) implements Source {}
         record QueryParam(String name, String fallback, boolean required) implements Source {}
         record AnyInput(String name, String fallback, boolean required) implements Source {}
         record HeaderValue(String name, String fallback) implements Source {}
@@ -92,7 +93,7 @@ final class ArgumentBinder {
             if (explicit != null) {
                 claimedByName.add(explicit.value());
             } else if (fromAnnotation(p) == null
-                    && isSimple(types.get(i))
+                    && (isSimple(types.get(i)) || isBindableModel(types.get(i)))
                     && pathNames.contains(p.getName())) {
                 claimedByName.add(p.getName());
             }
@@ -120,6 +121,27 @@ final class ArgumentBinder {
             if (annotated != null) {
                 sources.add(annotated);
                 continue;
+            }
+
+            // 隐式模型绑定。必须在 FromContainer 之前判断 ——
+            // 模型不是「简单类型」,不拦住它就会被当成要注入的服务,
+            // 然后在容器里找不到 Post 这个 bean
+            if (isBindableModel(type)) {
+                String bound = bindingNameFor(type, param, pathNames, positionalQueue);
+                if (bound != null) {
+                    sources.add(new Source.BoundModel(bound, type));
+                    continue;
+                }
+                // 路由上没有对应的参数:这几乎总是 URI 写漏了 {post}
+                throw new IllegalStateException("""
+                        %s#%s 的%s 声明为模型 %s,但路由 %s 上没有能对应的参数。
+                          路径声明的参数:%s
+                          隐式模型绑定按「参数名」或「模型名的小写」匹配,例如
+                            r.get("/posts/{post}", PostController::show)
+                            public View show(Post post) { ... }
+                          不想绑定模型时把参数类型改成 Long / String。"""
+                        .formatted(route.controller().getSimpleName(), route.action(),
+                                   label, type.getSimpleName(), route.uri(), pathNames));
             }
 
             if (!isSimple(type)) {
@@ -161,6 +183,39 @@ final class ArgumentBinder {
         warnAboutUnclaimedPathParams(route, method, sources, pathNames);
 
         return new Plan(List.copyOf(sources), types, List.copyOf(labels));
+    }
+
+    /**
+     * 这个类型是否该做隐式模型绑定。
+     *
+     * <p>要求它**已注册**(有 {@code @Model} 的 APT 产物)。只看
+     * {@code Model.class.isAssignableFrom} 不够:一个还没编译出元模型的
+     * 模型类会在这里被接下,然后在解析时报一个与根因无关的错。
+     */
+    private static boolean isBindableModel(Class<?> type) {
+        return io.jaravel.eloquent.RouteBinder.isBindable(type);
+    }
+
+    /**
+     * 这个模型参数绑哪个路由参数。
+     *
+     * <p>三级匹配,与简单类型的规则保持一致:
+     * <ol>
+     *   <li>参数名与路径参数同名({@code show(Post post)} 配 {@code {post}});</li>
+     *   <li>模型名的小写与路径参数同名(编译时没开 {@code -parameters} 时的回落);</li>
+     *   <li>按位置取下一个未被认领的路径参数。</li>
+     * </ol>
+     */
+    private static String bindingNameFor(Class<?> type, Parameter param,
+                                         List<String> pathNames,
+                                         java.util.ArrayDeque<String> positionalQueue) {
+        if (param != null && param.isNamePresent() && pathNames.contains(param.getName())) {
+            return param.getName();
+        }
+        String byClassName = type.getSimpleName().toLowerCase(java.util.Locale.ROOT);
+        if (pathNames.contains(byClassName)) return byClassName;
+
+        return positionalQueue.poll();
     }
 
     private static Source fromAnnotation(Parameter param) {
@@ -261,9 +316,40 @@ final class ArgumentBinder {
                     request.header(h.name()).orElse(null),
                     h.fallback(), false, "请求头 " + h.name(), type, label, route);
 
+            case Source.BoundModel b -> boundModel(request, b.name(), b.modelType());
+
             case Source.FromContainer c -> container.make(c.type());
         };
     }
+
+    /**
+     * 隐式模型绑定的取值。
+     *
+     * <p>优先用 {@code SubstituteBindings} 中间件已解析好的那一个 ——
+     * **不能**在这里重新查一次库:中间件阶段的授权检查看到的是那个实例,
+     * 控制器要改的必须是同一个状态。两次查询之间数据变了的话,
+     * 授权检查就可以被绕过。这不是性能问题,是正确性问题。
+     *
+     * <p>中间件没挂(比如路由上既没有 web/api 组也没有 bindings)时
+     * 在这里兜底解析 —— 控制器拿到模型总比拿到一个类型错误的参数好。
+     */
+    private static Object boundModel(Request request, String name, Class<?> modelType) {
+        var resolved = io.jaravel.http.RouteBindings.resolved(name);
+        if (resolved.isPresent()) return resolved.get();
+
+        String value = request.routeParam(name).orElse(null);
+        if (value == null) {
+            throw new IllegalStateException("""
+                    路由参数 "%s" 不存在,无法绑定 %s。
+                      检查路由的 URI 里有没有 {%s}。"""
+                    .formatted(name, modelType.getSimpleName(), name));
+        }
+
+        Object model = io.jaravel.eloquent.RouteBinder.resolveAny(modelType, value);
+        io.jaravel.http.RouteBindings.put(name, model);
+        return model;
+    }
+
 
     private static String rawInput(Request request, String name) {
         Object value = request.all().get(name);

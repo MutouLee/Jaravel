@@ -58,7 +58,8 @@ class DefaultKernelTest {
                 ConfirmPassword.class, ConfirmPassword::new,
                 ThrottleRequests.class,
                         () -> new ThrottleRequests(
-                                new RateLimiter(CacheManager.inMemory().store())));
+                                new RateLimiter(CacheManager.inMemory().store())),
+                SubstituteBindings.class, SubstituteBindings::new);
 
         @SuppressWarnings("unchecked")
         @Override
@@ -131,10 +132,11 @@ class DefaultKernelTest {
     class Groups {
 
         @Test
-        @DisplayName("web 组 = 会话 + CSRF")
+        @DisplayName("web 组 = 会话 + CSRF + 模型绑定")
         void webGroup() {
             assertThat(chain("web"))
-                    .containsExactly(StartSession.class, VerifyCsrfToken.class);
+                    .containsExactly(StartSession.class, VerifyCsrfToken.class,
+                                     SubstituteBindings.class);
         }
 
         @Test
@@ -144,11 +146,12 @@ class DefaultKernelTest {
         }
 
         @Test
-        @DisplayName("api 组存在(空组而不是省略)")
-        void apiGroupExists() {
-            // 省略的话 middleware("api") 会报「未知的中间件」
-            assertThat(kernel.middlewareGroups()).containsKey("api");
-            assertThat(chain("api")).isEmpty();
+        @DisplayName("★ 隐式模型绑定是默认行为,web 与 api 两组都有")
+        void bindingsAreInBothGroups() {
+            // 忘了在路由上加 bindings 的症状是 can:update,post 永远拒绝,
+            // 那看起来像权限配错了 —— 所以它必须是默认的
+            assertThat(chain("web")).contains(SubstituteBindings.class);
+            assertThat(chain("api")).containsExactly(SubstituteBindings.class);
         }
 
         @Test
@@ -156,7 +159,8 @@ class DefaultKernelTest {
         void deduplicates() {
             // web 组里有 StartSession,再单独声明一次 session 别名
             assertThat(chain("web", "session"))
-                    .containsExactly(StartSession.class, VerifyCsrfToken.class);
+                    .containsExactly(StartSession.class, VerifyCsrfToken.class,
+                                     SubstituteBindings.class);
         }
     }
 
@@ -172,7 +176,7 @@ class DefaultKernelTest {
             // 用户在路由上写 middleware("auth", "web") —— 很自然的笔误
             assertThat(chain("auth", "web"))
                     .containsExactly(StartSession.class, VerifyCsrfToken.class,
-                                     Authenticate.class);
+                                     Authenticate.class, SubstituteBindings.class);
         }
 
         @Test
@@ -229,7 +233,20 @@ class DefaultKernelTest {
                             Authenticate.class,
                             EnsureEmailVerified.class,
                             ConfirmPassword.class,
+                            SubstituteBindings.class,
                             Authorize.class);
+        }
+
+        @Test
+        @DisplayName("★ SubstituteBindings 在 Authorize 之前(docs/08 §10 的待决项)")
+        void bindingsBeforeAuthorize() {
+            var order = chain("can:update,post", "bindings");
+
+            // can:update,post 要的是 Post 实例。拿到字符串 "42" 去问
+            // PostPolicy.update(User, Post) 的结果是永远拒绝,
+            // 而那个 403 看起来像「权限配错了」
+            assertThat(order.indexOf(SubstituteBindings.class))
+                    .isLessThan(order.indexOf(Authorize.class));
         }
     }
 

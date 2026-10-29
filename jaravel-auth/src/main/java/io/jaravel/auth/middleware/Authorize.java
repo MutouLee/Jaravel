@@ -20,10 +20,13 @@ import io.jaravel.http.Response;
  * 是 {@code "42"},而 {@code PostPolicy.update(User, Post)} 要的是 Post 实例。
  * Laravel 用「隐式模型绑定」解决 —— 路由参数名与模型名对上时自动查库。
  *
- * <p>Jaravel 的隐式绑定排在 v0.3 之后(它需要路由与 Eloquent 的联动),
- * 所以当前实现是:**参数值原样传给规则**。规则自己接 String 或先查库。
- * 这个限制必须说清楚,否则用户会写出一个永远拒绝的规则而不知道为什么 ——
- * 所以这里在类型对不上时给出明确的错误,而不是让它静默 403。
+ * <p>Jaravel 的做法:{@code SubstituteBindings} 中间件在本中间件**之前**
+ * 把路由参数解析成模型实例并缓存(见 {@link io.jaravel.http.RouteBindings}),
+ * 这里直接取缓存。顺序由 {@code Kernel.priority()} 固定,
+ * 而不是指望用户每次在路由上写对。
+ *
+ * <p>取不到实例时退回原始字符串 —— 那说明这个参数没有对应的模型类型
+ * (控制器声明的是 {@code String}),规则自己处理。
  */
 public class Authorize implements Middleware.Parameterized {
 
@@ -59,6 +62,11 @@ public class Authorize implements Middleware.Parameterized {
      * 这种没有实例的操作)。
      */
     private Object resolve(Request request, String name) {
+        // 已解析的模型实例优先 —— SubstituteBindings 跑在本中间件之前
+        // (顺序由 Kernel.priority 固定)
+        var bound = io.jaravel.http.RouteBindings.resolved(name);
+        if (bound.isPresent()) return bound.get();
+
         var routeParam = request.routeParam(name);
         if (routeParam.isPresent()) return routeParam.get();
 

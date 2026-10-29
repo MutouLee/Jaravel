@@ -41,6 +41,13 @@ class DashboardController extends Controller
         ];
     }
 
+    public function issueToken(Request $request): array
+    {
+        $token = $request->user()->createToken($request->input('name', 'default'));
+
+        return ['token' => $token->plainTextToken, 'id' => $token->accessToken->id];
+    }
+
     public function settings(Request $request): array
     {
         return ['sensitive' => true, 'email' => $request->user()->email];

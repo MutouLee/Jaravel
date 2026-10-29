@@ -74,6 +74,21 @@ public class DashboardController {
         return Map.of("id", me.id, "email", me.email, "guard", "api");
     }
 
+    /**
+     * POST /api-token —— 签发一个 API 令牌。
+     *
+     * <p>挂 web + auth:用会话身份换一个无状态令牌,这是 SPA 与移动端的
+     * 标准做法。明文**只在这里返回一次** —— 库里存的是 SHA-256,
+     * 之后再也取不回来。
+     */
+    public Object issueToken(io.jaravel.http.Request request) {
+        var principal = Auth.guard("web").user().orElseThrow();
+        var guard = (io.jaravel.auth.guard.TokenGuard) Auth.guard("api");
+
+        var token = guard.issue(principal, request.input("name", "default"));
+        return Map.of("token", token.plainText(), "id", token.id());
+    }
+
     /** GET /settings —— 挂 auth + verified + password.confirm */
     public Object settings() {
         return Map.of("sensitive", true, "email", Auth.userOrFail(User.class).email);

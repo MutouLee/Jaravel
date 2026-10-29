@@ -48,12 +48,16 @@ public class DefaultKernel extends Kernel {
     @Override
     protected Map<String, List<Class<? extends Middleware>>> groups() {
         var groups = new LinkedHashMap<String, List<Class<? extends Middleware>>>();
-        groups.put("web", List.of(StartSession.class, VerifyCsrfToken.class));
+        // bindings 放进 web 与 api 两组:隐式模型绑定应该是默认行为,
+        // 而不是「记得在路由上加一个 bindings」。忘了加的症状是
+        // can:update,post 永远拒绝,那看起来像权限配错了
+        groups.put("web", List.of(StartSession.class, VerifyCsrfToken.class,
+                                  SubstituteBindings.class));
 
         // api 组刻意**不含** StartSession:无状态接口不该下发会话 cookie。
         // 空组而不是省略 —— 这样路由上写 middleware("api") 不会报
         // 「没有这个分组」,而写了之后再往里加东西也不需要先建组
-        groups.put("api", List.of());
+        groups.put("api", List.of(SubstituteBindings.class));
         return groups;
     }
 
@@ -66,6 +70,7 @@ public class DefaultKernel extends Kernel {
         aliases.put("verified", EnsureEmailVerified.class);
         aliases.put("throttle", ThrottleRequests.class);            // throttle:60,1
         aliases.put("password.confirm", ConfirmPassword.class);     // password.confirm:30
+        aliases.put("bindings", SubstituteBindings.class);
         aliases.put("session", StartSession.class);
         aliases.put("csrf", VerifyCsrfToken.class);
         return aliases;
@@ -88,6 +93,9 @@ public class DefaultKernel extends Kernel {
      *       「权限配错了」,不像「认证没跑」。</li>
      *   <li><b>EnsureEmailVerified / ConfirmPassword 在 Authenticate 之后。</b>
      *       它们都要读当前用户。</li>
+     *   <li><b>SubstituteBindings 在 Authorize 之前。</b> {@code can:update,post}
+     *       要的是 Post 实例;拿到字符串会让规则永远拒绝,而 403 看起来像
+     *       「权限配错了」,不像「模型没绑上」。</li>
      *   <li><b>ThrottleRequests 最先于认证。</b> 节流的意义就是在昂贵操作
      *       (查库 + 哈希)之前挡住洪水。放在认证之后等于没放。</li>
      * </ol>
@@ -105,6 +113,12 @@ public class DefaultKernel extends Kernel {
                 RedirectIfAuthenticated.class,
                 EnsureEmailVerified.class,
                 ConfirmPassword.class,
+                // **必须在 Authorize 之前**:can:update,post 需要的是
+                // Post 实例,而中间件比控制器先跑。拿到字符串 "42" 去问
+                // PostPolicy.update(User, Post) 的结果是永远拒绝,
+                // 而那看起来像「权限配错了」。
+                // docs/08 §10 把这条顺序列为必须固定的待决项
+                SubstituteBindings.class,
                 Authorize.class);
     }
 }

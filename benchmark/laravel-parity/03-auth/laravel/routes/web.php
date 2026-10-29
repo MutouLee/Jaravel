@@ -27,6 +27,9 @@ Route::middleware('auth')->group(function () {
         [AuthController::class, 'resendVerification'])
         ->middleware('throttle:6,1')->name('verification.send');
 
+    Route::post('/api-token', [DashboardController::class, 'issueToken'])
+        ->name('api-token');
+
     Route::post('/confirm-password', [AuthController::class, 'confirmPassword'])
         ->name('password.confirm');
 

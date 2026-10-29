@@ -7,7 +7,9 @@ import java.util.function.Function;
 import io.jaravel.auth.Auth;
 import io.jaravel.auth.AuthManager;
 import io.jaravel.auth.Guard;
+import io.jaravel.auth.guard.JwtGuard;
 import io.jaravel.auth.guard.SessionGuard;
+import io.jaravel.auth.guard.TokenGuard;
 import io.jaravel.http.HttpException;
 import io.jaravel.http.Middleware;
 import io.jaravel.http.Request;
@@ -53,13 +55,20 @@ public class Authenticate implements Middleware.Parameterized {
     }
 
     /**
-     * 判断是否已认证,必要时尝试 remember cookie。
+     * 判断是否已认证,必要时先把请求里的凭据交给 guard。
      *
-     * <p>remember 的恢复放在中间件而不是 guard 的 {@code user()} 里:
-     * 它需要读请求 cookie,而 Guard 接口刻意不依赖 Request ——
-     * 那样 JWT / Token guard 也会被迫知道 HTTP 的存在。
+     * <p>**从请求里取凭据这件事只能发生在这里。** {@code Guard} 接口刻意
+     * 不依赖 {@code Request} —— 否则 Token / JWT guard 都会被迫知道 HTTP 的
+     * 存在,而它们在队列任务与 CLI 里同样要能用。
+     *
+     * <p>代价是:每种「凭据在请求里的哪个位置」的 guard 都要在这里有一个分支。
+     * 漏掉一个的症状是**那种认证方式在单元测试里全绿、在浏览器里一律 401**
+     * —— 因为单元测试会手工调 {@code presentToken(...)},而真实管道里没人调。
+     * 这正是 Token guard 曾经踩过的坑。
      */
     private boolean authenticated(Guard guard, Request request) {
+        presentCredentials(guard, request);
+
         if (guard.check()) return true;
 
         if (guard instanceof SessionGuard session) {
@@ -67,6 +76,20 @@ public class Authenticate implements Middleware.Parameterized {
             return session.recallFromCookie(cookie).isPresent();
         }
         return false;
+    }
+
+    /**
+     * 把 {@code Authorization: Bearer <token>} 交给需要它的 guard。
+     *
+     * <p>在 {@code guard.check()} **之前** —— check 会缓存解析结果,
+     * 之后再 present 就不生效了。
+     */
+    private void presentCredentials(Guard guard, Request request) {
+        if (guard instanceof TokenGuard token) {
+            request.bearerToken().ifPresent(token::presentToken);
+        } else if (guard instanceof JwtGuard jwt) {
+            request.bearerToken().ifPresent(jwt::presentToken);
+        }
     }
 
     /** remember cookie 的签发/清除要搭上响应 */

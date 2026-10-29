@@ -57,6 +57,9 @@ public class WebRoutes implements RouteDefinition {
                         AuthController::resendVerification)
                   .middleware("throttle:6,1").name("verification.send");
 
+            // 用会话身份换一个无状态令牌 —— SPA 与移动端的标准做法
+            authed.post("/api-token", DashboardController::issueToken).name("api-token");
+
             authed.post("/confirm-password", AuthController::confirmPassword)
                   .name("password.confirm");
 
@@ -72,9 +75,16 @@ public class WebRoutes implements RouteDefinition {
             api.get("/notes", NoteController::index);
             api.get("/notes/count", NoteController::count);
             api.post("/notes", NoteController::store);
-            api.get("/notes/{id}", NoteController::show).whereNumber("id");
-            api.put("/notes/{id}", NoteController::update).whereNumber("id");
-            api.delete("/notes/{id}", NoteController::destroy).whereNumber("id");
+            // {note} 而不是 {id}:隐式模型绑定按参数名匹配,
+            // 控制器写 show(Note note) 就自动查出来。
+            // can:view,note 的 note 取的是**已解析的实例** ——
+            // SubstituteBindings 在 Authorize 之前跑(顺序由 DefaultKernel 固定)
+            api.get("/notes/{note}", NoteController::show)
+               .whereNumber("note").middleware("can:view,note");
+            api.put("/notes/{note}", NoteController::update)
+               .whereNumber("note").middleware("can:update,note");
+            api.delete("/notes/{note}", NoteController::destroy)
+               .whereNumber("note").middleware("can:delete,note");
         });
     }
 }

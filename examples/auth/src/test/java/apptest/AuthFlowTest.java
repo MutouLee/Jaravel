@@ -742,6 +742,52 @@ class AuthFlowTest {
         }
 
         @Test
+        @DisplayName("★ 隐式模型绑定:控制器直接拿到 Note 实例")
+        void implicitModelBinding() {
+            var api = apiClientFor("bind1");
+            long id = createNote(api, "第一条", "正文");
+
+            // 路由是 /api/notes/{note},控制器签名是 show(Note note)
+            var response = api.get("/api/notes/" + id);
+            assertThat(response).contains("\"title\":\"第一条\"");
+        }
+
+        @Test
+        @DisplayName("★ can:update,note 拿到的是实例 —— 别人的笔记改不了")
+        void policyBlocksOtherPeoplesNotes() {
+            var owner = apiClientFor("bind2");
+            long id = createNote(owner, "我的", "正文");
+
+            var stranger = apiClientFor("bind3");
+
+            // 这是 docs/08 §10 那条待决项的实际效果:中间件拿到的
+            // 必须是 Note 实例,否则 NotePolicy.update(User, Note)
+            // 类型不匹配 → 永远拒绝,而那时连自己的笔记也改不了
+            assertThat(stranger.put("/api/notes/" + id, "{\"title\":\"篡改\"}")
+                    .getStatusCode().value())
+                    .as("别人的笔记应被 Policy 拒绝")
+                    .isEqualTo(403);
+
+            assertThat(owner.put("/api/notes/" + id, "{\"title\":\"改好了\"}")
+                    .getStatusCode().is2xxSuccessful())
+                    .as("自己的笔记应该能改 —— 这一条证明不是「一律拒绝」")
+                    .isTrue();
+
+            assertThat(owner.get("/api/notes/" + id)).contains("改好了");
+        }
+
+        @Test
+        @DisplayName("★ 绑定失败 → 404,不是 500")
+        void missingModelIs404() {
+            var api = apiClientFor("bind4");
+
+            // /api/notes/999999 语义上就是「这个 URL 不存在」
+            assertThat(api.send(HttpMethod.GET, "/api/notes/999999", null)
+                    .getStatusCode().value())
+                    .isEqualTo(404);
+        }
+
+        @Test
         @DisplayName("★ 伪造的 token → 401")
         void forgedTokenIsUnauthorized() {
             var headers = new HttpHeaders();
@@ -752,6 +798,74 @@ class AuthFlowTest {
                     HttpMethod.GET, new HttpEntity<>(headers), String.class);
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        }
+
+        // ---------- 辅助 ----------
+
+        /** 注册一个用户、验证邮箱、换一个 API 令牌 */
+        private ApiClient apiClientFor(String tag) {
+            var browser = registerFresh(tag);
+
+            // NotePolicy.create 要求邮箱已验证 —— 顺带证明了
+            // Policy 里读到的是真正的模型字段
+            String link = (String) refresh(browser).get("verification_link");
+            int schemeEnd = link.indexOf("://");
+            browser.exchange(HttpMethod.GET,
+                    link.substring(link.indexOf('/', schemeEnd + 3)), null, String.class);
+
+            refresh(browser);       // 取验证后的新 CSRF 令牌
+            String body = browser.post("/api-token", Map.of("name", tag)).getBody();
+
+            String token = between(body, "\"token\":\"", "\"");
+            assertThat(token).as("应签发 API 令牌,实际响应:%s", body).isNotBlank();
+            return new ApiClient(token);
+        }
+
+        private long createNote(ApiClient api, String title, String body) {
+            var response = api.send(HttpMethod.POST, "/api/notes",
+                    "{\"title\":\"" + title + "\",\"body\":\"" + body + "\"}");
+
+            assertThat(response.getStatusCode().is2xxSuccessful())
+                    .as("建笔记失败:%s / %s", response.getStatusCode(), response.getBody())
+                    .isTrue();
+            return Long.parseLong(between(response.getBody(), "\"id\":", ",")
+                    .replaceAll("[^0-9]", ""));
+        }
+
+        private String between(String text, String start, String end) {
+            int from = text == null ? -1 : text.indexOf(start);
+            if (from < 0) return "";
+            from += start.length();
+            int to = text.indexOf(end, from);
+            return to < 0 ? text.substring(from) : text.substring(from, to);
+        }
+
+        /** 只带 Bearer 令牌的无状态客户端 —— 不记 cookie,不带 CSRF */
+        private final class ApiClient {
+
+            private final String token;
+
+            ApiClient(String token) {
+                this.token = token;
+            }
+
+            String get(String path) {
+                return send(HttpMethod.GET, path, null).getBody();
+            }
+
+            ResponseEntity<String> put(String path, String json) {
+                return send(HttpMethod.PUT, path, json);
+            }
+
+            ResponseEntity<String> send(HttpMethod method, String path, String json) {
+                var headers = new HttpHeaders();
+                headers.setBearerAuth(token);
+                headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+                if (json != null) headers.setContentType(MediaType.APPLICATION_JSON);
+
+                return rest.exchange("http://localhost:" + port + path, method,
+                        new HttpEntity<>(json, headers), String.class);
+            }
         }
     }
 }

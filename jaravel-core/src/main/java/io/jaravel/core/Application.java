@@ -56,7 +56,16 @@ public final class Application {
         return container().make(type);
     }
 
+    /**
+     * 解析不出来就返回空 —— **容器还没起来时也返回空**,而不是抛异常。
+     *
+     * <p>方法名叫 try 就不该抛。这件事有具体的后果:开发期错误页用它
+     * 去取数据库连接与配置来渲染 SQL / 配置面板,而启动失败时容器
+     * 恰恰是没起来的 —— 那时让 tryMake 抛异常会让**错误页自己崩掉**,
+     * 用户连原始的启动失败原因都看不到。
+     */
     public static <T> Optional<T> tryMake(Class<T> type) {
+        if (!isBootstrapped()) return Optional.empty();
         return container().tryMake(type);
     }
 

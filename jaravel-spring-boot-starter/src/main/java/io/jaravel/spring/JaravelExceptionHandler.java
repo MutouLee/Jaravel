@@ -199,11 +199,38 @@ public class JaravelExceptionHandler {
                   td:first-child{color:#8b90a0;white-space:nowrap;width:1%%}
                   .frame{color:#9aa0b0}
                   .sql{color:#8fd19e}
+                  .fix{background:#1b2a1f;border-left:3px solid #4caf50;
+                       padding:12px 16px;border-radius:0 4px 4px 0}
+                  .fix h3{margin:0 0 6px;font-size:13px;color:#8fd19e;
+                          font-family:system-ui,sans-serif}
+                  .fix p{margin:0 0 10px;color:#c6ccd4;white-space:pre-wrap}
+                  .fix pre{background:#12140f;padding:10px 12px;border-radius:4px;
+                           color:#e8f0e4;overflow-x:auto}
+                  .fix .docs{margin:8px 0 0;font-size:12px;color:#8b90a0}
+                  .code{background:#15161c;border-radius:4px;overflow-x:auto}
+                  .code div{padding:1px 14px;white-space:pre}
+                  .code .n{display:inline-block;width:44px;color:#5c6070;
+                           text-align:right;margin-right:16px;user-select:none}
+                  .code .hit{background:#3a2326}
+                  .code .hit .n{color:#e0707a;font-weight:bold}
+                  .jump{font-size:12px;color:#6ea8fe;text-decoration:none;
+                        margin-right:14px;font-family:system-ui,sans-serif}
                 </style></head><body>
                 <header><h1>%s</h1><p>%s</p></header>
                 """.formatted(escape(t.getClass().getSimpleName()),
                               escape(t.getClass().getName()),
                               escape(t.getMessage() == null ? "(无消息)" : t.getMessage())));
+
+            // 出错那一行的源码。放最前面 —— 它是用户最先想看的东西,
+            // 而「切回编辑器找文件数行号」这个动作本身就是摩擦
+            SourceSnippet.forFirstApplicationFrame(t)
+                    .ifPresent(snippet -> sb.append(section(
+                            snippet.file() + ":" + snippet.highlighted(),
+                            codeBlock(snippet))));
+
+            // 修复建议。紧跟源码 —— 知道了在哪出错,下一个问题就是该改成什么
+            FixSuggestion.forThrowable(t)
+                    .ifPresent(fix -> sb.append(section("修复建议", fixBlock(fix))));
 
             // 模板错误的源码片段已在消息里,这里给出它的定位信息
             if (t instanceof JbladeException jb) {
@@ -215,6 +242,8 @@ public class JaravelExceptionHandler {
             sb.append(section("堆栈(应用代码优先)", stackList(t)));
 
             sqlPanel().ifPresent(p -> sb.append(section("本次请求的 SQL", p)));
+            sessionPanel().ifPresent(p -> sb.append(section("会话", p)));
+            configPanel().ifPresent(p -> sb.append(section("生效的配置(敏感值已脱敏)", p)));
 
             sb.append("</body></html>");
             return sb.toString();
@@ -261,6 +290,84 @@ public class JaravelExceptionHandler {
             return sb.isEmpty() ? "<pre>(无堆栈)</pre>" : sb.toString();
         }
 
+        /**
+         * 源码片段 + 编辑器跳转。
+         *
+         * <p>两个协议都给:用户装的是 IDEA 还是 VS Code 我们不知道,
+         * 而探测不出来 —— 点错一个的代价只是没反应。
+         */
+        private static String codeBlock(SourceSnippet.Snippet snippet) {
+            var sb = new StringBuilder();
+            sb.append("<a class=\"jump\" href=\"").append(escape(snippet.editorUrl()))
+              .append("\">在 IntelliJ 中打开</a>")
+              .append("<a class=\"jump\" href=\"").append(escape(snippet.vscodeUrl()))
+              .append("\">在 VS Code 中打开</a>")
+              .append("<div class=\"code\" style=\"margin-top:10px\">");
+
+            for (var line : snippet.lines()) {
+                sb.append("<div").append(line.highlighted() ? " class=\"hit\"" : "").append(">")
+                  .append("<span class=\"n\">").append(line.number()).append("</span>")
+                  .append(escape(line.text()))
+                  .append("</div>");
+            }
+            return sb.append("</div>").toString();
+        }
+
+        /** 修复建议 */
+        private static String fixBlock(FixSuggestion fix) {
+            var sb = new StringBuilder("<div class=\"fix\"><h3>💡 ")
+                    .append(escape(fix.title())).append("</h3>");
+
+            if (fix.explanation() != null && !fix.explanation().isBlank()) {
+                sb.append("<p>").append(escape(fix.explanation())).append("</p>");
+            }
+            if (fix.hasCode()) {
+                sb.append("<pre>").append(escape(fix.code())).append("</pre>");
+            }
+            if (fix.docs() != null) {
+                sb.append("<p class=\"docs\">📖 ").append(escape(fix.docs())).append("</p>");
+            }
+            return sb.append("</div>").toString();
+        }
+
+        /**
+         * 会话面板。
+         *
+         * <p>**不显示 _token** —— 错误页可能被截图发到群里,
+         * 而那个值能直接用来伪造写请求。
+         */
+        private static java.util.Optional<String> sessionPanel() {
+            try {
+                if (!io.jaravel.session.Session.isActive()) return java.util.Optional.empty();
+
+                var sb = new StringBuilder("<table>");
+                row(sb, "会话 id", io.jaravel.session.Session.id());
+                io.jaravel.session.Session.all().forEach((k, v) -> {
+                    if (k.equals("_token")) {
+                        row(sb, k, "(已隐藏 —— 错误页可能被截图)");
+                    } else {
+                        row(sb, k, String.valueOf(v));
+                    }
+                });
+                return java.util.Optional.of(sb.append("</table>").toString());
+            } catch (RuntimeException | NoClassDefFoundError e) {
+                // 会话模块不在 classpath 上,或当前不在会话里。
+                // 错误页**自己不能崩** —— 崩了用户连原始异常都看不到
+                return java.util.Optional.empty();
+            }
+        }
+
+        /** 配置面板。ConfigRepository.all() 已对敏感键脱敏。 */
+        private static java.util.Optional<String> configPanel() {
+            return Application.tryMake(io.jaravel.core.config.ConfigRepository.class)
+                    .map(config -> {
+                        var sb = new StringBuilder("<table>");
+                        new java.util.TreeMap<>(config.all())
+                                .forEach((k, v) -> row(sb, k, String.valueOf(v)));
+                        return sb.append("</table>").toString();
+                    });
+        }
+
         /** SQL 面板:带 N+1 提示 */
         private static java.util.Optional<String> sqlPanel() {
             return Application.tryMake(Connection.class).map(conn -> {
@@ -270,18 +377,60 @@ public class JaravelExceptionHandler {
                 Map<String, Integer> counts = new LinkedHashMap<>();
                 for (var q : log) counts.merge(q.sql(), 1, Integer::sum);
 
-                var sb = new StringBuilder("<table>");
+                long totalMicros = log.stream().mapToLong(Connection.QueryLog::micros).sum();
+
+                var sb = new StringBuilder();
+                sb.append("<p style=\"margin:0 0 10px;color:#8b90a0\">")
+                  .append(log.size()).append(" 条查询,合计 ")
+                  .append(String.format("%.2f ms", totalMicros / 1000.0))
+                  .append("</p><table>");
+
                 for (int i = 0; i < log.size(); i++) {
                     var q = log.get(i);
-                    boolean suspicious = counts.get(q.sql()) >= 3;
+                    int repeats = counts.get(q.sql());
+                    boolean suspicious = repeats >= 3;
+
                     sb.append("<tr><td>").append(i + 1).append(".</td><td class=\"sql\">")
                       .append(String.format("%.2fms  ", q.micros() / 1000.0))
-                      .append(escape(q.sql()))
-                      .append(suspicious ? "  <b style=\"color:#f0ad4e\">⚠ 疑似 N+1("
-                              + counts.get(q.sql()) + " 次相同查询)</b>" : "")
-                      .append("</td></tr>");
+                      .append(escape(q.sql()));
+
+                    if (suspicious) {
+                        sb.append("  <b style=\"color:#f0ad4e\">⚠ 疑似 N+1(")
+                          .append(repeats).append(" 次相同查询)</b>");
+                    }
+
+                    // 绑定参数:定位「为什么这条查询没命中」时必须看到实际值。
+                    // 只显示语句等于只说了一半
+                    if (!q.bindings().isEmpty()) {
+                        sb.append("<div style=\"color:#8b90a0\">  参数 ")
+                          .append(escape(String.valueOf(q.bindings()))).append("</div>");
+                    }
+                    // 调用点:N+1 的价值全在「是哪一行代码发出的」
+                    if (q.caller() != null && !q.caller().isBlank()) {
+                        sb.append("<div style=\"color:#6a6f7d\">  ← ")
+                          .append(escape(q.caller())).append("</div>");
+                    }
+                    sb.append("</td></tr>");
                 }
-                return sb.append("</table>").toString();
+                sb.append("</table>");
+
+                // 聚合视图:N+1 时逐条看是 50 行噪声,按语句聚合才看得出模式
+                var repeated = counts.entrySet().stream()
+                        .filter(e -> e.getValue() >= 3)
+                        .toList();
+                if (!repeated.isEmpty()) {
+                    sb.append("<details style=\"margin-top:12px\">")
+                      .append("<summary style=\"cursor:pointer;color:#f0ad4e\">")
+                      .append("按语句聚合(").append(repeated.size())
+                      .append(" 条疑似 N+1)</summary><table>");
+                    for (var e : repeated) {
+                        sb.append("<tr><td>×").append(e.getValue()).append("</td>")
+                          .append("<td class=\"sql\">").append(escape(e.getKey()))
+                          .append("</td></tr>");
+                    }
+                    sb.append("</table></details>");
+                }
+                return sb.toString();
             });
         }
     }

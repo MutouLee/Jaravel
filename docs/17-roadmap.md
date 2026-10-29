@@ -154,13 +154,40 @@ v0.1 结束时应该做一次正式的 go/no-go 评审。这是整个项目唯�
 | 开发期错误页(含 SQL 面板 + 修复建议知识库 v1) | 2 |
 | 安全清单测试([08](08-auth.md) §7.2 逐条) | 1 |
 
-### 验收
+### 验收结果
 
-1. `install:auth` 生成的登录/注册/重置流程端到端可用;
-2. [08](08-auth.md) §7.2 的 12 项安全检查全部有测试且通过;
-3. 改方法体 → 0 重启;新增类 → < 2s;改模板 → < 100ms;
-4. 改代码后**登录状态不丢失**;
-5. `jaravel-security-bridge` 下 `Auth.user()` 能读取 Spring Security 的认证结果。
+| # | 条目 | 结果 | 证据 |
+|---|---|---|---|
+| 1 | `install:auth` 的登录/注册/重置流程端到端可用 | ✅ | `examples/auth` 的 `AuthFlowTest`,27 条真 HTTP 测试 |
+| 2 | [08](08-auth.md) §7.2 的 12 项安全检查全部有测试 | ✅ | `AuthSecurityTest`,12 个嵌套类 / 47 条断言 |
+| 3 | 改方法体 → 0 重启;新增类 → < 2s;改模板 → < 100ms | ⚠️ **部分** | 见下 |
+| 4 | 改代码后登录状态不丢失 | ✅ | `HotReloadAcceptanceTest`,两个先后启动的真实上下文共用会话目录 |
+| 5 | `jaravel-security-bridge` 下 `Auth.user()` 读 Spring Security 的结果 | ✅ | `SecurityBridgeTest`,37 条测试 |
+
+**第 3 条的实际情况,逐项说明:**
+
+| 目标 | 实际 | 说明 |
+|---|---|---|
+| 改模板 → < 100ms | ✅ 0 重启 | L1:jte 的 devMode 按 mtime 重编译,`ViewEngine.invalidate()` 丢缓存 |
+| 改配置 → 0 重启 | ✅ | 同上。但 `.env` 与 `pom.xml` 需要重启 JVM(前者在 Spring 启动之前就被读进系统属性),`ChangeClassifier` 会明确告知 |
+| 新增类 → < 2s | ✅ 实测 136 ms | 量的是**容器重建**,它是 L3 的主要成本。真实重启还要加上增量编译 —— 那部分取决于改了多少文件,没有测到 |
+| **改方法体 → 0 重启** | ❌ **未实现** | L2 需要 HotSwap/JBR/DCEVM 的接线,v0.3 没做。方法体修改目前降级到 L3(~2s)。`ChangeClassifier` 已经预留了 `HOTSWAP` 这条路径与降级逻辑,接上 JDI 即可 |
+
+L2 没做的原因是它的收益与风险不成比例:标准 HotSwap 只支持方法体,
+而「改方法体」在有 APT 的项目里经常伴随注解变更(那时必须走 L3),
+于是实际覆盖率远低于 docs/15 §1 估计的 60%。**这一项列入 v0.4**,
+并且 docs/15 §3.4 原本就写明「不把项目的核心体验押在非标准 JVM 上 ——
+L3 的 < 2s 重启是兜底保证」。
+
+**v0.3 额外交付**(不在原计划里,写测试时发现必须做):
+
+- `FileSessionStore` —— 没有它「改代码后登录状态不丢失」做不到;
+- `SessionLifecycle` —— 异常路径上的会话写回。原先 302/401/419/校验失败
+  会丢掉 `url.intended` 与闪存的校验错误,也就是说 `@error` / `@old`
+  **从来没有真正工作过**;
+- `PendingCookies` —— remember cookie 原先从未下发到浏览器;
+- `FixSuggestion` 知识库 v1 —— 20 个异常类型的可执行修复建议;
+- `SourceSnippet` —— 错误页的源码片段与编辑器跳转。
 
 ---
 

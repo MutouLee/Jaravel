@@ -1,0 +1,11 @@
+cache:
+  # 队列的**唯一性锁**用它。没有可用的缓存时 UniqueJob 在投递时报错 ——
+  # 不静默跳过去重:不去重的症状是「队列里有一堆重复任务」,
+  # 很难联想到缓存没配
+  default: ${CACHE_DRIVER:caffeine}
+  prefix: ${CACHE_PREFIX:queue_example}
+  stores:
+    caffeine:
+      max-size: 10000
+    database:
+      table: cache

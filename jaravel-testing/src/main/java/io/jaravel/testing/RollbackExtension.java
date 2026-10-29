@@ -57,6 +57,11 @@ public class RollbackExtension implements InvocationInterceptor {
     public void interceptTestMethod(Invocation<Void> invocation,
                                     ReflectiveInvocationContext<Method> invocationContext,
                                     ExtensionContext extensionContext) throws Throwable {
+        if (optedOut(extensionContext)) {
+            invocation.proceed();
+            return;
+        }
+
         Connection connection = connectionOf(extensionContext);
 
         if (connection == null) {
@@ -82,6 +87,33 @@ public class RollbackExtension implements InvocationInterceptor {
         }
 
         if (failure[0] != null) throw failure[0];
+    }
+
+    /**
+     * 这个测试声明了 {@link WithoutRollback} 吗。
+     *
+     * <p>方法上与类上都看 —— 类上一个注解关掉整个类是常见需求
+     * (队列测试整类都需要真提交),而逐个方法标会漏。
+     *
+     * <p>用 {@code getTestMethod} / {@code getTestClass} 而不是
+     * {@code getElement}:后者在 {@code @Nested} 里拿到的是内层类,
+     * 而注解通常标在外层 —— 那会让「标了类但内层 @Nested 不生效」,
+     * 且症状是只有一部分测试失效。{@code @Inherited} 管不了这个:
+     * 内部类不是外部类的子类。
+     */
+    private boolean optedOut(ExtensionContext context) {
+        var method = context.getTestMethod();
+        if (method.isPresent() && method.get().isAnnotationPresent(WithoutRollback.class)) {
+            return true;
+        }
+
+        // 从当前类往外层一路找 —— @Nested 的外层类上标了也算
+        Class<?> type = context.getTestClass().orElse(null);
+        while (type != null) {
+            if (type.isAnnotationPresent(WithoutRollback.class)) return true;
+            type = type.getEnclosingClass();
+        }
+        return false;
     }
 
     /**

@@ -191,8 +191,19 @@ public final class PendingDispatch {
         this.uuid = envelope.uuid();
 
         // 唯一性在**投递时**判定。执行时判定意味着重复任务已经占了
-        // 队列空间与一次 pop,而「队列里有 5000 条重复任务」本身就是问题
-        if (job instanceof UniqueJob unique && !acquireUniqueLock(unique)) {
+        // 队列空间与一次 pop,而「队列里有 5000 条重复任务」本身就是问题。
+        //
+        // ★ 但同步驱动**不走去重**。理由:dispatchSync 的语义是
+        // 「现在、在我的调用栈上执行」,而被静默跳过的结果是
+        // 调用方拿到一个成功返回而什么都没发生 —— 一个接口返回 200
+        // 却没干活。这是最难查的一类问题。
+        //
+        // 具体会怎么撞上:前一次异步投递还持有这个 key 的锁
+        // (锁要到任务跑完或 TTL 过期才释放),此时的 dispatchSync
+        // 被当成重复而丢弃。与 Laravel 一致 —— 它的 dispatchNow
+        // 同样绕过 UniqueLock。
+        if (job instanceof UniqueJob unique && store.isAsynchronous()
+                && !acquireUniqueLock(unique)) {
             this.uuid = null;       // 没有入队,就没有 uuid 可返回
             return null;
         }

@@ -1,0 +1,6 @@
+app:
+  name: ${APP_NAME:Jaravel Queue}
+  env: ${APP_ENV:local}
+  debug: ${APP_DEBUG:true}
+  url: ${APP_URL:http://localhost:8003}
+  key: ${APP_KEY:base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}

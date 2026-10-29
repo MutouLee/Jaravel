@@ -1,0 +1,12 @@
+server:
+  port: ${SERVER_PORT:8003}
+
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:sqlite:storage/queue.db}
+    driver-class-name: org.sqlite.JDBC
+
+logging:
+  level:
+    root: WARN
+    io.jaravel: INFO

@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.example</groupId>
+  <artifactId>queue</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+  <name>Jaravel Queue 示例</name>
+  <description>v0.4 切片:任务投递 / 重试 / 失败归档 / 唯一性 / 中间件 / 链 / 批,端到端</description>
+
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <jaravel.version>0.1.0-SNAPSHOT</jaravel.version>
+    <spring-boot.version>3.4.1</spring-boot.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${spring-boot.version}</version>
+        <type>pom</type><scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.jaravel</groupId>
+        <artifactId>jaravel-bom</artifactId>
+        <version>${jaravel.version}</version>
+        <type>pom</type><scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <!-- 用户侧只需要这一个 Jaravel 依赖 -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-spring-boot-starter</artifactId>
+    </dependency>
+    <!--
+      cache 的 caffeine 驱动。jaravel-cache 对它是 optional ——
+      不引时默认驱动自动退回 array(进程内、无上限)。
+      生产环境建议显式引入:array 不会淘汰任何东西。
+    -->
+    <dependency>
+      <groupId>com.github.ben-manes.caffeine</groupId>
+      <artifactId>caffeine</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.xerial</groupId>
+      <artifactId>sqlite-jdbc</artifactId>
+      <version>3.47.1.0</version>
+    </dependency>
+    <!-- FeatureTest / TestResponse / 数据库断言 / 自动回滚 -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-testing</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <version>${spring-boot.version}</version>
+        <!-- Jaravel 应用不继承 spring-boot-starter-parent(用的是 jaravel-bom),
+             因此 repackage 目标必须显式绑定,否则打出的 jar 没有 Main-Class。
+             jaravel new 的脚手架需要包含这段。 -->
+        <executions>
+          <execution>
+            <goals><goal>repackage</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+        <configuration>
+          <compilerArgs><arg>-parameters</arg></compilerArgs>
+          <!-- @Model 的代码生成。没有它 Invoice 的父类 InvoiceBase 不存在,编译就过不去。 -->
+          <annotationProcessorPaths>
+            <path>
+              <groupId>io.jaravel</groupId>
+              <artifactId>jaravel-eloquent-processor</artifactId>
+              <version>${jaravel.version}</version>
+            </path>
+          </annotationProcessorPaths>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

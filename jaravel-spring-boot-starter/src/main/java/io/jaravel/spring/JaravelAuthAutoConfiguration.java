@@ -345,24 +345,43 @@ public class JaravelAuthAutoConfiguration {
         var manager = new AuthManager();
 
         Map<String, Object> providers = config.section("auth.providers");
+        Map<String, Object> guards = config.section("auth.guards");
+
+        // ★ 完全没配 auth 的应用是**合法**的。
+        //
+        // 一个纯队列应用、一个只对内提供 JSON 的服务、一个 CLI 工具
+        // 都不需要认证。之前这里直接抛异常,于是
+        // 「我只想用队列」变成了「先去配一个用户模型」——
+        // 而那个报错出现在启动时,内容是「认证无法工作」,
+        // 对一个根本没想用认证的人毫无意义。
+        //
+        // 空配置时注册一个**空的** AuthManager:它能被注入,
+        // 但任何 guard 查询都会得到 AuthManager 自己那条
+        // 「没有名为 X 的 guard」的错误 —— 那条消息指向真正的问题。
+        if (providers.isEmpty() && guards.isEmpty()) {
+            Auth.use(manager);
+            return manager;
+        }
+
+        // 只配了一半才是真的错 —— 那是写配置时漏了,不是「不需要认证」
         if (providers.isEmpty()) {
             throw new IllegalStateException("""
-                    auth.providers 是空的 —— 没有任何用户来源,认证无法工作。
+                    配了 auth.guards 但 auth.providers 是空的 —— guard 没有用户来源。
                       在 config/auth.yml 里加:
                         auth:
                           providers:
                             users:
                               driver: eloquent
                               model: com.example.models.User
-                      运行 install:auth 会生成一份带注释的完整模板。""");
+                      运行 install:auth 会生成一份带注释的完整模板。
+                      (完全不需要认证的应用可以把整个 auth 段删掉。)""");
         }
         providers.keySet().forEach(name ->
                 manager.registerProvider(buildProvider(name, config, hashes)));
 
-        Map<String, Object> guards = config.section("auth.guards");
         if (guards.isEmpty()) {
             throw new IllegalStateException(
-                    "auth.guards 是空的。至少要有一个 guard,例如"
+                    "配了 auth.providers 但 auth.guards 是空的 —— 没有东西去用那个 provider。"
                   + "\n    guards:\n      web: { driver: session, provider: users }");
         }
         for (String name : guards.keySet()) {
@@ -512,10 +531,33 @@ public class JaravelAuthAutoConfiguration {
 
     // ================= 密码重置与邮箱验证 =================
 
+    /**
+     * 密码重置。
+     *
+     * <p>**没配 auth.providers 时返回 null** —— 没配认证的应用
+     * (纯队列服务、内部 JSON 接口、CLI 工具)也该能启动。
+     *
+     * <p>这个判断原本没有,后果是一个只想用队列的应用在启动时
+     * 撞上「没有名为 users 的 user provider」。那条消息本身是对的,
+     * 但对一个根本没想用认证的人来说是噪音,而且它**阻止启动** ——
+     * 一个用不到的功能不该有这个权力。
+     *
+     * <p>为什么是「方法里判断 + 返回 null」而不是
+     * {@code @ConditionalOnProperty}:Jaravel 的配置来自
+     * {@code config/*.yml},它**不在 Spring 的 Environment 里**,
+     * 所以 Spring 的条件注解看不到 {@code auth.providers}。
+     * 而且 provider 的名字是任意的,按固定键名判断也不成立。
+     *
+     * <p>返回 null 的效果:Spring 把它记成 NullBean,按类型注入时
+     * 报「没有可用的 bean」—— 对一个「没配认证却想用密码重置」的
+     * 应用来说那正是该看到的错。
+     */
     @Bean
     @ConditionalOnMissingBean
     public PasswordBroker jaravelPasswordBroker(AuthManager auth, ConfigRepository config,
                                                 ObjectProvider<Connection> connection) {
+        if (config.section("auth.providers").isEmpty()) return null;
+
         var broker = new PasswordBroker(
                 auth.provider(config.string("auth.passwords.provider", "users")),
                 requireConnection(connection, "password-reset"),

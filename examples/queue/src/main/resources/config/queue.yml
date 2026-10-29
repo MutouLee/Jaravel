@@ -1,0 +1,34 @@
+queue:
+  # 默认连接。生产用 database 或 redis;sync 只适合开发期调试 ——
+  # 它让所有后台任务在请求线程里跑,症状是接口莫名很慢而功能看起来正常
+  default: ${QUEUE_CONNECTION:database}
+
+  # 等事务提交后才真正入队。**默认开**,关掉会产生一类很难查的 bug:
+  # 事务回滚了但任务已经在队列里,worker 取出来发现记录不存在,
+  # 重试耗尽后失败,而失败日志指向「记录不存在」而不是真正的原因
+  after-commit: true
+
+  connections:
+    database:
+      driver: database
+      table: jobs
+      queue: default
+      # ⚠ 必须大于任务的最长执行时间。小于的话任务会在**还在跑的时候**
+      #   被另一个 worker 再取一遍 —— 这是 database 驱动最容易踩的坑
+      retry-after: PT90S
+
+    sync:
+      driver: sync
+
+  failed:
+    table: failed_jobs
+
+  batching:
+    table: job_batches
+
+  worker:
+    # 默认 false:web 与 worker 应分开伸缩与重启。
+    # 这个示例的测试自己起 worker,所以这里保持关闭
+    enabled: false
+    queues: mail,reports,default
+    concurrency: 5

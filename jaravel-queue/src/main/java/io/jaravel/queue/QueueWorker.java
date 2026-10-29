@@ -681,16 +681,53 @@ public final class QueueWorker {
 
         var repository = queues.requireBatches();
         try {
-            repository.recordSuccess(envelope.batchId());
-            finishBatchIfDone(repository, envelope.batchId());
+            withRetry("批次 " + envelope.batchId() + " 的成功计数", () -> {
+                repository.recordSuccess(envelope.batchId());
+                finishBatchIfDone(repository, envelope.batchId());
+            });
         } catch (RuntimeException e) {
             // 计数失败不能把任务判成失败 —— 它已经成功执行并被删掉了。
             // 但要吵:计数丢了的后果是批次永远完不了
             System.err.printf(
-                    "[jaravel] 批次 %s 的成功计数写入失败:%s%n"
-                            + "          该批次可能永远停在未完成状态。%n",
+                    "[jaravel] 批次 %s 的成功计数最终写入失败:%s%n"
+                            + "          该批次会永远停在未完成状态,then / finally 回调不会触发。%n",
                     envelope.batchId(), e.getMessage());
         }
+    }
+
+    /**
+     * 批次计数的有界重试。
+     *
+     * <p>**为什么批次计数需要重试,而任务本身不需要**:任务失败有
+     * 完整的退路(release 重试、failed_jobs 归档),而批次计数没有 ——
+     * 它丢一次,这个批次就**永远**完不了,`then` 回调永不触发。
+     * 那是个不可恢复的状态,而触发它只需要一次瞬时的锁竞争。
+     *
+     * <p>锁竞争在真实数据库上也会发生:MySQL 的死锁检测会随机挑一个
+     * 事务做牺牲者,被挑中的那次 UPDATE 就会失败。不重试的话
+     * 「大批次偶尔卡住」会变成一个无法复现的报告。
+     *
+     * <p>重试次数刻意少(3 次、几十毫秒):这里不是在扛持续的故障,
+     * 只是在扛一次瞬时竞争。库真的挂了的话重试一百次也没用,
+     * 而那时要的是那条「批次会永远停住」的告警。
+     */
+    private void withRetry(String what, Runnable action) {
+        RuntimeException last = null;
+
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                action.run();
+                return;
+            } catch (RuntimeException e) {
+                last = e;
+                if (attempt == 3) break;
+
+                System.err.printf("[jaravel] %s 写入失败(第 %d 次),重试:%s%n",
+                        what, attempt, e.getMessage());
+                sleepQuietly(Duration.ofMillis(20L * attempt));
+            }
+        }
+        throw last;
     }
 
     private void recordBatchFailure(QueuedJob envelope) {
@@ -698,24 +735,26 @@ public final class QueueWorker {
 
         var repository = queues.requireBatches();
         try {
-            Batch batch = repository.recordFailure(envelope.batchId(), envelope.uuid());
+            withRetry("批次 " + envelope.batchId() + " 的失败计数", () -> {
+                Batch batch = repository.recordFailure(envelope.batchId(), envelope.uuid());
 
-            // catch 回调只在**第一个**失败时投。判定用「失败数 == 1」,
-            // 而那个数来自原子 UPDATE 之后的读取 —— 两条 UPDATE 由行锁
-            // 串行化,所以并发下不会有两个 worker 都读到 1
-            if (batch.failedJobs() == 1) {
-                dispatchCallback(repository, batch.id(), BatchRepository.Kind.CATCH);
-            }
+                // catch 回调只在**第一个**失败时投。判定用「失败数 == 1」,
+                // 而那个数来自原子 UPDATE 之后的读取 —— 两条 UPDATE 由行锁
+                // 串行化,所以并发下不会有两个 worker 都读到 1
+                if (batch.failedJobs() == 1) {
+                    dispatchCallback(repository, batch.id(), BatchRepository.Kind.CATCH);
+                }
 
-            // 不允许失败 → 取消剩余的。先取消再判完成:
-            // 反过来的话剩余任务可能在这中间出队并执行
-            if (!batch.allowsFailures()) {
-                repository.cancel(batch.id());
-            }
+                // 不允许失败 → 取消剩余的。先取消再判完成:
+                // 反过来的话剩余任务可能在这中间出队并执行
+                if (!batch.allowsFailures()) {
+                    repository.cancel(batch.id());
+                }
 
-            finishBatchIfDone(repository, batch.id());
+                finishBatchIfDone(repository, batch.id());
+            });
         } catch (RuntimeException e) {
-            System.err.printf("[jaravel] 批次 %s 的失败计数写入失败:%s%n",
+            System.err.printf("[jaravel] 批次 %s 的失败计数最终写入失败:%s%n",
                     envelope.batchId(), e.getMessage());
         }
     }

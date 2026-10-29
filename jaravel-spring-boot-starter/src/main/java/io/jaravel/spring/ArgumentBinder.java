@@ -257,9 +257,41 @@ final class ArgumentBinder {
         for (int i = 0; i < sources.size(); i++) {
             Source s = sources.get(i);
             if (s instanceof Source.PathParam p) claimed.add(p.name());
+
+            // ★ BoundModel 也占住一个路径参数 —— 漏了它的后果是
+            // **每一条用隐式模型绑定的路由都会误报**:
+            //     r.get("/invoices/{invoice}", c::show)   →  show(Invoice invoice)
+            // 这里 {invoice} 明明被接住了,只是走的是模型绑定而不是
+            // 字符串路径参数。
+            //
+            // 这个漏洞在隐式模型绑定加进来时产生,而它不会让任何测试变红 ——
+            // 警告只是打到 stderr。它是靠跑一个真实示例才看见的
+            if (s instanceof Source.BoundModel b) claimed.add(b.name());
         }
         var unclaimed = pathNames.stream().filter(n -> !claimed.contains(n)).toList();
         if (unclaimed.isEmpty()) return;
+
+        // ★ 方法里没有任何「本可以接住路径参数」的参数时**不警告**。
+        //
+        // 典型写法:
+        //     public Map<String, Object> show(Request request) {
+        //         String id = request.routeParam("batch").orElseThrow();
+        //     }
+        //
+        // 这时警告是**误报**:没有候选参数,也就不存在「{batch} 拼成了
+        // {bach}」这种对应关系 —— 那条「可能的对应关系」提示会是空的。
+        //
+        // 而误报的代价很高:一个在正确代码上也会响的警告,会训练人
+        // 忽略所有警告,于是它本来要抓的那个拼写错误也一起被忽略了。
+        //
+        // 仍然会警告的情况:方法里确实有一个值参数却没被接上 ——
+        // 那正是拼写错误的样子。
+        boolean hasBindableCandidate = sources.stream().anyMatch(s ->
+                s instanceof Source.PathParam
+                        || s instanceof Source.BoundModel
+                        || s instanceof Source.QueryParam
+                        || s instanceof Source.AnyInput);
+        if (!hasBindableCandidate) return;
 
         var paramNames = java.util.Arrays.stream(method.getParameters())
                 .map(Parameter::getName).toList();

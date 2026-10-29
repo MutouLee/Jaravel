@@ -33,6 +33,9 @@
     <module>jaravel-migration</module>
     <module>jaravel-validation</module>
     <module>jaravel-queue</module>
+    <module>jaravel-events</module>
+    <module>jaravel-events-processor</module>
+    <module>jaravel-events-tests</module>
     <module>jaravel-cache</module>
     <module>jaravel-session</module>
     <module>jaravel-auth</module>
@@ -82,6 +85,8 @@
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-migration</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-validation</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-queue</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-events</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-events-processor</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-cache</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-session</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-auth</artifactId><version>${project.version}</version></dependency>

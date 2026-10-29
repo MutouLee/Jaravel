@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.jaravel</groupId>
+    <artifactId>jaravel-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>jaravel-events-tests</artifactId>
+  <name>Jaravel :: 事件集成测试</name>
+  <description>
+    跑总线 + APT 生成的真实绑定。独立成模块的理由与 jaravel-eloquent-tests 相同:
+    处理器依赖 jaravel-events,把「用处理器生成的绑定」放回 jaravel-events
+    会形成循环依赖。
+
+    这里测的是「生成的代码能不能用」—— compile-testing 只能断言编译结果,
+    断不了运行行为。
+  </description>
+
+  <properties>
+    <maven.deploy.skip>true</maven.deploy.skip>
+    <maven.install.skip>true</maven.install.skip>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-events</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-events-processor</artifactId>
+      <!-- provided:只在编译期生成代码,不进运行时 -->
+      <scope>provided</scope>
+    </dependency>
+    <!-- 队列化监听器的判定要能看到 ShouldQueue -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-queue</artifactId>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <annotationProcessorPaths>
+            <path>
+              <groupId>io.jaravel</groupId>
+              <artifactId>jaravel-events-processor</artifactId>
+              <version>${project.version}</version>
+            </path>
+          </annotationProcessorPaths>
+          <compilerArgs>
+            <arg>-parameters</arg>
+          </compilerArgs>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

@@ -96,13 +96,29 @@ public final class JobSerializer {
      */
     @SuppressWarnings("unchecked")
     public Map<String, Object> toData(ShouldQueue job) {
+        return toMap(job, "任务");
+    }
+
+    /**
+     * 把任意对象摊成 map。
+     *
+     * <p>存在的理由:队列化的**事件监听器**要把事件本身序列化进 payload,
+     * 而事件不是 {@code ShouldQueue}。两者的失败模式与诊断信息完全相同
+     * (字段里放了模型、放了 Lambda),所以共用一条实现 ——
+     * 分成两套的话其中一套的错误消息注定会落后。
+     */
+    public Map<String, Object> toMap(Object value) {
+        return toMap(value, "对象");
+    }
+
+    private Map<String, Object> toMap(Object job, String what) {
         if (!hasSerializableFields(job.getClass())) return Map.of();
 
         try {
             return mapper.convertValue(job, Map.class);
         } catch (RuntimeException e) {
             throw new UnserializableJobException("""
-                    任务 %s 无法序列化成 JSON:%s
+                    %s %s 无法序列化成 JSON:%s
                       payload 必须是 JSON 可表示的。常见原因:
                         · 字段是 Eloquent 模型或其它实体 —— 改成只存主键,
                           在 handle() 里重新查询(见 ShouldQueue 的类注释);
@@ -111,7 +127,7 @@ public final class JobSerializer {
                         · 字段是自定义类型但没有可序列化的结构。
                       这里在**投递时**就失败,而不是等 worker 取出来 ——
                       那时调用栈离原因很远。"""
-                    .formatted(job.getClass().getName(), e.getMessage()), e);
+                    .formatted(what, job.getClass().getName(), e.getMessage()), e);
         }
     }
 

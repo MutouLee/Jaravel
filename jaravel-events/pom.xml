@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.jaravel</groupId>
+    <artifactId>jaravel-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>jaravel-events</artifactId>
+  <name>Jaravel :: 事件</name>
+  <description>事件总线、@Listener、队列化监听器、Event.fake()</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-support</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-core</artifactId>
+    </dependency>
+
+    <!--
+      事务后分发({@code dispatchAfterCommit})要知道「现在在不在事务里」。
+      optional:一个无库应用照样能用事件 —— 那时 afterCommit 退化成
+      立即分发,并在 debug 模式下提醒一次。
+    -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-database</artifactId>
+      <optional>true</optional>
+    </dependency>
+
+    <!--
+      队列化监听器({@code @Listener implements ShouldQueue})。
+      optional:不用异步监听器的应用不该被迫引入队列。
+      真遇到一个队列化监听器而队列不在 classpath 上时**报错** ——
+      静默同步执行会让「我以为它是异步的」变成一个性能谜题。
+    -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-queue</artifactId>
+      <optional>true</optional>
+    </dependency>
+  </dependencies>
+
+</project>

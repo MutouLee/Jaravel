@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.jaravel</groupId>
+    <artifactId>jaravel-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>jaravel-auth</artifactId>
+  <name>Jaravel :: 认证与授权</name>
+  <description>
+    Guard / UserProvider / Hash 与 Gate / Policy。
+    明确不以 Spring Security 为底座(见 docs/08 §8)。
+  </description>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-http</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-session</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-cache</artifactId>
+    </dependency>
+    <!-- EloquentUserProvider;用 database 提供器的人不必拉 ORM -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-eloquent</artifactId>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-database</artifactId>
+      <optional>true</optional>
+    </dependency>
+
+    <!--
+      bcrypt / argon2id 的可选实现。
+      只用 spring-security-crypto 这一个**独立 crypto jar** ——
+      它不含 Filter 链、不含 Spring 容器,见 ArchUnit 规则里的白名单说明。
+      不引它时默认算法是 core 的 PBKDF2-HMAC-SHA512。
+    -->
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-crypto</artifactId>
+      <optional>true</optional>
+    </dependency>
+
+    <dependency>
+      <groupId>org.xerial</groupId>
+      <artifactId>sqlite-jdbc</artifactId>
+      <version>${sqlite.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+</project>

@@ -36,6 +36,9 @@ class ArchitectureBoundaryTest {
             "io.jaravel.eloquent..",
             "io.jaravel.migration..",
             "io.jaravel.validation..",
+            "io.jaravel.cache..",
+            "io.jaravel.session..",
+            "io.jaravel.auth..",
     };
 
     /** 唯一允许接触 Spring 的地方 */
@@ -57,13 +60,34 @@ class ArchitectureBoundaryTest {
     @Test
     @DisplayName("★ ADR-001:核心模块不得依赖 Spring")
     void coreModulesMustNotDependOnSpring() {
+        // 规则要守的是「不绑定 Spring 这个**运行时**」,而不是
+        // 「禁止一切 org.springframework 坐标」。所以禁的是构成运行时的那几块:
+        // 容器、Boot、Web、AOP、事务、数据访问。
+        //
+        // 唯一的例外是 org.springframework.security.crypto.. ——
+        // 它是一个**独立的 crypto jar**,不含 Filter 链、不含 ApplicationContext,
+        // 用它只为复用经过审计的 bcrypt / argon2 实现(docs/08 §4 的
+        // 「不自己写密码学代码」)。而且 jaravel-auth 对它是 optional:
+        // 不用 bcrypt 的项目完全不会拉到它,默认算法是 JDK 的 PBKDF2。
         ArchRule rule = noClasses()
                 .that().resideInAnyPackage(FRAMEWORK_PACKAGES)
                 .should().dependOnClassesThat().resideInAnyPackage(
-                        "org.springframework..")
-                .because("ADR-001:Spring 只能出现在 jaravel-spring-boot-starter。"
+                        "org.springframework.boot..",
+                        "org.springframework.context..",
+                        "org.springframework.beans..",
+                        "org.springframework.web..",
+                        "org.springframework.aop..",
+                        "org.springframework.core..",
+                        "org.springframework.transaction..",
+                        "org.springframework.jdbc..",
+                        "org.springframework.data..",
+                        "org.springframework.security.config..",
+                        "org.springframework.security.web..")
+                .because("ADR-001:Spring 运行时只能出现在 jaravel-spring-boot-starter。"
                        + "核心依赖 Spring 会让版本漂移波及全框架,"
-                       + "并断掉将来换到 Quarkus / 纯 Netty 的可能");
+                       + "并断掉将来换到 Quarkus / 纯 Netty 的可能。"
+                       + "spring-security-crypto 不在禁列 —— 它是独立 crypto 库,"
+                       + "不含 Filter 链与容器,且是 optional 依赖");
 
         rule.check(jaravelClasses);
     }
@@ -130,6 +154,34 @@ class ArchitectureBoundaryTest {
                 .because("数据层不该知道 HTTP 的存在 —— 这让它在 CLI / 队列场景同样可用;"
                        + "也不该知道 Eloquent —— 查询构造器要能脱离 ORM 单独使用");
 
+        // v0.3 新增:缓存是最底层的横切能力,不该知道任何上层
+        ArchRule cacheIsIndependent = noClasses()
+                .that().resideInAPackage("io.jaravel.cache..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "io.jaravel.http..", "io.jaravel.routing..", "io.jaravel.view..",
+                        "io.jaravel.eloquent..", "io.jaravel.session..",
+                        "io.jaravel.auth..", "io.jaravel.spring..")
+                .because("缓存要能被会话、认证、限流共用,因此它不能依赖其中任何一个");
+
+        // 会话可以依赖 http(它要读写 cookie)与 cache(存储后端),
+        // 但不该知道认证 —— 反向依赖是 auth → session
+        ArchRule sessionDoesNotDependOnAuth = noClasses()
+                .that().resideInAPackage("io.jaravel.session..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "io.jaravel.auth..", "io.jaravel.routing..",
+                        "io.jaravel.view..", "io.jaravel.spring..")
+                .because("会话是认证的基础设施,不是反过来。"
+                       + "让 session 知道 auth 会形成环,也让「只要会话不要认证」不可能");
+
+        // 认证在最上层,但仍然不碰 Spring 运行时与路由注册
+        ArchRule authDoesNotDependOnRouting = noClasses()
+                .that().resideInAPackage("io.jaravel.auth..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "io.jaravel.routing..", "io.jaravel.view..", "io.jaravel.spring..")
+                .because("认证中间件只与 Request/Response 打交道。"
+                       + "依赖 routing 会让「在非 HTTP 上下文里用 Auth」变得不可能,"
+                       + "而队列任务需要它");
+
         // v0.2 新增:迁移不该知道 web,也不该依赖 ORM
         // (只用 Schema + 迁移、不用 Eloquent 是正当用法,pom 里是 optional)
         ArchRule migrationIsIndependentOfWeb = noClasses()
@@ -170,6 +222,9 @@ class ArchitectureBoundaryTest {
         eloquentIsIndependentOfWeb.check(jaravelClasses);
         migrationIsIndependentOfWeb.check(jaravelClasses);
         validationIsIndependentOfRouting.check(jaravelClasses);
+        cacheIsIndependent.check(jaravelClasses);
+        sessionDoesNotDependOnAuth.check(jaravelClasses);
+        authDoesNotDependOnRouting.check(jaravelClasses);
         viewIsIndependentOfWeb.check(jaravelClasses);
     }
 

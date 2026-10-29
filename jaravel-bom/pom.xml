@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!-- 刻意不继承 jaravel-parent:BOM 继承 parent 会形成 import 循环,
+       且 BOM 不该携带构建配置。Spring 自己的 BOM 同样是独立的。 -->
+  <groupId>io.jaravel</groupId>
+  <artifactId>jaravel-bom</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+
+  <name>Jaravel :: BOM</name>
+  <description>统一版本管理。用户侧 import 这一个即可</description>
+
+  <properties>
+    <jaravel.version>0.1.0-SNAPSHOT</jaravel.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-support</artifactId><version>${jaravel.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-core</artifactId><version>${jaravel.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-http</artifactId><version>${jaravel.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-routing</artifactId><version>${jaravel.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-view</artifactId><version>${jaravel.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-database</artifactId><version>${jaravel.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-spring-boot-starter</artifactId><version>${jaravel.version}</version></dependency>
+    </dependencies>
+  </dependencyManagement>
+</project>

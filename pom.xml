@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>io.jaravel</groupId>
+  <artifactId>jaravel-parent</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+
+  <name>Jaravel</name>
+  <description>Laravel 级开发体验,构建在 Spring Boot 之上的 Java 应用框架</description>
+  <url>https://github.com/MutouLee/Jaravel</url>
+
+  <licenses>
+    <license>
+      <name>Apache-2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+    </license>
+  </licenses>
+
+  <modules>
+    <module>jaravel-bom</module>
+    <module>jaravel-support</module>
+    <module>jaravel-core</module>
+    <module>jaravel-http</module>
+    <module>jaravel-routing</module>
+    <module>jaravel-view</module>
+    <module>jaravel-database</module>
+    <module>jaravel-spring-boot-starter</module>
+  </modules>
+
+  <properties>
+    <!-- ADR-007:基线 Java 21 -->
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+    <spring-boot.version>3.4.1</spring-boot.version>
+    <!-- ADR-011:jblade 以 jte 为后端 -->
+    <jte.version>3.1.12</jte.version>
+    <junit.version>5.11.4</junit.version>
+    <assertj.version>3.27.0</assertj.version>
+    <archunit.version>1.3.0</archunit.version>
+    <sqlite.version>3.47.1.0</sqlite.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${spring-boot.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <!-- 内部模块版本。不 import jaravel-bom —— 那会与 parent 形成循环。
+           jaravel-bom 是给**外部用户**的,独立不继承 parent。 -->
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-support</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-core</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-http</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-routing</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-view</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-database</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-spring-boot-starter</artifactId><version>${project.version}</version></dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <!-- 全模块共享的测试依赖 -->
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-params</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>3.13.0</version>
+          <configuration>
+            <compilerArgs>
+              <!-- 路由参数绑定的反射回落路径需要参数名 -->
+              <arg>-parameters</arg>
+            </compilerArgs>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>3.5.2</version>
+          <configuration>
+            <argLine>-Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8</argLine>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-maven-plugin</artifactId>
+          <version>${spring-boot.version}</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+</project>

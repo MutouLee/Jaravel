@@ -272,6 +272,10 @@ public final class QueueWorker {
             return;
         }
 
+        // 批次被取消了 —— 这条任务直接丢弃,不执行。
+        // 「取消」的落点就在这里:正在跑的不打断,还没出队的在出队时跳过
+        if (skipBecauseBatchCancelled(envelope)) return;
+
         var heartbeat = startHeartbeat(envelope);
         var decision = new MiddlewareDecision(job, envelope);
         try {
@@ -303,6 +307,12 @@ public final class QueueWorker {
             store.delete(envelope);
             succeeded.incrementAndGet();
             listeners.forEach(l -> l.onSuccess(envelope));
+
+            // 删除**之后**才推进链与批。顺序是必须的:反过来的话
+            // worker 崩在「推下一环」与「删当前环」之间,会让当前环
+            // 被重新取出再跑一次,于是下一环被投两次
+            advanceChain(envelope);
+            recordBatchSuccess(envelope);
 
         } catch (Throwable cause) {
             if (wasAbandoned(envelope)) {
@@ -554,9 +564,13 @@ public final class QueueWorker {
      * 那正是 docs/02 要消除的那个 Laravel 经典坑。
      */
     private void runInScope(QueuedJob envelope, ShouldQueue job) throws Exception {
+        // 信封级上下文 → handle 的注入参数。
+        // 普通任务的 context 是空的,这里返回空 map,参数照常从容器解析
+        var contextual = JobContext.resolve(envelope, queues, queues.serializer());
+
         ExecutionScope.runIn("queue", () -> {
             ExecutionScope.current().put("queue.job", envelope);
-            invoker.invoke(job);
+            invoker.invoke(job, contextual);
         });
     }
 
@@ -565,15 +579,25 @@ public final class QueueWorker {
     private void handleFailure(QueuedJob envelope, ShouldQueue job, Throwable cause) {
         Instant now = Instant.now();
 
-        if (envelope.canRetry(now) && exceptionsWithinLimit(envelope)) {
-            Duration delay = backoffFor(job, envelope.attempts());
-            store.release(envelope, delay);
+        // 真正抛了异常 —— 这一次要计入 exceptions。被中间件 release 的
+        // 那些走 applyDecision,不经过这里,所以不计数。
+        // 这正是 maxExceptions 与 tries 得以区分的地方
+        QueuedJob failed = envelope.withException();
+
+        if (failed.canRetry(now)) {
+            Duration delay = backoffFor(job, failed.attempts());
+            store.release(failed, delay);
             released.incrementAndGet();
-            listeners.forEach(l -> l.onRetry(envelope, cause, delay));
+            listeners.forEach(l -> l.onRetry(failed, cause, delay));
             return;
         }
 
-        archive(envelope, cause, envelope.exhaustionReason(now));
+        archive(failed, cause, failed.exhaustionReason(now));
+
+        // 链在这里断开:**后续各环不执行**,改投 catch 回调。
+        // 归档之后才做 —— 回调里可能去查 failed_jobs
+        breakChain(failed, cause);
+        recordBatchFailure(failed);
 
         // failed() 在归档**之后**调:它可能自己抛异常,而那时
         // 失败记录必须已经写进去了 —— 否则一个写错的 failed()
@@ -587,19 +611,155 @@ public final class QueueWorker {
         }
     }
 
+    // ================= 链 =================
+
     /**
-     * 异常次数是否还在上限内。
+     * 前一环成功了,投下一环。
      *
-     * <p>{@code maxExceptions} 与 {@code tries} 的区别见
-     * {@link ShouldQueue#maxExceptions()}:前者只数真正炸掉的次数。
-     *
-     * <p>当前实现用 attempts 近似 —— 因为「主动 release」还没实现
-     * (任务中间件在下一块)。等它实现后这里要改成读真正的异常计数,
-     * 否则 maxExceptions 与 tries 完全等价。**这一点写在这里而不是
-     * 悄悄放过**,免得将来有人以为它已经生效了。
+     * <p>链的状态就在信封里 —— 没有「链进度表」要同步,
+     * 所以不存在「队列与进度不一致」的中间态。
+     * 理由见 {@link PendingChain} 的类注释。
      */
-    private boolean exceptionsWithinLimit(QueuedJob envelope) {
-        return envelope.attempts() < envelope.maxExceptions();
+    private void advanceChain(QueuedJob envelope) {
+        envelope.nextInChain(Instant.now()).ifPresent(next -> {
+            // 下一环可能指定了别的队列,但**连接**与当前相同 ——
+            // 跨连接的链会让「链断在哪」变成一个要查两个存储的问题
+            store.push(next);
+            listeners.forEach(l -> l.onChainAdvanced(envelope, next));
+        });
+    }
+
+    /**
+     * 链断了。
+     *
+     * <p>**后续各环被丢弃**,它们在信封里,随信封一起消失 ——
+     * 不需要额外的清理。这是「链存在信封里」带来的好处。
+     */
+    private void breakChain(QueuedJob envelope, Throwable cause) {
+        if (envelope.chainCatch() == null && !envelope.hasChain()) return;
+
+        listeners.forEach(l -> l.onChainBroken(envelope, cause));
+
+        QueuedJob handler = envelope.chainCatch();
+        if (handler == null) return;
+
+        // 失败上下文单独记着 —— 原始 Throwable 没法穿过队列,
+        // 见 ChainFailure 的类注释
+        var failure = ChainFailure.of(envelope, cause);
+        try {
+            store.push(handler.withChain(java.util.List.of(), null)
+                    .withContext(JobContext.CHAIN_FAILURE, failure));
+        } catch (RuntimeException e) {
+            // 回调投不进去时不能让它静默消失:那条链断了而没人知道
+            System.err.printf(
+                    "[jaravel] 链中断回调 %s 投递失败:%s%n          原始失败:%s%n",
+                    handler.displayName(), e.getMessage(), failure);
+        }
+    }
+
+    // ================= 批 =================
+
+    /**
+     * 批次已取消时跳过这条任务。
+     *
+     * <p>删掉而不是放回 —— 放回会让它在队列里反复出队、反复跳过,
+     * 直到保留超时耗尽,白烧一轮又一轮查询。
+     */
+    private boolean skipBecauseBatchCancelled(QueuedJob envelope) {
+        if (envelope.batchId() == null || !queues.hasBatches()) return false;
+
+        var batch = queues.requireBatches().find(envelope.batchId());
+        if (batch.isEmpty() || !batch.get().isCancelled()) return false;
+
+        store.delete(envelope);
+        listeners.forEach(l -> l.onDiscarded(envelope, "所属批次已取消"));
+        return true;
+    }
+
+    private void recordBatchSuccess(QueuedJob envelope) {
+        if (envelope.batchId() == null || !queues.hasBatches()) return;
+
+        var repository = queues.requireBatches();
+        try {
+            repository.recordSuccess(envelope.batchId());
+            finishBatchIfDone(repository, envelope.batchId());
+        } catch (RuntimeException e) {
+            // 计数失败不能把任务判成失败 —— 它已经成功执行并被删掉了。
+            // 但要吵:计数丢了的后果是批次永远完不了
+            System.err.printf(
+                    "[jaravel] 批次 %s 的成功计数写入失败:%s%n"
+                            + "          该批次可能永远停在未完成状态。%n",
+                    envelope.batchId(), e.getMessage());
+        }
+    }
+
+    private void recordBatchFailure(QueuedJob envelope) {
+        if (envelope.batchId() == null || !queues.hasBatches()) return;
+
+        var repository = queues.requireBatches();
+        try {
+            Batch batch = repository.recordFailure(envelope.batchId(), envelope.uuid());
+
+            // catch 回调只在**第一个**失败时投。判定用「失败数 == 1」,
+            // 而那个数来自原子 UPDATE 之后的读取 —— 两条 UPDATE 由行锁
+            // 串行化,所以并发下不会有两个 worker 都读到 1
+            if (batch.failedJobs() == 1) {
+                dispatchCallback(repository, batch.id(), BatchRepository.Kind.CATCH);
+            }
+
+            // 不允许失败 → 取消剩余的。先取消再判完成:
+            // 反过来的话剩余任务可能在这中间出队并执行
+            if (!batch.allowsFailures()) {
+                repository.cancel(batch.id());
+            }
+
+            finishBatchIfDone(repository, batch.id());
+        } catch (RuntimeException e) {
+            System.err.printf("[jaravel] 批次 %s 的失败计数写入失败:%s%n",
+                    envelope.batchId(), e.getMessage());
+        }
+    }
+
+    /**
+     * 批次全部有结果了吗,是就投 then / finally。
+     *
+     * <p>「是不是最后一个」**不由计数判定**,而由
+     * {@link BatchRepository#markFinished} 的条件 UPDATE 判定 ——
+     * 只有把 finished_at 从 null 改掉的那一次返回 true。
+     *
+     * <p>理由见 {@code DatabaseBatchRepository} 的类注释:
+     * 计数可以近似,回调不能重复。一个「给所有人发汇总邮件」的回调
+     * 跑两遍是用户可见的事故。
+     */
+    private void finishBatchIfDone(BatchRepository repository, String batchId) {
+        Batch batch = repository.find(batchId).orElse(null);
+        if (batch == null || batch.pendingJobs() > 0) return;
+
+        if (!repository.markFinished(batchId)) return;      // 别人已经标过了
+
+        if (!batch.hasFailures()) {
+            dispatchCallback(repository, batchId, BatchRepository.Kind.THEN);
+        }
+        dispatchCallback(repository, batchId, BatchRepository.Kind.FINALLY);
+
+        listeners.forEach(l -> l.onBatchFinished(batch));
+    }
+
+    private void dispatchCallback(BatchRepository repository, String batchId,
+                                  BatchRepository.Kind kind) {
+        repository.callback(batchId, kind).ifPresent(callback -> {
+            try {
+                // 批次 id 放在 **context** 而不是 batchId 字段里:
+                // batchId 的语义是「这条任务计入该批次的计数」,
+                // 而回调不该被计数(它不在 total_jobs 里)。
+                // 两者分开才能让 handle(Batch batch) 拿到批次
+                // 而不会把 pending_jobs 减成负数
+                store.push(callback.withContext(JobContext.BATCH_ID, batchId));
+            } catch (RuntimeException e) {
+                System.err.printf("[jaravel] 批次 %s 的 %s 回调投递失败:%s%n",
+                        batchId, kind, e.getMessage());
+            }
+        });
     }
 
     private void archive(QueuedJob envelope, Throwable cause, String reason) {
@@ -753,6 +913,15 @@ public final class QueueWorker {
 
         /** 中间件丢弃了任务 —— 不算失败,是个正常结束 */
         default void onDiscarded(QueuedJob job, String reason) {}
+
+        /** 链上前一环成功,下一环已入队 */
+        default void onChainAdvanced(QueuedJob finished, QueuedJob next) {}
+
+        /** 链断了 —— 后续各环不会执行 */
+        default void onChainBroken(QueuedJob failedLink, Throwable cause) {}
+
+        /** 批次全部有结果了。这个回调**只会被调一次**,见 markFinished */
+        default void onBatchFinished(Batch batch) {}
     }
 
     /** 超时。见 {@link QueueWorker} 类注释里的语义限制。 */

@@ -201,6 +201,25 @@ public final class JobSerializer {
         }
     }
 
+    /**
+     * 把一个 JSON 往返后的 map 转回具体类型。
+     *
+     * <p>用于信封上下文({@link JobContext}):{@code ChainFailure} 经过
+     * JSON 往返之后是一个 Map,手工取字段的版本会在那个 record
+     * 加字段时**静默少一项**,而少掉的那一项通常正是新加的诊断信息。
+     */
+    public <T> T convert(Object value, Class<T> type) {
+        try {
+            return mapper.convertValue(value, type);
+        } catch (IllegalArgumentException e) {
+            throw new UnserializableJobException("""
+                    无法把信封上下文还原成 %s:%s
+                      上下文:%s
+                      它可能来自另一个版本的 Jaravel。"""
+                    .formatted(type.getSimpleName(), e.getMessage(), value), e);
+        }
+    }
+
     public ObjectMapper mapper() {
         return mapper;
     }

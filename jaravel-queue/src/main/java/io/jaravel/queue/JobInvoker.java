@@ -51,14 +51,45 @@ public final class JobInvoker {
      * @throws JobHandlerException 找不到可调用的 handle
      */
     public void invoke(ShouldQueue job) {
+        invoke(job, java.util.Map.of());
+    }
+
+    /**
+     * 执行任务,并优先用 {@code contextual} 里的实例满足参数。
+     *
+     * <p>用途:批次回调的 {@code handle(Batch batch)}、链中断回调的
+     * {@code handle(ChainFailure failure)}。这些对象**不在容器里** ——
+     * 它们属于「这一次执行」,由信封上下文决定(见 {@link JobContext})。
+     *
+     * <p>上下文优先于容器。反过来的话,一个应用里恰好注册了
+     * {@code Batch} 类型的 bean 就会把回调拿到的批次换成那个 bean ——
+     * 而那种冲突极难发现。
+     */
+    public void invoke(ShouldQueue job, java.util.Map<Class<?>, Object> contextual) {
         Method handle = findHandle(job.getClass());
 
         Object[] args = new Object[handle.getParameterCount()];
         Class<?>[] types = handle.getParameterTypes();
         for (int i = 0; i < args.length; i++) {
+            Object fromContext = contextual.get(types[i]);
+            if (fromContext != null) {
+                args[i] = fromContext;
+                continue;
+            }
             try {
                 args[i] = resolver.apply(types[i]);
             } catch (RuntimeException e) {
+                if (contextual.containsKey(types[i])) {
+                    // 上下文里有这个键但值是 null —— 比如批次行已被 prune 掉。
+                    // 报一个说得清的错,而不是让容器的「找不到 bean」
+                    // 把真正的原因盖掉
+                    throw new JobHandlerException("""
+                            回调任务 %s 需要一个 %s,但它的来源(信封上下文)是空的。
+                              常见原因:对应的批次记录已被删除或 prune 掉了。
+                              prune 只应清理 finished_at 非空的批次。"""
+                            .formatted(job.getClass().getSimpleName(),
+                                       types[i].getSimpleName()), e);
+                }
                 throw new JobHandlerException("""
                         无法为 %s.handle 的第 %d 个参数(%s)解析依赖:%s
                           handle 的参数由容器注入 —— 给它的实现类加

@@ -267,10 +267,9 @@ class QueueTest {
         @Test
         @DisplayName("★ 未知字段报错,不静默忽略")
         void unknownFieldFails() {
-            var envelope = new QueuedJob("u", SendInvoice.class.getName(),
+            var envelope = QueuedJob.forTest("u", SendInvoice.class,
                     Map.of("orderId", 1, "note", "x", "removedField", "y"),
-                    "mail", 0, Instant.now(), Instant.now(), 1,
-                    Duration.ofMinutes(1), null, 5, "x");
+                    "mail", 0, 1);
 
             // 静默忽略的后果:删掉一个 amount 字段之后,积压的旧任务
             // 会被用默认值执行 —— 变成「转账 0 元」
@@ -282,9 +281,8 @@ class QueueTest {
         @Test
         @DisplayName("找不到任务类时说清处理方式")
         void missingClass() {
-            var envelope = new QueuedJob("u", "com.nope.Gone", Map.of(),
-                    "default", 0, Instant.now(), Instant.now(), 1,
-                    null, null, 5, "x");
+            var envelope = QueuedJob.forTest("u", "com.nope.Gone", Map.of(),
+                    "default", 0, 1);
 
             assertThatThrownBy(() -> serializer.toJob(envelope))
                     .hasMessageContaining("queue:forget");
@@ -293,9 +291,8 @@ class QueueTest {
         @Test
         @DisplayName("jobClass 指向一个非任务类时拒绝")
         void notAJob() {
-            var envelope = new QueuedJob("u", String.class.getName(), Map.of(),
-                    "default", 0, Instant.now(), Instant.now(), 1,
-                    null, null, 5, "x");
+            var envelope = QueuedJob.forTest("u", String.class, Map.of(),
+                    "default", 0, 1);
 
             assertThatThrownBy(() -> serializer.toJob(envelope))
                     .hasMessageContaining("不是 ShouldQueue");
@@ -309,9 +306,11 @@ class QueueTest {
     class Retrying {
 
         private QueuedJob jobWith(int attempts, Instant retryUntil) {
+            Instant now = Instant.now();
             return new QueuedJob("u", SendInvoice.class.getName(), Map.of(),
-                    "mail", attempts, Instant.now(), Instant.now(), 3,
-                    null, retryUntil, 5, "x");
+                    "mail", attempts, now, now, 3,
+                    null, retryUntil, 5, "x", 0, null, java.util.List.of(), null,
+                    java.util.Map.of());
         }
 
         @Test

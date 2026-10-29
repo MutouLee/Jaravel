@@ -114,7 +114,9 @@ public class DatabaseQueue implements QueueStore {
             if (reserve(id, reservedAt, now)) {
                 String payload = String.valueOf(candidate.get().get("payload"));
                 // attempts 是**库里**那一份(刚 +1),不是 payload 里的 ——
-                // payload 写入后就不再更新,它只是任务的不变部分
+                // attempts 由 SQL 的 attempts+1 维护,payload 里那份是旧的。
+                // 其余字段(含 exceptions / chain)以 payload 为准 ——
+                // release 会把它重写回去,见 release() 里的注释
                 int attempts = ((Number) candidate.get().get("attempts")).intValue() + 1;
                 return Optional.of(withAttempts(serializer.decode(payload), attempts));
             }
@@ -189,7 +191,11 @@ public class DatabaseQueue implements QueueStore {
     private static QueuedJob withAttempts(QueuedJob job, int attempts) {
         return new QueuedJob(job.uuid(), job.jobClass(), job.data(), job.queue(),
                 attempts, job.pushedAt(), job.availableAt(), job.tries(),
-                job.timeout(), job.retryUntil(), job.maxExceptions(), job.displayName());
+                job.timeout(), job.retryUntil(), job.maxExceptions(), job.displayName(),
+                // exceptions / batchId / chain 来自 **payload** —— 它们在
+                // release 时被重新编码进去,所以能跨出队往返。
+                // attempts 不行:它由 SQL 的 attempts+1 维护,payload 里那份是旧的
+                job.exceptions(), job.batchId(), job.chain(), job.chainCatch(), job.context());
     }
 
     // ================= 完成与放回 =================
@@ -205,6 +211,16 @@ public class DatabaseQueue implements QueueStore {
         values.put("reserved_at", null);
         values.put("available_at", Instant.now().plus(
                 delay == null ? Duration.ZERO : delay));
+        // ★ payload 必须一起重写。
+        //
+        // 信封里有**跨出队往返的可变状态**:exceptions(真实异常次数)、
+        // 以及链上的剩余环。只更新 available_at 的话这些改动在下一次
+        // pop 时被旧 payload 覆盖回去。
+        //
+        // 症状:maxExceptions 完全失效 —— 它声明「最多允许 2 次异常」,
+        // 实际按 tries 跑满 10 次。而「声明了却不生效」正是这个项目
+        // 反复在修的那一类缺陷,所以这里宁可每次 release 多写一个字段
+        values.put("payload", serializer.encode(job));
 
         int updated = connection.table(table).where("uuid", job.uuid()).update(values);
 

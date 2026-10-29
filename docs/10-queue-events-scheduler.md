@@ -103,6 +103,61 @@ Batch batch = Queue.batch(orders.map(o -> new GenerateReport(o.getId())).toList(
 batch.id();  batch.progress();  batch.cancel();
 ```
 
+> **v0.4 实现说明:回调是任务,不是 lambda**
+>
+> 上面写的 `catch_(e -> ...)` / `then(b -> ...)` **没有按原样实现**。
+> 这不是偷懒,是 lambda 在 Java 里跨不过队列这道边界。
+>
+> Laravel 能这么写靠的是 `SerializableClosure` —— PHP 可以把闭包
+> 连同它捕获的变量序列化进 payload。Java 的 lambda 要序列化,前提是
+> 目标接口继承 `Serializable`,而反序列化它依赖**同一次编译**产生的
+> 合成方法名(`$deserializeLambda$` 按序号匹配)。改一行代码、
+> 调一下编译顺序,队列里积压的回调就全部失效 —— 而失效的表现是
+> 反序列化异常,发生在那条链已经跑了一半的时候。
+>
+> 所以实际形式是:
+>
+> ```java
+> Queue.chain(new ProcessPayment(id), new SendInvoice(id))
+>      .catchWith(new NotifyChainBroken(id))      // 回调是一个任务
+>      .dispatch();
+>
+> Batch batch = Queue.batch(jobs)
+>      .name("月度报表")
+>      .allowFailures()
+>      .then(new NotifyBatchDone(adminId))
+>      .catchWith(new AlertFirstFailure(adminId))
+>      .finallyRun(new CleanUpTempFiles())
+>      .dispatch();
+> ```
+>
+> 回调任务反而多拿到三样东西:它能带参数(lambda 捕获的变量在 Java 里
+> 恰恰是最难序列化的部分)、它的 handle 能被容器注入依赖、
+> 它自己也有重试与失败归档 —— 一个「发通知」的回调本身也可能失败,
+> lambda 版本里那次失败无处可去。
+>
+> 失败/批次上下文通过 handle 的注入参数拿:
+>
+> ```java
+> public void handle(ChainFailure failure, Mailer mailer) { ... }
+> public void handle(Batch batch, Mailer mailer) { ... }
+> ```
+>
+> 这些对象不在容器里 —— 它们属于「这一次执行」,由**信封上下文**
+> (`QueuedJob.context()`)决定。上下文必须随信封走而不是放在 worker
+> 的内存里:一个批次的 `then` 回调可能由另一个进程的 worker 执行。
+>
+> **链的状态在信封里,批的状态在表里。** 链的剩余环放在队首任务的
+> 信封中,于是「链到哪了」就是「队列里有哪条任务」,不存在两个事实
+> 来源。批做不到这一点(它要汇总并发的结果),所以用 `job_batches` 表,
+> 而那张表的计数必须由一条 SQL 原子完成 —— 读出来改回去会丢更新,
+> 后果是批次**永远完不了**,`then` 回调永不触发,且只在生产的大批次
+> 上出现。
+>
+> 「是不是最后一个完成的」不由计数判定,而由 `markFinished` 的条件
+> UPDATE(`where finished_at is null`)判定:计数可以近似,
+> **回调不能重复**。
+
 ### 1.3 Job 中间件
 
 ```java

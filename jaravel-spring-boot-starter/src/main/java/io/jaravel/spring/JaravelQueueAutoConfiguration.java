@@ -20,6 +20,8 @@ import io.jaravel.queue.Queue;
 import io.jaravel.queue.QueueManager;
 import io.jaravel.queue.QueueWorker;
 import io.jaravel.queue.WorkerOptions;
+import io.jaravel.cache.CacheManager;
+import io.jaravel.queue.store.DatabaseBatchRepository;
 import io.jaravel.queue.store.DatabaseFailedJobStore;
 import io.jaravel.queue.store.DatabaseQueue;
 import io.jaravel.queue.store.NullQueue;
@@ -43,6 +45,8 @@ import io.jaravel.support.Arr;
  *       driver: sync
  *   failed:
  *     table: failed_jobs
+ *   batching:
+ *     table: job_batches
  *   worker:
  *     enabled: false          # 进程内起 worker
  *     queues: high,default
@@ -99,6 +103,7 @@ public class JaravelQueueAutoConfiguration {
     public QueueManager jaravelQueueManager(
             ConfigRepository config, JobSerializer serializer, JobInvoker invoker,
             ObjectProvider<Connection> connection,
+            ObjectProvider<CacheManager> cache,
             JaravelAutoConfiguration.JaravelStaticWiring wiring) {
 
         var queues = new QueueManager(serializer);
@@ -133,10 +138,53 @@ public class JaravelQueueAutoConfiguration {
                       Duration.ofSeconds(90)))
               .afterCommitByDefault(config.bool("queue.after-commit", true));
 
+        wireUniqueLocks(queues, cache);
+        wireBatches(queues, serializer, connection, config);
+
         warnIfSynchronousInProduction(queues, config);
 
         Queue.use(queues);
         return queues;
+    }
+
+    /**
+     * 唯一性任务要的锁存储。
+     *
+     * <p>没有缓存时**不装** —— 于是真遇到 {@code UniqueJob} 时
+     * {@code requireUniqueLocks} 会报一条说得清的错。
+     * 在这里塞一个空实现才是坏的:那会让去重静默失效。
+     */
+    private void wireUniqueLocks(QueueManager queues, ObjectProvider<CacheManager> cache) {
+        CacheManager manager = cache.getIfAvailable();
+        if (manager == null) return;
+
+        try {
+            queues.uniqueLocks(manager.store());
+        } catch (RuntimeException e) {
+            // 缓存配错了不该让整个应用起不来 —— 它只影响 UniqueJob,
+            // 而那时 requireUniqueLocks 的报错比这里的启动失败更有指向性
+            System.err.printf(
+                    "[jaravel] 队列的唯一性锁没能装上(%s)。UniqueJob 在投递时会报错。%n",
+                    e.getMessage());
+        }
+    }
+
+    /**
+     * 批次存储。
+     *
+     * <p>同样是「有库才装」:无库应用用不了 {@code Queue.batch(...)},
+     * 而那时的报错会指向缺的那张表,比在这里编一个内存实现好 ——
+     * 内存实现会让批次状态在重启后消失,于是「月度报表跑完了但没收到
+     * 汇总邮件」而 job_batches 里什么都查不到。
+     */
+    private void wireBatches(QueueManager queues, JobSerializer serializer,
+                             ObjectProvider<Connection> connection,
+                             ConfigRepository config) {
+        Connection db = connection.getIfAvailable();
+        if (db == null) return;
+
+        queues.batches(new DatabaseBatchRepository(db, serializer,
+                config.string("queue.batching.table", "job_batches")));
     }
 
     private void registerBuiltin(QueueManager queues, String name, String driver,

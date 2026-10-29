@@ -116,6 +116,55 @@ public final class Queue {
                 .formatted(queues.registeredConnections()));
     }
 
+    // ================= 链与批 =================
+
+    /**
+     * 串行链:前一个成功后才执行下一个。
+     *
+     * <pre>{@code
+     * Queue.chain(List.of(new ProcessPayment(id), new SendInvoice(id)))
+     *      .catchWith(new NotifyChainBroken(id))
+     *      .dispatch();
+     * }</pre>
+     *
+     * <p>**必须以 dispatch() 结束**,与 {@link #job} 同理。
+     */
+    public static PendingChain chain(java.util.List<ShouldQueue> jobs) {
+        return new PendingChain(manager(), jobs);
+    }
+
+    public static PendingChain chain(ShouldQueue... jobs) {
+        return new PendingChain(manager(), java.util.List.of(jobs));
+    }
+
+    /**
+     * 并行批次 + 汇总回调。
+     *
+     * <pre>{@code
+     * Batch batch = Queue.batch(jobs).name("月度报表")
+     *         .then(new NotifyDone()).dispatch();
+     * }</pre>
+     *
+     * <p>与链的区别见 {@link PendingBatch} 的类注释。
+     */
+    public static PendingBatch batch(java.util.List<ShouldQueue> jobs) {
+        return new PendingBatch(manager(), jobs);
+    }
+
+    public static PendingBatch batch(ShouldQueue... jobs) {
+        return new PendingBatch(manager(), java.util.List.of(jobs));
+    }
+
+    /** 按 id 查批次进度 */
+    public static java.util.Optional<Batch> findBatch(String id) {
+        return batches().find(id);
+    }
+
+    /** 批次存储。{@link Batch#cancel()} 与 {@link Batch#fresh()} 用它 */
+    public static BatchRepository batches() {
+        return manager().requireBatches();
+    }
+
     // ================= 查询 =================
 
     /** 默认连接的默认队列里有多少条 */

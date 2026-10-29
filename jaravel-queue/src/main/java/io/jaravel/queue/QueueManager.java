@@ -53,6 +53,15 @@ public final class QueueManager {
      */
     private io.jaravel.cache.Repository uniqueLocks;
 
+    /**
+     * 批次状态存储。
+     *
+     * <p>与 {@link #uniqueLocks} 同样的处理:没有它时 {@link #requireBatches}
+     * 报错而不是静默退化。一个批处理在没有存储时「投成功了但回调永不触发」
+     * 是最难查的那一类症状。
+     */
+    private BatchRepository batches;
+
     public QueueManager(JobSerializer serializer) {
         this.serializer = serializer;
     }
@@ -84,6 +93,26 @@ public final class QueueManager {
 
     boolean hasUniqueLocks() {
         return uniqueLocks != null;
+    }
+
+    public QueueManager batches(BatchRepository repository) {
+        this.batches = repository;
+        return this;
+    }
+
+    public boolean hasBatches() {
+        return batches != null;
+    }
+
+    public BatchRepository requireBatches() {
+        if (batches != null) return batches;
+
+        throw new IllegalStateException("""
+                队列没有配批次存储,Queue.batch(...) 无法使用。
+                  修复:给 QueueManager 调 batches(new DatabaseBatchRepository(connection, serializer)),
+                        并建好 job_batches 表(见 DatabaseBatchRepository 的类注释)。
+                  这里报错而不是静默退化 —— 没有存储时批次会「投成功了但
+                  then / catch / finally 回调永不触发」,而那很难联想到缺一张表。""");
     }
 
     // ================= 注册 =================

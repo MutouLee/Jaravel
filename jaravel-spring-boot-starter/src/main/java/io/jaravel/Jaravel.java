@@ -4,7 +4,6 @@ import java.nio.file.Path;
 import java.util.Map;
 
 import org.springframework.boot.SpringApplication;
-import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 
 import io.jaravel.core.config.DotEnv;
@@ -30,10 +29,13 @@ public final class Jaravel {
     public static ConfigurableApplicationContext run(Class<?> mainClass, String... args) {
         requireNotDefaultPackage(mainClass);
         loadDotEnv();
-        return new SpringApplicationBuilder(mainClass,
-                        io.jaravel.spring.JaravelComponentScan.class)
-                .properties(defaults())
-                .run(args);
+        // 不在这里塞属性与扫描配置:
+        //   · 属性由 JaravelDefaults(EnvironmentPostProcessor)提供;
+        //   · 约定包扫描由 JaravelAutoConfiguration 的 @Import 提供。
+        // 两者都走 Spring 自己的发现机制,于是 @SpringBootTest
+        // 启动的应用与这里启动的完全一致 —— 「生产正常但测试里表现不同」
+        // 是最糟的一类不一致
+        return new SpringApplication(mainClass).run(args);
     }
 
     /**
@@ -69,29 +71,5 @@ public final class Jaravel {
         env.forEach((k, v) -> {
             if (System.getProperty(k) == null) System.setProperty(k, v);
         });
-    }
-
-    private static Map<String, Object> defaults() {
-        var p = new java.util.LinkedHashMap<String, Object>();
-
-        // ADR-007:每请求一个虚拟线程,是请求作用域与门面的前提
-        p.put("spring.threads.virtual.enabled", "true");
-
-        // Servlet 容器默认用 ISO-8859-1 解 form 参数,中文直接乱码。
-        // force 让 CharacterEncodingFilter 无条件按 UTF-8 解码,
-        // 不依赖客户端是否在 Content-Type 里带 charset。
-        // 这是框架该替用户做对的事,不该让每个人自己踩一遍。
-        p.put("server.servlet.encoding.charset", "UTF-8");
-        p.put("server.servlet.encoding.force", "true");
-
-        p.put("spring.main.banner-mode", "off");
-        p.put("spring.jackson.default-property-inclusion", "non_null");
-
-        // 未匹配的请求要抛异常,才能走到 Jaravel 的 404 处理
-        p.put("spring.mvc.throw-exception-if-no-handler-found", "true");
-        p.put("spring.web.resources.add-mappings", "false");
-        p.put("server.error.whitelabel.enabled", "false");
-
-        return p;
     }
 }

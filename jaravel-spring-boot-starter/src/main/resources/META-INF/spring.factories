@@ -1,0 +1,4 @@
+# EnvironmentPostProcessor 必须在这里注册 —— AutoConfiguration.imports 太晚了,
+# 它在 Environment 已经准备好之后才生效,而这些属性要在那之前进去。
+org.springframework.boot.env.EnvironmentPostProcessor=\
+io.jaravel.spring.JaravelDefaults

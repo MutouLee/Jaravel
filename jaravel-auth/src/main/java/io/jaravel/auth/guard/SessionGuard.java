@@ -228,7 +228,8 @@ public class SessionGuard implements StatefulGuard {
         Session.current().forget(sessionKey);
         Session.current().invalidate();
 
-        pendingCookie = Cookie.forget(rememberCookieName());
+        pendingCookie = Cookie.forget(rememberCookieName()).withPath("/");
+        io.jaravel.http.PendingCookies.queue(pendingCookie);
         cachedUser = null;
         resolved = true;
         viaRemember = false;
@@ -294,6 +295,11 @@ public class SessionGuard implements StatefulGuard {
                 .secure(true)
                 .sameSite(Cookie.SameSite.LAX)
                 .withPath("/");
+
+        // 入队,由框架在写响应前统一附加。
+        // 光靠 takePendingCookie 不行 —— 那要求有人去取,而 login 发生在
+        // 控制器中间,那时响应对象还不存在。见 PendingCookies 的类注释
+        io.jaravel.http.PendingCookies.queue(pendingCookie);
     }
 
     private void clearRememberToken(Authenticatable user) {

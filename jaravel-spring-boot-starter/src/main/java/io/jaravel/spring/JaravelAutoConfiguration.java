@@ -42,8 +42,32 @@ import io.jaravel.view.ViewEngine;
  * <p>所有 {@code @ConditionalOnMissingBean} 都是刻意的:用户想换掉任何一块
  * (视图引擎、异常处理器、Grammar)只需提供自己的 bean。
  */
+/*
+ * @Import(JaravelComponentScan) 让 app / routes / database 三个约定包
+ * 在**任何**启动方式下都被扫描,包括 @SpringBootTest ——
+ * 它不走 Jaravel.run,所以不能只靠那里加。
+ *
+ * 不加的症状:集成测试里「没有找到任何 RouteDefinition 实现」,
+ * 所有请求 404,而同一个应用 mvn spring-boot:run 起来完全正常。
+ */
 @AutoConfiguration(after = DataSourceAutoConfiguration.class)
+@org.springframework.context.annotation.Import(JaravelComponentScan.class)
 public class JaravelAutoConfiguration {
+
+    /**
+     * 打包后从 classpath 读哪些配置文件。
+     *
+     * <p>必须显式列举:jar 里**无法可靠地列出一个目录**
+     * (classpath 目录遍历在 fat jar / 嵌套 jar / 模块路径下行为各不相同),
+     * 而「漏了一个文件就静默用默认值」比「列表要维护」糟得多 ——
+     * 症状是「本地好的,打包后登录全挂」,因为开发期走的是文件系统分支。
+     *
+     * <p>**加新的 config/*.yml 时必须同步这里。** 不存在的文件会被跳过,
+     * 所以多列无害。
+     */
+    static final List<String> CONFIG_FILES = List.of(
+            "app.yml", "database.yml", "view.yml", "jaravel.yml",
+            "auth.yml", "cache.yml", "session.yml", "hashing.yml");
 
     // ================= 容器与应用 =================
 
@@ -64,8 +88,7 @@ public class JaravelAutoConfiguration {
         Path configDir = Path.of("src", "main", "resources", "config");
         Map<String, Object> tree = java.nio.file.Files.isDirectory(configDir)
                 ? ConfigLoader.fromDirectory(configDir)
-                : ConfigLoader.fromClasspath(getClass().getClassLoader(),
-                        List.of("app.yml", "database.yml", "view.yml"));
+                : ConfigLoader.fromClasspath(getClass().getClassLoader(), CONFIG_FILES);
 
         // ${VAR} 的解析委托给 Spring 的 Environment —— 这样 .env、系统属性、
         // 环境变量、application.yml 全都能作为来源,无需各自实现一遍

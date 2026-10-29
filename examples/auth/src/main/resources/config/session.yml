@@ -1,0 +1,9 @@
+session:
+  # cache 驱动:会话存进 cache.default 指定的存储。
+  # 「换 session 存储」与「换缓存存储」于是是同一个决定,两边不会打架。
+  driver: ${SESSION_DRIVER:cache}
+  cookie: jaravel_session
+  lifetime: PT2H
+  # secure 不在这里写 —— 它默认跟随 app.env(local 之外一律 true)。
+  # 显式写 false 等于在生产环境里也关掉,那是最常见的一种自伤
+  same-site: Lax

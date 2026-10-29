@@ -1,0 +1,10 @@
+cache:
+  # caffeine 是进程内缓存。多实例部署时改成 redis/database ——
+  # 否则节流计数与会话各实例一份,等于节流阈值被乘上了实例数。
+  default: ${CACHE_DRIVER:caffeine}
+  prefix: ${CACHE_PREFIX:auth_example}
+  stores:
+    caffeine:
+      max-size: 10000
+    database:
+      table: cache

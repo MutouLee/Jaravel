@@ -73,12 +73,27 @@ public class JaravelHandlerAdapter implements HandlerAdapter {
                 response = exceptionHandler.render(request, t);
             }
 
+            // 会话收尾。正常路径上 StartSession 自己做完了,这里是
+            // **异常路径**的补救:302 / 401 / 419 / 校验失败都是用异常
+            // 表达的,那时 StartSession 的收尾代码被跳过,
+            // url.intended 与校验错误的闪存会一起丢掉。
+            // 见 SessionLifecycle 的类注释
+            response = io.jaravel.session.SessionLifecycle
+                    .finalizeResponse(response, request);
+
+            // 把本请求内排队的 cookie 附加上去(remember me 等)。
+            // 放在这里而不是某个中间件里:异常路径也要附加 ——
+            // 「登录成功但渲染时抛了异常」仍然应该下发 remember cookie
+            response = io.jaravel.http.PendingCookies.applyTo(response);
+
             try {
                 return writer.serialize(response, servletResponse);
             } catch (Throwable renderFailure) {
                 // 渲染本身失败(模板错误 / 序列化失败)→ 交给 ExceptionHandler 重新渲染。
                 // 此时不能再用视图,否则可能二次失败,因此走纯文本/JSON 错误页。
-                var fallback = exceptionHandler.render(request, renderFailure);
+                var fallback = io.jaravel.http.PendingCookies.applyTo(
+                        io.jaravel.session.SessionLifecycle.finalizeResponse(
+                                exceptionHandler.render(request, renderFailure), request));
                 return writer.serialize(fallback, servletResponse);
             }
         });

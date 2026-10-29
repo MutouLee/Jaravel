@@ -1,0 +1,6 @@
+hashing:
+  # pbkdf2 是 JDK 自带、零额外依赖的默认值。
+  # 要用 bcrypt / argon2id:在 pom 里加 spring-security-crypto,再改这一行
+  driver: ${HASH_DRIVER:pbkdf2}
+  bcrypt:
+    rounds: 12

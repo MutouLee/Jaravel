@@ -48,8 +48,94 @@ public class SpringContainer implements Container {
         try {
             return name == null ? context.getBean(type) : context.getBean(name, type);
         } catch (NoSuchBeanDefinitionException e) {
+            if (name == null) {
+                var constructed = tryConstruct(type);
+                if (constructed.isPresent()) return constructed.get();
+            }
             throw unresolved(type, name, e);
         }
+    }
+
+    /**
+     * 没有 bean 定义时,用构造注入**现场造一个**。
+     *
+     * <p>这条回落是中间件能工作的前提:路由上写
+     * {@code middleware("auth")} 时,{@code Authenticate} 需要一个
+     * {@code AuthManager}。要求用户为框架自带的每个中间件都声明一个
+     * {@code @Bean} 是不可接受的 —— 那就等于把「加个登录 = 3 行」
+     * 变成「3 行 + 8 个 @Bean」。
+     *
+     * <p><b>每次返回新实例,这一点是必需的。</b>
+     * {@code Middleware.Parameterized} 的 {@code configure(String...)}
+     * 把参数写进实例字段({@code throttle:60,1} 的 60),注册成单例的话
+     * 两条路由会互相改对方的限流阈值 —— 而那是个只在并发下偶发的
+     * 配置错乱,几乎无法从现象定位。
+     *
+     * <p>{@code createBean} 不把实例登记进容器,所以它也不会被
+     * 别处按类型注入到。
+     *
+     * @return 构造不出来时为空 —— 此时让调用方抛那条带候选列表的错误,
+     *         它比 BeanInstantiationException 有用得多
+     */
+    private <T> Optional<T> tryConstruct(Class<T> type) {
+        if (type.isInterface() || java.lang.reflect.Modifier.isAbstract(type.getModifiers())) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(context.getBeanFactory().createBean(type));
+        } catch (org.springframework.beans.BeansException e) {
+            // createBean 在**多个 public 构造函数**面前会放弃 ——
+            // 它要求有 @Autowired 标注或只有一个候选。而 Jaravel 的
+            // 中间件不能 import Spring 注解(ADR-001),所以这里自己选。
+            return constructGreedily(type);
+        }
+    }
+
+    /**
+     * 选参数最多、且每个参数都能从容器解析出来的那个构造函数。
+     *
+     * <p>这是 Laravel 容器的规则,照用的理由是它对「可选依赖」的处理
+     * 恰好正确:{@code RedirectIfAuthenticated(AuthManager)} 与
+     * {@code RedirectIfAuthenticated(AuthManager, String redirectTo)}
+     * 并存时,{@code String} 解析不出来 → 退到单参版本。
+     *
+     * <p>反过来的规则(参数最少优先)会在「有无参构造 + 有注入构造」时
+     * 选错 —— 那个类会拿到一个所有依赖都是 null 的实例,然后在
+     * 第一次使用时 NPE,而栈顶离根因很远。
+     */
+    private <T> Optional<T> constructGreedily(Class<T> type) {
+        var constructors = new ArrayList<>(List.of(type.getConstructors()));
+        constructors.sort((a, b) -> b.getParameterCount() - a.getParameterCount());
+
+        for (var constructor : constructors) {
+            Object[] args = resolveParameters(constructor.getParameterTypes());
+            if (args == null) continue;
+
+            try {
+                return Optional.of(type.cast(constructor.newInstance(args)));
+            } catch (ReflectiveOperationException | IllegalArgumentException ignored) {
+                // 试下一个构造函数
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** @return 有任意一个参数解析不出来时为 null */
+    private Object[] resolveParameters(Class<?>[] types) {
+        var args = new Object[types.length];
+        for (int i = 0; i < types.length; i++) {
+            // 基本类型与 String 这类值参数不从容器取 —— 它们是配置,
+            // 不是依赖。容器里碰巧有一个 String bean 就注进去更糟
+            if (types[i].isPrimitive() || types[i].getName().startsWith("java.")) {
+                return null;
+            }
+            try {
+                args[i] = context.getBean(types[i]);
+            } catch (org.springframework.beans.BeansException e) {
+                return null;
+            }
+        }
+        return args;
     }
 
     @Override

@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.example</groupId>
+  <artifactId>auth</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+  <name>Jaravel Auth 示例</name>
+  <description>v0.3 切片:注册 / 登录 / 登出 / 记住我 / 密码重置 / 邮箱验证 / Policy 授权,端到端</description>
+
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <jaravel.version>0.1.0-SNAPSHOT</jaravel.version>
+    <spring-boot.version>3.4.1</spring-boot.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${spring-boot.version}</version>
+        <type>pom</type><scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.jaravel</groupId>
+        <artifactId>jaravel-bom</artifactId>
+        <version>${jaravel.version}</version>
+        <type>pom</type><scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <!-- 用户侧只需要这一个 Jaravel 依赖 -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-spring-boot-starter</artifactId>
+    </dependency>
+    <!--
+      cache 的 caffeine 驱动。jaravel-cache 对它是 optional ——
+      不引时默认驱动自动退回 array(进程内、无上限)。
+      生产环境建议显式引入:array 不会淘汰任何东西。
+    -->
+    <dependency>
+      <groupId>com.github.ben-manes.caffeine</groupId>
+      <artifactId>caffeine</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.xerial</groupId>
+      <artifactId>sqlite-jdbc</artifactId>
+      <version>3.47.1.0</version>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!--
+      必需:没有它 TestRestTemplate 退回 HttpURLConnection,而后者
+      **自动跟随 302**。于是测试看到的是跳转目标的状态码,
+      而断言「注册后 302」会得到一个 401 —— 看起来像认证坏了,
+      实际是客户端行为。带上 httpclient5 后 TestRestTemplate
+      默认禁用重定向跟随,断言的才是服务端真正返回的东西。
+    -->
+    <dependency>
+      <groupId>org.apache.httpcomponents.client5</groupId>
+      <artifactId>httpclient5</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <version>${spring-boot.version}</version>
+        <!-- Jaravel 应用不继承 spring-boot-starter-parent(用的是 jaravel-bom),
+             因此 repackage 目标必须显式绑定,否则打出的 jar 没有 Main-Class。
+             jaravel new 的脚手架需要包含这段。 -->
+        <executions>
+          <execution>
+            <goals><goal>repackage</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+        <configuration>
+          <compilerArgs><arg>-parameters</arg></compilerArgs>
+          <!-- @Model 的代码生成。没有它 Todo 的父类 TodoBase 不存在,编译就过不去。 -->
+          <annotationProcessorPaths>
+            <path>
+              <groupId>io.jaravel</groupId>
+              <artifactId>jaravel-eloquent-processor</artifactId>
+              <version>${jaravel.version}</version>
+            </path>
+          </annotationProcessorPaths>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

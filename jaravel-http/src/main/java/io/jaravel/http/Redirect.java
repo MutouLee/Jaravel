@@ -8,8 +8,14 @@ import java.util.Map;
  *
  * <p>{@code Redirect.to("/posts").with("status", "created")}
  *
- * <p>v0.1 的 {@code with()} 把 flash 数据暂存在响应上,由 starter 写入 session;
- * v0.3 引入 session 模块后会接到真正的 flash 机制上。
+ * <h2>flash 数据存在哪</h2>
+ * <p>{@code with()} 只是把值挂在**响应对象**上。真正写进会话 flash 区的
+ * 动作由 {@code StartSession} 中间件完成 —— 本类在 {@code jaravel-http},
+ * 那一层按 ADR-001 不该知道会话的存在(会话是可替换的,而重定向不是)。
+ *
+ * <p>实际后果:这些值只在**挂了会话中间件**的路由上生效。
+ * {@code api} 组没有 StartSession,那里的 {@code with()} 会被静默丢弃 ——
+ * 这是对的,无状态接口本来就没有「下一个请求」可言。
  */
 public final class Redirect extends Response {
 
@@ -69,7 +75,21 @@ public final class Redirect extends Response {
     }
 
     public String location()                  { return location; }
-    public Map<String, Object> flash()        { return Map.copyOf(flash); }
+
+    /**
+     * 待闪存的数据。
+     *
+     * <p>**允许 null 值** —— 所以这里不能用 {@code Map.copyOf}(它拒绝
+     * null 并抛 NPE)。调用方常常直接把一个可能为空的结果交过来:
+     * {@code .with("reset_token", maybeToken)}。为此崩掉整个请求,
+     * 而且栈顶落在框架里,是最糟的失败方式。
+     *
+     * <p>null 的语义就是「这一项没有值」,读取端拿到
+     * {@code Optional.empty()}。
+     */
+    public Map<String, Object> flash() {
+        return java.util.Collections.unmodifiableMap(new LinkedHashMap<>(flash));
+    }
     public boolean shouldKeepInput()          { return withInput; }
 
     @Override public String toString() {

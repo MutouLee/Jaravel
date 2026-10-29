@@ -1,0 +1,11 @@
+app:
+  name: ${APP_NAME:Jaravel Auth}
+  env: ${APP_ENV:local}
+  debug: ${APP_DEBUG:true}
+  url: ${APP_URL:http://localhost:8002}
+
+  # 会话加密、签名 URL(邮箱验证链接)、加密字段都依赖它。
+  # 真实项目里这一行只写 ${APP_KEY} —— 不带默认值,让它缺失时启动失败。
+  # 示例为了能直接跑给了个固定值;换掉它会让所有已发出的
+  # 验证链接与加密 cookie 立刻失效。
+  key: ${APP_KEY:base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}

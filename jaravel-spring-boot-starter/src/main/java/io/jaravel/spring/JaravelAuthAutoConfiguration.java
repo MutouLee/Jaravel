@@ -8,6 +8,7 @@ import java.util.Map;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 
 import io.jaravel.auth.Auth;
@@ -62,6 +63,16 @@ import io.jaravel.support.Arr;
  */
 @AutoConfiguration(after = JaravelAutoConfiguration.class)
 public class JaravelAuthAutoConfiguration {
+
+    /**
+     * caffeine 在不在 classpath 上。
+     *
+     * <p>它是 {@code jaravel-cache} 的 optional 依赖 —— 决定了默认
+     * cache 驱动是什么,见 {@link #jaravelCacheManager}。
+     */
+    private static final boolean CAFFEINE_PRESENT = org.springframework.util.ClassUtils
+            .isPresent("com.github.benmanes.caffeine.cache.Caffeine",
+                       JaravelAuthAutoConfiguration.class.getClassLoader());
 
     // ================= 密码学原语 =================
 
@@ -152,6 +163,18 @@ public class JaravelAuthAutoConfiguration {
         }
     }
 
+    /** cache.default 写了 caffeine 但它不在 classpath 上时的修复提示 */
+    private static final String CAFFEINE_HINT = """
+
+
+                      caffeine 不在 classpath 上。加这段到 pom:
+                        <dependency>
+                          <groupId>com.github.ben-manes.caffeine</groupId>
+                          <artifactId>caffeine</artifactId>
+                        </dependency>
+                      或改成 cache.default: array —— 进程内、**无上限**、
+                      不会自动淘汰,只适合小数据量与测试。""";
+
     // ================= 缓存 =================
 
     @Bean
@@ -163,8 +186,13 @@ public class JaravelAuthAutoConfiguration {
                 .register("array", new ArrayStore())
                 .register("null", new NullStore());
 
-        manager.register("caffeine", m ->
-                new CaffeineStore(config.longValue("cache.stores.caffeine.max-size", 10_000)));
+        // caffeine 是 jaravel-cache 的 optional 依赖 —— 只在它真的在
+        // classpath 上时才注册。不在时「未注册」比「注册了但一取就
+        // NoClassDefFoundError」清楚得多:下面的校验会给出 pom 片段
+        if (CAFFEINE_PRESENT) {
+            manager.register("caffeine", m ->
+                    new CaffeineStore(config.longValue("cache.stores.caffeine.max-size", 10_000)));
+        }
 
         manager.register("file", m -> new FileStore(
                 Path.of(config.string("cache.stores.file.path", "target/cache"))));
@@ -182,13 +210,19 @@ public class JaravelAuthAutoConfiguration {
                     config.string("cache.stores.database.table", "cache"));
         });
 
-        String defaultStore = config.string("cache.default", "caffeine");
+        // 默认值随 classpath 走:有 caffeine 用它(有界、带过期),
+        // 没有退回 array。**不能**硬写 caffeine —— 那会让「只想要个登录」
+        // 的项目在启动时撞上一个 optional 依赖
+        String defaultStore = config.string("cache.default",
+                CAFFEINE_PRESENT ? "caffeine" : "array");
+
         if (!manager.registeredStores().contains(defaultStore)) {
             throw new IllegalStateException("""
-                    cache.default = "%s" 没有注册。%s
-                      内置:%s
+                    cache.default = "%s" 没有注册。%s%s
+                      已注册:%s
                       自定义驱动:提供一个 CacheManager @Bean,或在它上面 register(...)"""
                     .formatted(defaultStore,
+                               "caffeine".equals(defaultStore) ? CAFFEINE_HINT : "",
                                Arr.closest(defaultStore,
                                            manager.registeredStores().stream().toList())
                                   .map(c -> "\n  是否想写 \"" + c + "\" ?").orElse(""),
@@ -423,10 +457,30 @@ public class JaravelAuthAutoConfiguration {
 
     // ================= 授权 =================
 
+    /**
+     * Gate,并自动注册所有 {@code @Policy} 标注的 bean。
+     *
+     * <p>用 {@code getBeansWithAnnotation} 而不是注入一个 {@code List<?>} ——
+     * Policy 类没有共同的父类型或接口(它们的方法签名各不相同,
+     * 那正是 Policy 比 {@code @PreAuthorize("...")} 字符串好用的原因),
+     * 所以按类型注入拿不到它们。
+     *
+     * <p>注册顺序按 bean 名排序,保证启动日志与报错信息可重现。
+     */
     @Bean
     @ConditionalOnMissingBean
-    public GateRegistry jaravelGateRegistry(ObjectProvider<Object> policies) {
+    public GateRegistry jaravelGateRegistry(ApplicationContext context) {
         var registry = new GateRegistry();
+
+        var policies = new java.util.TreeMap<>(
+                context.getBeansWithAnnotation(io.jaravel.auth.access.Policy.class));
+        policies.forEach((beanName, policy) -> {
+            var annotation = org.springframework.core.annotation.AnnotationUtils
+                    .findAnnotation(policy.getClass(), io.jaravel.auth.access.Policy.class);
+            if (annotation == null) return;     // 不可能,但别让 NPE 掩盖真正的问题
+            registry.policy(annotation.value(), policy);
+        });
+
         Gate.use(registry);
         return registry;
     }

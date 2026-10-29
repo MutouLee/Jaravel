@@ -7,6 +7,7 @@ import java.util.function.Function;
 import io.jaravel.core.context.ExecutionScope;
 import io.jaravel.http.Cookie;
 import io.jaravel.http.Middleware;
+import io.jaravel.http.Redirect;
 import io.jaravel.http.Request;
 import io.jaravel.http.Response;
 import io.jaravel.session.store.CookieStore;
@@ -41,6 +42,13 @@ public class StartSession implements Middleware {
 
         SessionData session = load(request);
 
+        // 登记收尾动作。必要性见 SessionLifecycle 的类注释:
+        // 302 / 401 / 419 / 校验失败这些「用异常表达的响应」会让
+        // 下面的 finish 调用被跳过,那时由框架在最终响应确定后补上
+        var pending = new SessionLifecycle.Pending(session,
+                (resp, req) -> finish(resp, req, session));
+        SessionLifecycle.register(pending);
+
         Response response;
         try {
             response = ExecutionScope.tryCurrent()
@@ -50,6 +58,20 @@ public class StartSession implements Middleware {
             CookieStore.clearPending();
         }
 
+        pending.markDone();
+        return finish(response, request, session);
+    }
+
+    /**
+     * 收尾:闪存入会话 → 写回存储 → 附加 cookie。
+     *
+     * <p>顺序不能动。{@code absorbFlash} 必须在 {@code persist} 之前 ——
+     * persist 里的 ageFlash 要把本轮写入的 flash 轮转成「下个请求可读」,
+     * 搬晚了这些值永远读不到(症状:{@code with("status", ...)} 之后
+     * 页面上什么都没有,而代码看起来完全正确)。
+     */
+    private Response finish(Response response, Request request, SessionData session) {
+        SessionLifecycle.absorbFlash(response, session, request);
         persist(session);
         return attachCookie(response, session);
     }

@@ -1,0 +1,61 @@
+# 这份文件就是 install:auth 生成的东西。
+#
+# 「加个登录 = 3 行」里的那 3 行是下面的 guards.web ——
+# providers 与 passwords 是一次性的,不随功能增长。
+
+auth:
+  # 不写 middleware("auth:xxx") 时用哪个 guard
+  default: web
+
+  guards:
+    # 浏览器会话。driver: session 需要 web 中间件组(StartSession)
+    web:
+      driver: session
+      provider: users
+      # remember cookie 的有效期
+      remember: P30D
+
+    # 无状态接口:Bearer token。库里存 SHA-256,明文只在签发时返回
+    api:
+      driver: token
+      provider: users
+      table: personal_access_tokens
+
+    # 需要 SAML / OIDC / 企业 SSO 时把 web 改成这个,
+    # 再引入 jaravel-security-bridge —— Gate 与 Policy 照常工作。
+    # 不引那个模块时这里会在启动时报错并给出修复步骤,而不是
+    # ClassNotFoundException
+    #
+    # sso:
+    #   driver: spring-security
+    #   provider: users
+    #   username-column: email
+    #   resolve: lookup
+
+  providers:
+    users:
+      driver: eloquent
+      # 必须是完全限定名
+      model: app.models.User
+
+  # 密码重置
+  passwords:
+    provider: users
+    table: password_reset_tokens
+    # 链接有效期
+    expire: PT1H
+    # 同一个邮箱多久内不重复发
+    throttle: PT60S
+
+  # 邮箱验证链接的有效期
+  verification:
+    expire: PT24H
+
+  # 登录失败节流。按 email + IP 两个维度分别计数:
+  #   · 按 email 挡撞库(一个账号试很多密码)
+  #   · 按 IP   挡喷洒(很多账号各试一个常见密码)
+  # IP 的阈值更高,因为一个 IP 后面可能有很多正常用户(NAT)
+  throttle:
+    max-per-account: 5
+    max-per-ip: 20
+    window: PT1M

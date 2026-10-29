@@ -120,14 +120,27 @@ public class JaravelHandlerAdapter implements HandlerAdapter {
     public interface MiddlewareResolver {
         List<Middleware> resolve(Route route);
 
-        /** v0.1 的默认实现:只有全局中间件,别名中间件待 v0.3 的认证模块 */
-        static MiddlewareResolver of(List<Middleware> global) {
+        /**
+         * 只有全局中间件,不解析路由级声明。
+         *
+         * <p>保留它只为「没有 Kernel 也能跑」与测试;真实应用走
+         * {@link #of(io.jaravel.http.MiddlewareStack)}。
+         */
+        static MiddlewareResolver ofGlobalOnly(List<Middleware> global) {
             var snapshot = List.copyOf(global);
-            return route -> {
-                var out = new ArrayList<Middleware>(snapshot);
-                // 路由级中间件的别名解析在 v0.3 随 Kernel 一起引入
-                return out;
-            };
+            return route -> snapshot;
+        }
+
+        /**
+         * 走 {@link io.jaravel.http.MiddlewareStack}:全局 + 分组 + 别名 + 参数化 + 优先级。
+         *
+         * <p><b>按路由缓存</b>。中间件链在路由注册完成后不再变化,每个请求重新
+         * 解析一遍是纯浪费 —— 而解析里含分组展开、去重、优先级重排,不便宜。
+         */
+        static MiddlewareResolver of(io.jaravel.http.MiddlewareStack stack) {
+            var cache = new java.util.concurrent.ConcurrentHashMap<Route, List<Middleware>>();
+            return route -> cache.computeIfAbsent(route,
+                    r -> stack.resolve(r.middlewareNames(), r.excludedMiddleware()));
         }
     }
 }

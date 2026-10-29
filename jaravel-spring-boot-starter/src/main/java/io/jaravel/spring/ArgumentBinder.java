@@ -1,9 +1,17 @@
 package io.jaravel.spring;
 
+import java.lang.reflect.Method;
+import java.lang.reflect.Parameter;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import io.jaravel.core.container.Container;
 import io.jaravel.http.Request;
+import io.jaravel.http.annotations.Header;
+import io.jaravel.http.annotations.Input;
+import io.jaravel.http.annotations.Query;
 import io.jaravel.routing.Route;
 import io.jaravel.support.Arr;
 import io.jaravel.support.Cast;
@@ -11,54 +19,295 @@ import io.jaravel.support.Cast;
 /**
  * 控制器方法的参数绑定。
  *
- * <p>绑定规则(docs/03 §3.2):
+ * <h2>三级回落</h2>
  * <ol>
- *   <li>{@link Request} 类型 → 注入请求本身;
- *   <li>简单类型(String / 数值 / boolean / 枚举 / 时间)→ 按**声明顺序**取路径参数,
- *       取不到再取查询串;
- *   <li>其余类型 → 从容器解析(服务注入)。
+ *   <li><b>显式注解</b> —— {@code @Path("id")} / {@code @Query("page")} /
+ *       {@code @Input("q")} / {@code @Header("Accept-Language")};</li>
+ *   <li><b>按参数名</b> —— 编译时带 {@code -parameters} 时参数名可见,
+ *       {@code Long id} 自动对上 {@code /posts/{id}};名字匹配不到路径参数时
+ *       再试输入键;</li>
+ *   <li><b>按位置</b> —— 参数名不可见(没开 {@code -parameters})时,
+ *       按声明顺序取路径参数。</li>
  * </ol>
  *
- * <p>v0.1 按位置绑定路径参数。v0.2 的 APT 会固化参数名(V2 验证已确认
- * 路径参数名与方法参数名的一致性可在编译期校验),届时改为按名绑定。
+ * <p><b>为什么要按名字</b>:v0.1 是纯按位置的,于是
+ * {@code show(Long postId, Long commentId)} 对上 {@code /posts/{commentId}/c/{postId}}
+ * 时会**静默交换两个值** —— 类型相同,没有任何报错,症状是「取到了别的资源」。
+ * 按名字绑定让这种错误要么不发生,要么在启动时就报出来。
+ *
+ * <p>绑定方案按路由缓存:反射解析参数不便宜,而方案在路由注册后就固定了。
  */
 final class ArgumentBinder {
 
     private ArgumentBinder() {}
 
+    // ================= 绑定方案(按路由缓存) =================
+
+    /** 一个参数的取值方式 */
+    private sealed interface Source {
+        record TheRequest() implements Source {}
+        record FormRequestType(Class<?> type) implements Source {}
+        record PathParam(String name) implements Source {}
+        record QueryParam(String name, String fallback, boolean required) implements Source {}
+        record AnyInput(String name, String fallback, boolean required) implements Source {}
+        record HeaderValue(String name, String fallback) implements Source {}
+        record FromContainer(Class<?> type) implements Source {}
+    }
+
+    private record Plan(List<Source> sources, List<Class<?>> types, List<String> labels) {}
+
+    private static final Map<Route, Plan> PLANS = new ConcurrentHashMap<>();
+
     static Object[] bind(Request request, Route route, Container container) {
-        var paramTypes = route.parameterTypes();
-        if (paramTypes.isEmpty()) return new Object[0];
+        if (route.parameterTypes().isEmpty()) return new Object[0];
 
-        List<String> pathParamNames = route.paramNames();
-        var args = new Object[paramTypes.size()];
-        int pathIndex = 0;
+        Plan plan = PLANS.computeIfAbsent(route, ArgumentBinder::planFor);
+        var args = new Object[plan.sources().size()];
 
-        for (int i = 0; i < paramTypes.size(); i++) {
-            Class<?> type = paramTypes.get(i);
-
-            if (Request.class.isAssignableFrom(type)) {
-                args[i] = request;
-                continue;
-            }
-
-            if (isSimple(type)) {
-                args[i] = bindSimple(request, route, pathParamNames, pathIndex++, type);
-                continue;
-            }
-
-            // FormRequest:实例化 → prepareForValidation → authorize → 校验 → 注入。
-            // 不走容器:它每次请求都要新实例并绑定当次输入,做成 bean
-            // 就成了跨请求共享的可变状态 —— 那是最糟的一类 bug。
-            if (io.jaravel.validation.FormRequest.class.isAssignableFrom(type)) {
-                args[i] = bindFormRequest(request, type);
-                continue;
-            }
-
-            // 其余复杂类型 → 容器解析(服务、仓储等)
-            args[i] = container.make(type);
+        for (int i = 0; i < args.length; i++) {
+            args[i] = resolve(plan.sources().get(i), plan.types().get(i),
+                              plan.labels().get(i), request, route, container);
         }
         return args;
+    }
+
+    // ================= 方案推导 =================
+
+    private static Plan planFor(Route route) {
+        List<Class<?>> types = route.parameterTypes();
+        Method method = findMethod(route, types);
+
+        var sources = new ArrayList<Source>(types.size());
+        var labels = new ArrayList<String>(types.size());
+        List<String> pathNames = route.paramNames();
+
+        // 已被「按名字」认领的路径参数。位置回落必须跳过它们 ——
+        // 否则 show(Long id, String sort) 对 /posts/{id} 时,id 按名字拿到了,
+        // 而 sort 的位置回落又指向第 0 个路径参数,于是 sort 也等于 id。
+        var claimedByName = new java.util.LinkedHashSet<String>();
+        for (int i = 0; i < types.size(); i++) {
+            Parameter p = method == null ? null : method.getParameters()[i];
+            if (p == null || !p.isNamePresent()) continue;
+            var explicit = p.getAnnotation(io.jaravel.http.annotations.Path.class);
+            if (explicit != null) {
+                claimedByName.add(explicit.value());
+            } else if (fromAnnotation(p) == null
+                    && isSimple(types.get(i))
+                    && pathNames.contains(p.getName())) {
+                claimedByName.add(p.getName());
+            }
+        }
+        var positionalQueue = new java.util.ArrayDeque<String>(
+                pathNames.stream().filter(n -> !claimedByName.contains(n)).toList());
+
+        for (int i = 0; i < types.size(); i++) {
+            Class<?> type = types.get(i);
+            Parameter param = method == null ? null : method.getParameters()[i];
+            String label = param != null && param.isNamePresent()
+                    ? param.getName() : "第 " + (i + 1) + " 个参数";
+            labels.add(label);
+
+            if (Request.class.isAssignableFrom(type)) {
+                sources.add(new Source.TheRequest());
+                continue;
+            }
+            if (io.jaravel.validation.FormRequest.class.isAssignableFrom(type)) {
+                sources.add(new Source.FormRequestType(type));
+                continue;
+            }
+
+            Source annotated = fromAnnotation(param);
+            if (annotated != null) {
+                sources.add(annotated);
+                continue;
+            }
+
+            if (!isSimple(type)) {
+                sources.add(new Source.FromContainer(type));
+                continue;
+            }
+
+            // 按名字:参数名与路径参数名一致时直接对上
+            if (param != null && param.isNamePresent() && pathNames.contains(param.getName())) {
+                sources.add(new Source.PathParam(param.getName()));
+                continue;
+            }
+
+            // 名字对不上路径,但还有没被认领的路径参数 → 按位置(兼容没开 -parameters)
+            if (!positionalQueue.isEmpty()) {
+                sources.add(new Source.PathParam(positionalQueue.poll()));
+                continue;
+            }
+
+            // 路径参数用完了:当成输入项,用参数名作键
+            if (param != null && param.isNamePresent()) {
+                sources.add(new Source.AnyInput(param.getName(), "", false));
+                continue;
+            }
+
+            throw new IllegalStateException("""
+                    无法为 %s#%s 的%s(%s)确定取值来源。
+                      路径 %s 声明的参数:%s
+                      可能原因:路径参数个数少于方法参数,且编译时没开 -parameters
+                      (没有参数名就只能按位置猜,而位置已经用完)。
+                      修复二选一:
+                        · 在 pom 里给 maven-compiler-plugin 加 <arg>-parameters</arg>;
+                        · 或显式标注来源:@Query("name") / @Input("name") / @Path("name")。"""
+                    .formatted(route.controller().getSimpleName(), route.action(),
+                               label, type.getSimpleName(), route.uri(), pathNames));
+        }
+
+        // 启动期校验:参数名都在、却有路径参数没人接,通常是拼错了名字
+        warnAboutUnclaimedPathParams(route, method, sources, pathNames);
+
+        return new Plan(List.copyOf(sources), types, List.copyOf(labels));
+    }
+
+    private static Source fromAnnotation(Parameter param) {
+        if (param == null) return null;
+
+        var path = param.getAnnotation(io.jaravel.http.annotations.Path.class);
+        if (path != null) return new Source.PathParam(path.value());
+
+        var query = param.getAnnotation(Query.class);
+        if (query != null) {
+            return new Source.QueryParam(query.value(), query.defaultValue(), query.required());
+        }
+        var input = param.getAnnotation(Input.class);
+        if (input != null) {
+            return new Source.AnyInput(input.value(), input.defaultValue(), input.required());
+        }
+        var header = param.getAnnotation(Header.class);
+        if (header != null) return new Source.HeaderValue(header.value(), header.defaultValue());
+
+        return null;
+    }
+
+    /**
+     * 路径里声明了参数、却没有任何方法参数去接它。
+     *
+     * <p>警告而不是报错:这在「只想用 {@code request.routeParam(...)} 取」时
+     * 是合法的。但它同时也是「{@code {postId}} 写成 {@code {post_id}}」这类
+     * 拼写错误的唯一征兆,所以必须说出来。
+     */
+    private static void warnAboutUnclaimedPathParams(
+            Route route, Method method, List<Source> sources, List<String> pathNames) {
+
+        if (method == null || pathNames.isEmpty()) return;
+        boolean allNamesPresent = java.util.Arrays.stream(method.getParameters())
+                .allMatch(Parameter::isNamePresent);
+        if (!allNamesPresent) return;
+
+        var claimed = new ArrayList<String>();
+        for (int i = 0; i < sources.size(); i++) {
+            Source s = sources.get(i);
+            if (s instanceof Source.PathParam p) claimed.add(p.name());
+        }
+        var unclaimed = pathNames.stream().filter(n -> !claimed.contains(n)).toList();
+        if (unclaimed.isEmpty()) return;
+
+        var paramNames = java.util.Arrays.stream(method.getParameters())
+                .map(Parameter::getName).toList();
+        String hint = unclaimed.stream()
+                .map(n -> Arr.closest(n, paramNames).map(c -> n + " ≈ " + c).orElse(n))
+                .reduce((a, b) -> a + ", " + b).orElse("");
+
+        System.err.printf(
+                "[jaravel] 路由 %s %s 的路径参数 %s 没有对应的方法参数。%n"
+              + "          %s#%s 的参数:%s%n"
+              + "          可能的对应关系:%s%n"
+              + "          若是刻意的(用 request.routeParam 自取),可忽略本提示。%n",
+                route.method(), route.uri(), unclaimed,
+                route.controller().getSimpleName(), route.action(), paramNames, hint);
+    }
+
+    /**
+     * 找到控制器方法以读取参数名与注解。
+     *
+     * <p>按名字 + 参数个数 + 参数类型匹配。重载同名方法时类型才是决定性的 ——
+     * 只按名字找会在重载时拿到错误的那一个,进而读到错误的参数名。
+     */
+    private static Method findMethod(Route route, List<Class<?>> types) {
+        for (Method m : route.controller().getMethods()) {
+            if (!m.getName().equals(route.action())) continue;
+            if (m.getParameterCount() != types.size()) continue;
+            if (!java.util.Arrays.asList(m.getParameterTypes()).equals(types)) continue;
+            return m;
+        }
+        // 找不到不是致命错误:lambda 路由(r.get("/x", req -> ...))本来就没有控制器方法
+        return null;
+    }
+
+    // ================= 取值 =================
+
+    private static Object resolve(Source source, Class<?> type, String label,
+                                  Request request, Route route, Container container) {
+        return switch (source) {
+            case Source.TheRequest ignored -> request;
+
+            case Source.FormRequestType f -> bindFormRequest(request, f.type());
+
+            case Source.PathParam p -> fromPath(request, route, p.name(), type, label);
+
+            case Source.QueryParam q -> fromRaw(
+                    request.query(q.name()).orElse(null),
+                    q.fallback(), q.required(), "查询串参数 " + q.name(), type, label, route);
+
+            case Source.AnyInput in -> fromRaw(
+                    rawInput(request, in.name()),
+                    in.fallback(), in.required(), "输入项 " + in.name(), type, label, route);
+
+            case Source.HeaderValue h -> fromRaw(
+                    request.header(h.name()).orElse(null),
+                    h.fallback(), false, "请求头 " + h.name(), type, label, route);
+
+            case Source.FromContainer c -> container.make(c.type());
+        };
+    }
+
+    private static String rawInput(Request request, String name) {
+        Object value = request.all().get(name);
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private static Object fromPath(Request request, Route route, String name,
+                                   Class<?> type, String label) {
+        String raw = request.routeParam(name).orElse(null);
+        if (raw == null) {
+            throw new IllegalStateException("""
+                    路由 %s %s 上没有名为 {%s} 的路径参数,但 %s#%s 的 %s 想绑定它。
+                      该路径声明的参数:%s
+                      修复:对齐名字,或用 @Query / @Input 指定别的来源。"""
+                    .formatted(route.method(), route.uri(), name,
+                               route.controller().getSimpleName(), route.action(),
+                               label, route.paramNames()));
+        }
+        try {
+            return Cast.to(raw, box(type));
+        } catch (Cast.CastException e) {
+            // 路径参数类型不符是客户端错误。用 404 而非 400:
+            // 「/posts/abc」的语义是「不存在这个资源标识」,而不是「请求格式错」
+            throw new io.jaravel.http.HttpException(404,
+                    "路径参数 {" + name + "} 的值 \"" + raw + "\" 不是合法的 "
+                    + type.getSimpleName());
+        }
+    }
+
+    private static Object fromRaw(String raw, String fallback, boolean required,
+                                  String what, Class<?> type, String label, Route route) {
+        if (raw == null || raw.isEmpty()) {
+            if (required) {
+                throw new io.jaravel.http.HttpException(400, "缺少必需的" + what);
+            }
+            raw = fallback;
+        }
+        if (raw == null || raw.isEmpty()) return defaultFor(type);
+        try {
+            return Cast.to(raw, box(type));
+        } catch (Cast.CastException e) {
+            throw new io.jaravel.http.HttpException(400,
+                    what + " 的值 \"" + raw + "\" 不是合法的 " + type.getSimpleName());
+        }
     }
 
     /**
@@ -85,37 +334,7 @@ final class ArgumentBinder {
         return form;
     }
 
-    private static Object bindSimple(Request request, Route route,
-                                     List<String> pathParamNames, int pathIndex, Class<?> type) {
-        if (pathIndex < pathParamNames.size()) {
-            String name = pathParamNames.get(pathIndex);
-            String raw = request.routeParam(name).orElse(null);
-            if (raw == null) return defaultFor(type);
-            try {
-                return Cast.to(raw, box(type));
-            } catch (Cast.CastException e) {
-                // 路径参数类型不符是客户端错误(404 更合适:该资源标识不合法)
-                throw new io.jaravel.http.HttpException(404,
-                        "路径参数 {" + name + "} 的值 \"" + raw + "\" 不是合法的 "
-                        + type.getSimpleName());
-            }
-        }
-
-        // 路径参数用完了,回落到查询串。按参数位置猜名字不可靠,
-        // 因此只在只有一个候选时生效,否则报错要求显式注解。
-        var queryKeys = request.all().keySet();
-        if (queryKeys.size() == 1) {
-            String only = queryKeys.iterator().next();
-            return Cast.to(request.input(only).orElse(null), box(type));
-        }
-
-        throw new IllegalStateException(
-                "无法为 " + route.controller().getSimpleName() + "#" + route.action()
-              + " 的第 " + (pathIndex + 1) + " 个简单类型参数(" + type.getSimpleName() + ")找到来源。"
-              + "\n  路径 " + route.uri() + " 声明的参数:" + pathParamNames
-              + "\n  请求的输入键:" + queryKeys
-              + "\n  修复:在路径中声明对应参数,或(v0.2)用 @Query(\"name\") 显式指定来源。");
-    }
+    // ================= 类型工具 =================
 
     private static boolean isSimple(Class<?> t) {
         return t.isPrimitive() || t == String.class || Number.class.isAssignableFrom(t)
@@ -126,24 +345,35 @@ final class ArgumentBinder {
 
     private static Class<?> box(Class<?> t) {
         if (!t.isPrimitive()) return t;
-        if (t == int.class) return Integer.class;
-        if (t == long.class) return Long.class;
-        if (t == boolean.class) return Boolean.class;
-        if (t == double.class) return Double.class;
-        if (t == float.class) return Float.class;
-        if (t == short.class) return Short.class;
-        if (t == byte.class) return Byte.class;
-        if (t == char.class) return Character.class;
-        return t;
+        return switch (t.getName()) {
+            case "boolean" -> Boolean.class;
+            case "byte"    -> Byte.class;
+            case "short"   -> Short.class;
+            case "int"     -> Integer.class;
+            case "long"    -> Long.class;
+            case "char"    -> Character.class;
+            case "float"   -> Float.class;
+            case "double"  -> Double.class;
+            default -> t;
+        };
     }
 
     private static Object defaultFor(Class<?> t) {
         if (!t.isPrimitive()) return null;
-        if (t == boolean.class) return false;
-        if (t == char.class) return '\0';
-        if (t == double.class) return 0d;
-        if (t == float.class) return 0f;
-        if (t == long.class) return 0L;
-        return 0;
+        return switch (t.getName()) {
+            case "boolean" -> false;
+            case "char"    -> '\0';
+            case "float"   -> 0f;
+            case "double"  -> 0d;
+            case "long"    -> 0L;
+            case "byte"    -> (byte) 0;
+            case "short"   -> (short) 0;
+            default        -> 0;
+        };
+    }
+
+    /** 测试用:清掉按路由缓存的绑定方案 */
+    static void clearPlans() {
+        PLANS.clear();
     }
 }

@@ -215,13 +215,31 @@ public class JaravelAutoConfiguration {
         return new ResponseWriter(views, mapper, secure);
     }
 
+    /**
+     * HTTP 内核。用户不提供就用空内核 —— 「不写 Kernel 也能跑」。
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public io.jaravel.http.Kernel jaravelKernel() {
+        return io.jaravel.http.Kernel.empty();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public io.jaravel.http.MiddlewareStack jaravelMiddlewareStack(
+            io.jaravel.http.Kernel kernel, Container container) {
+        // 中间件经容器创建,因此可以构造注入(认证中间件需要 Guard、
+        // 限流中间件需要 Cache)
+        return new io.jaravel.http.MiddlewareStack(kernel,
+                io.jaravel.http.MiddlewareStack.fromContainer(container::make));
+    }
+
     @Bean
     public JaravelHandlerAdapter jaravelHandlerAdapter(Container container,
-                                                       ObjectProvider<Middleware> middleware,
+                                                       io.jaravel.http.MiddlewareStack stack,
                                                        ResponseWriter writer,
                                                        JaravelExceptionHandler handler) {
-        var global = middleware.stream().toList();
         return new JaravelHandlerAdapter(container,
-                JaravelHandlerAdapter.MiddlewareResolver.of(global), writer, handler);
+                JaravelHandlerAdapter.MiddlewareResolver.of(stack), writer, handler);
     }
 }

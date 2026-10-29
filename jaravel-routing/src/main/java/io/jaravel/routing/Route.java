@@ -67,6 +67,20 @@ public final class Route {
         parseParams();
     }
 
+    /**
+     * 只给测试用的构造入口。
+     *
+     * <p>正常路径是 {@code Router.get("/x", C::m)} —— 它经序列化 lambda
+     * 反推出控制器与方法。但那条路径测的是「lambda 解析」,而参数绑定、
+     * 中间件解析这些测试需要的只是一条**形状正确**的 Route。
+     * 两者混在一起,失败时分不清坏在哪一环。
+     */
+    public static Route forTesting(String method, String uri, Class<?> controller,
+                                   String action, java.util.List<Class<?>> parameterTypes) {
+        return new Route(method, uri, controller, action,
+                         (target, args) -> null, parameterTypes.size(), "", parameterTypes);
+    }
+
     static String normalize(String uri) {
         if (uri == null || uri.isBlank()) return "/";
         String u = uri.startsWith("/") ? uri : "/" + uri;

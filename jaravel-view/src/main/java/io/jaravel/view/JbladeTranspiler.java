@@ -46,6 +46,14 @@ public final class JbladeTranspiler {
     /** 待输出的 jte 行,与 sourceLines 一一对应后再拼接 */
     private final List<String> jteLines = new ArrayList<>();
     private final List<Integer> jteLineSources = new ArrayList<>();
+    /**
+     * 本行末尾是否追加换行。
+     *
+     * <p>带 @extends 的子模板里,顶层的指令行({@code ctx.section(...)} 等)
+     * 自身不产出内容,但 jte 会为每行输出一个换行 —— 那些换行会跑到布局输出之前,
+     * 让 {@code <!DOCTYPE html>} 不再是响应的第一个字节。因此顶层指令行不追加换行。
+     */
+    private final List<Boolean> jteLineNewline = new ArrayList<>();
 
     private String layout;
     private final List<String> params = new ArrayList<>();
@@ -55,6 +63,12 @@ public final class JbladeTranspiler {
     private int loopCounter = 0;
     /** 每层 forelse 是否已遇到 @empty —— 决定 @endforelse 要不要补 @endfor */
     private final Deque<Boolean> forelseHasEmpty = new ArrayDeque<>();
+    /**
+     * 本行是否含已识别的 jblade 指令。用于判断带 @extends 的子模板里
+     * 哪些顶层行应当被丢弃(见 run() 中的 suppress 逻辑)。
+     */
+    private boolean lineHadDirective;
+
     /** @verbatim 块内不做任何转换 */
     private boolean inVerbatim = false;
     /** 块结构校验栈 */
@@ -91,8 +105,20 @@ public final class JbladeTranspiler {
             }
             if (line.trim().equals("@verbatim")) { inVerbatim = true; emit("", sourceLine); continue; }
 
+            lineHadDirective = false;
             String translated = translateLine(line, sourceLine);
-            if (translated != null) emit(translated, sourceLine);
+            if (translated == null) continue;
+
+            // Blade 语义:带 @extends 的子模板在**顶层**不产出任何内容,
+            // 只注册 section / push。否则顶层的空行与杂散文本会跑到
+            // 布局输出之前(实测:<!DOCTYPE html> 前出现 9 个空行)。
+            boolean topLevelOfChild = layout != null && blocks.isEmpty();
+            boolean suppress = topLevelOfChild && !lineHadDirective;
+            if (suppress) continue;
+
+            // 顶层指令行不追加换行(见 jteLineNewline 的注释)。
+            // @endsection 会先关闭块再走到这里,blocks 已空,因此一并覆盖。
+            emit(translated, sourceLine, !topLevelOfChild);
         }
 
         if (!blocks.isEmpty()) {
@@ -117,11 +143,11 @@ public final class JbladeTranspiler {
     private String translateLine(String line, int sourceLine) {
         String trimmed = line.trim();
 
-        // 头部声明单独处理
-        if (trimmed.startsWith("@params")) { collectParams(trimmed, sourceLine); return ""; }
-        if (trimmed.startsWith("@param "))  { params.add(trimmed.substring(7).trim()); return ""; }
-        if (trimmed.startsWith("@import"))  { collectImport(trimmed); return ""; }
-        if (trimmed.startsWith("@extends")) { collectExtends(trimmed, sourceLine); return ""; }
+        // 头部声明只贡献元信息,不产出 jte 行(返回 null = 不发往 jte)
+        if (trimmed.startsWith("@params")) { collectParams(trimmed, sourceLine); return null; }
+        if (trimmed.startsWith("@param "))  { params.add(trimmed.substring(7).trim()); return null; }
+        if (trimmed.startsWith("@import"))  { collectImport(trimmed); return null; }
+        if (trimmed.startsWith("@extends")) { collectExtends(trimmed, sourceLine); return null; }
 
         // 注释先去掉,避免其中的 @ 与 {{ 被当作指令
         // 注意:replaceAll(Function) 的返回值**整体**会按 replacement 语法解析($、\ 有特殊含义),
@@ -173,6 +199,7 @@ public final class JbladeTranspiler {
             String replacement = translateDirective(name, args, sourceLine);
 
             if (replacement == null) continue;   // 不是已知指令,原样保留
+            lineHadDirective = true;
 
             sb.append(line, last, m.start()).append(replacement);
             last = m.end();
@@ -527,13 +554,19 @@ public final class JbladeTranspiler {
     // ================= 输出装配 =================
 
     private void emit(String jteLine, int sourceLine) {
+        emit(jteLine, sourceLine, true);
+    }
+
+    private void emit(String jteLine, int sourceLine, boolean newline) {
         jteLines.add(jteLine);
         jteLineSources.add(sourceLine);
+        jteLineNewline.add(newline);
     }
 
     private void emitGenerated(String jteLine) {
         jteLines.add(jteLine);
         jteLineSources.add(0);
+        jteLineNewline.add(true);
     }
 
     private String assemble() {
@@ -542,7 +575,11 @@ public final class JbladeTranspiler {
         for (String imp : imports) sb.append("@import ").append(imp).append('\n');
         sb.append("@param io.jaravel.view.JbContext ctx\n");
         for (String p : params) sb.append("@param ").append(p).append('\n');
-        for (String l : jteLines) sb.append(l).append('\n');
+        for (int i = 0; i < jteLines.size(); i++) {
+            sb.append(jteLines.get(i));
+            // 顶层指令行不追加换行,否则那些换行会跑到布局输出之前
+            if (jteLineNewline.get(i)) sb.append('\n');
+        }
         return sb.toString();
     }
 

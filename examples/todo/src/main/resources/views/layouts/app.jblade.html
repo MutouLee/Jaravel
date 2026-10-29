@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>@yield('title', 'Jaravel Todo')</title>
+  @stack('styles')
+  <style>
+    :root { --fg:#2d3142; --muted:#8d99ae; --line:#e4e7ee; --accent:#3d5a80 }
+    * { box-sizing:border-box }
+    body { font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif; color:var(--fg);
+           max-width:680px; margin:0 auto; padding:48px 20px; background:#fbfbfd }
+    h1 { font-size:28px; margin:0 0 4px }
+    .muted { color:var(--muted); font-size:14px }
+    form.add { display:flex; gap:8px; margin:24px 0 }
+    input[type=text] { flex:1; padding:10px 12px; border:1px solid var(--line);
+                       border-radius:6px; font-size:15px }
+    button { padding:10px 16px; border:0; border-radius:6px; background:var(--accent);
+             color:#fff; font-size:15px; cursor:pointer }
+    button.ghost { background:transparent; color:var(--muted); padding:4px 8px; font-size:13px }
+    ul { list-style:none; padding:0; margin:0 }
+    li { display:flex; align-items:center; gap:10px; padding:12px 0;
+         border-bottom:1px solid var(--line) }
+    li.done .title { text-decoration:line-through; color:var(--muted) }
+    .title { flex:1 }
+    .badge { font-size:12px; padding:2px 8px; border-radius:99px;
+             background:#eef1f7; color:var(--muted) }
+    .empty { text-align:center; color:var(--muted); padding:40px 0 }
+    footer { margin-top:32px; font-size:13px; color:var(--muted) }
+    a { color:var(--accent) }
+  </style>
+</head>
+<body>
+  <main>@yield('content')</main>
+  <footer>
+    由 <a href="https://github.com/MutouLee/Jaravel">Jaravel</a> v0.1 驱动
+    · <a href="/about">关于</a>
+    · <a href="/api/todos">API</a>
+  </footer>
+  @stack('scripts')
+</body>
+</html>

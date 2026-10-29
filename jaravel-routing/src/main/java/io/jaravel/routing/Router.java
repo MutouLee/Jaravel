@@ -125,6 +125,11 @@ public class Router {
         public GroupBuilder name(String p)              { this.namePrefix = p; return this; }
 
         GroupContext build() { return new GroupContext(prefix, List.copyOf(middleware), namePrefix); }
+
+        // PendingGroup 需要读回已配置的值
+        String prefixValue()              { return prefix; }
+        List<String> middlewareValues()   { return List.copyOf(middleware); }
+        String nameValue()                { return namePrefix; }
     }
 
     /**
@@ -142,6 +147,44 @@ public class Router {
             this.group = saved;   // 一定恢复,否则后续路由会继承错误的前缀
         }
         return this;
+    }
+
+    /**
+     * 分组的链式简写:{@code r.prefix("/api").middleware("auth").group(api -> { ... })}
+     *
+     * <p>与两参数形式 {@code group(config, body)} 完全等价,只是读起来更顺。
+     */
+    public PendingGroup prefix(String prefix) {
+        return new PendingGroup(this).prefix(prefix);
+    }
+
+    public PendingGroup middleware(String... names) {
+        return new PendingGroup(this).middleware(names);
+    }
+
+    /** 分组名前缀。方法名用 {@code namePrefix} 以免与路由的 {@code name()} 混淆。 */
+    public PendingGroup namePrefix(String prefix) {
+        return new PendingGroup(this).name(prefix);
+    }
+
+    /** 已配置但尚未提供 body 的分组 */
+    public static final class PendingGroup {
+        private final Router router;
+        private final GroupBuilder builder = new GroupBuilder();
+
+        private PendingGroup(Router router) { this.router = router; }
+
+        public PendingGroup prefix(String p)            { builder.prefix(p); return this; }
+        public PendingGroup middleware(String... names) { builder.middleware(names); return this; }
+        public PendingGroup name(String p)               { builder.name(p); return this; }
+
+        public Router group(Consumer<Router> body) {
+            return router.group(g -> {
+                g.prefix(builder.prefixValue());
+                g.middleware(builder.middlewareValues().toArray(String[]::new));
+                g.name(builder.nameValue());
+            }, body);
+        }
     }
 
     // ================= 资源路由 =================
@@ -173,7 +216,7 @@ public class Router {
 
         String fullUri = group.prefix() + Route.normalize(uri);
         var route = new Route(method, fullUri, target.controller(), target.method(),
-                              invoker, arity, group.namePrefix());
+                              invoker, arity, group.namePrefix(), target.paramTypes());
 
         if (!group.middleware().isEmpty()) {
             route.middleware(group.middleware().toArray(String[]::new));

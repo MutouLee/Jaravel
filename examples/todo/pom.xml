@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.example</groupId>
+  <artifactId>todo</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+  <name>Jaravel Todo 示例</name>
+  <description>v0.1 垂直切片:路由 + jblade 页面 + 查询构造器 CRUD</description>
+
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <jaravel.version>0.1.0-SNAPSHOT</jaravel.version>
+    <spring-boot.version>3.4.1</spring-boot.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${spring-boot.version}</version>
+        <type>pom</type><scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.jaravel</groupId>
+        <artifactId>jaravel-bom</artifactId>
+        <version>${jaravel.version}</version>
+        <type>pom</type><scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <!-- 用户侧只需要这一个 Jaravel 依赖 -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-spring-boot-starter</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.xerial</groupId>
+      <artifactId>sqlite-jdbc</artifactId>
+      <version>3.47.1.0</version>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <version>${spring-boot.version}</version>
+        <!-- Jaravel 应用不继承 spring-boot-starter-parent(用的是 jaravel-bom),
+             因此 repackage 目标必须显式绑定,否则打出的 jar 没有 Main-Class。
+             jaravel new 的脚手架需要包含这段。 -->
+        <executions>
+          <execution>
+            <goals><goal>repackage</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+        <configuration>
+          <compilerArgs><arg>-parameters</arg></compilerArgs>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

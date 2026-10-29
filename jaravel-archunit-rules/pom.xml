@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>io.jaravel</groupId>
+    <artifactId>jaravel-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+  <artifactId>jaravel-archunit-rules</artifactId>
+  <name>Jaravel :: 架构边界规则</name>
+  <description>★ 以阻断方式强制 ADR-001:核心模块零 Spring 依赖</description>
+
+  <dependencies>
+    <!-- 需要把全部被约束的模块放上 classpath 才能分析它们的字节码 -->
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-support</artifactId></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-core</artifactId></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-http</artifactId></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-routing</artifactId></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-view</artifactId></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-database</artifactId></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-spring-boot-starter</artifactId></dependency>
+
+    <dependency>
+      <groupId>com.tngtech.archunit</groupId>
+      <artifactId>archunit-junit5</artifactId>
+      <version>${archunit.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

@@ -24,6 +24,11 @@ public final class Route {
     private final String action;
     private final Invoker invoker;
     private final int arity;
+    /**
+     * 控制器方法的参数类型。由方法引用内省(v0.1)或 APT(v0.2)提供。
+     * 参数绑定依赖它做类型转换。
+     */
+    private final List<Class<?>> parameterTypes;
     /** 分组的名称前缀。name("show") 实际存为 namePrefix + "show"。 */
     private final String namePrefix;
 
@@ -46,6 +51,11 @@ public final class Route {
 
     Route(String method, String uri, Class<?> controller, String action,
           Invoker invoker, int arity, String namePrefix) {
+        this(method, uri, controller, action, invoker, arity, namePrefix, List.of());
+    }
+
+    Route(String method, String uri, Class<?> controller, String action,
+          Invoker invoker, int arity, String namePrefix, List<Class<?>> parameterTypes) {
         this.method = method.toUpperCase();
         this.uri = normalize(uri);
         this.controller = controller;
@@ -53,6 +63,7 @@ public final class Route {
         this.invoker = invoker;
         this.arity = arity;
         this.namePrefix = namePrefix == null ? "" : namePrefix;
+        this.parameterTypes = parameterTypes == null ? List.of() : List.copyOf(parameterTypes);
         parseParams();
     }
 
@@ -197,6 +208,7 @@ public final class Route {
     public String action()                     { return action; }
     public Invoker invoker()                   { return invoker; }
     public int arity()                         { return arity; }
+    public List<Class<?>> parameterTypes()     { return parameterTypes; }
     public Optional<String> routeName()        { return Optional.ofNullable(name); }
     public List<String> middlewareNames()      { return List.copyOf(middleware); }
     public List<String> excludedMiddleware()   { return List.copyOf(withoutMiddleware); }

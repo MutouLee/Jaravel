@@ -29,6 +29,7 @@
     <module>jaravel-view</module>
     <module>jaravel-database</module>
     <module>jaravel-spring-boot-starter</module>
+    <module>jaravel-archunit-rules</module>
   </modules>
 
   <properties>

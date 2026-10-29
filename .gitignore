@@ -39,3 +39,17 @@ desktop.ini
 # 日志
 *.log
 logs/
+
+# 示例应用的运行时产物
+examples/*/storage/*.db
+examples/*/target/
+
+# 验收脚本的输出(每次运行重新生成)
+check-result.txt
+verify-result.txt
+diag-result.txt
+benchmark/laravel-parity/parity-result.txt
+
+# 一次性诊断脚本
+diag.py
+check.py

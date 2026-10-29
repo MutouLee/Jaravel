@@ -132,7 +132,8 @@ public final class ResourceRegistration {
             var invoker = methodHandleInvoker(method);
 
             Route r = new Route(spec.httpMethod(), routeUri, controller, action,
-                                invoker, method.getParameterCount(), group.namePrefix());
+                                invoker, method.getParameterCount(), group.namePrefix(),
+                                List.of(method.getParameterTypes()));
             r.name(namePrefix + action);
             applyMiddleware(r);
             out.add(r);
@@ -140,7 +141,8 @@ public final class ResourceRegistration {
             // PUT 的同时注册 PATCH,与 Laravel 一致。只给 PUT 那条命名,避免路由名重复。
             if ("update".equals(action)) {
                 Route patch = new Route("PATCH", routeUri, controller, action,
-                                        invoker, method.getParameterCount(), group.namePrefix());
+                                        invoker, method.getParameterCount(), group.namePrefix(),
+                                        List.of(method.getParameterTypes()));
                 applyMiddleware(patch);
                 out.add(patch);
             }

@@ -262,6 +262,40 @@ class JbladeTest {
         }
 
         @Test
+        @DisplayName("★ 子模板的输出必须以布局的第一个字符开头 —— 顶层不得泄漏空行")
+        void childEmitsNothingAtTopLevel(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of(
+                "layouts.app", """
+                    <!DOCTYPE html>
+                    <html><head><title>@yield('title')</title>@stack('styles')</head>
+                    <body>@yield('content')@stack('scripts')</body></html>
+                    """,
+                "page", """
+                    @params(String name)
+                    @extends('layouts.app')
+
+                    @section('title', '标题')
+
+                    @section('content')
+                    <p>你好 {{ name }}</p>
+                    @endsection
+
+                    @push('scripts')
+                    <script src="/a.js"></script>
+                    @endpush
+                    """));
+
+            String out = e.render("page", Map.of("name", "世界"));
+
+            // 浏览器会忽略 DOCTYPE 前的空白,但框架不该产出它 ——
+            // 这是「子模板顶层无输出」这条 Blade 语义的直接体现
+            assertThat(out).startsWith("<!DOCTYPE html>");
+            assertThat(out).contains("<title>标题</title>")
+                           .contains("<p>你好 世界</p>")
+                           .contains("/a.js");
+        }
+
+        @Test
         @DisplayName("@yield 的默认值在 section 未定义时生效")
         void yieldDefault(@TempDir Path tmp) {
             var t = new java.util.HashMap<>(layoutTemplates());
@@ -507,8 +541,8 @@ class JbladeTest {
     class LineMapping {
 
         @Test
-        @DisplayName("绝大多数行保持 1:1,只有头部与布局调用是生成行")
-        void mappingIsNearlyIdentity() {
+        @DisplayName("内容行逐行映射回 .jblade.html 的原行号")
+        void mapsContentLinesBackToSource() {
             String blade = """
                 @params(String a)
                 <p>{{ a }}</p>
@@ -519,12 +553,29 @@ class JbladeTest {
             var r = JbladeTranspiler.transpile(blade, "t.jblade.html");
             var map = r.lineMap();
 
-            // 头部 = @param ctx + @param String a = 2 行
-            assertThat(map.toSourceLine(3)).isEqualTo(1);   // @params 那一行(已成空行)
-            assertThat(map.toSourceLine(4)).isEqualTo(2);
-            assertThat(map.toSourceLine(5)).isEqualTo(3);
-            assertThat(map.toSourceLine(6)).isEqualTo(4);
-            assertThat(map.toSourceLine(7)).isEqualTo(5);
+            // 头部(@param ctx + @param String a)是生成行;
+            // @params 声明行本身不产出 jte 行,因此内容从第 3 个 jte 行开始
+            assertThat(map.toSourceLine(3)).isEqualTo(2);   // <p>{{ a }}</p>
+            assertThat(map.toSourceLine(4)).isEqualTo(3);   // @if
+            assertThat(map.toSourceLine(5)).isEqualTo(4);   // <p>x</p>
+            assertThat(map.toSourceLine(6)).isEqualTo(5);   // @endif
+        }
+
+        @Test
+        @DisplayName("带 @extends 时,顶层的空行与杂散文本被丢弃(Blade 语义)")
+        void extendsSuppressesTopLevelOutput() {
+            var r = JbladeTranspiler.transpile("""
+                @extends('layouts.app')
+
+                这行杂散文本在 Blade 里会被丢弃
+
+                @section('content')
+                <p>正文</p>
+                @endsection
+                """, "t.jblade.html");
+
+            assertThat(r.jteSource()).doesNotContain("这行杂散文本");
+            assertThat(r.jteSource()).contains("<p>正文</p>");
         }
 
         @Test

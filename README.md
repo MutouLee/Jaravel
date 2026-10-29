@@ -2,7 +2,9 @@
 
 > Laravel 级开发体验,构建在 Spring Boot 之上的 Java 应用框架。
 
-**当前状态:设计阶段。** 本仓库目前只包含设计文档与 v0.0 技术验证代码,**框架本体尚未开始实现**。
+**当前状态:v0.1 垂直切片已完成。** 8 个模块、244 个测试通过、示例应用端到端跑通。
+距离可用还很远(没有 Eloquent / 认证 / 队列),但「路由 + 模板 + 数据库」这条主干已经通了。
+详见 [V0.1-RESULT.md](V0.1-RESULT.md)。
 
 | 项 | 值 |
 |---|---|
@@ -90,9 +92,31 @@ p.save();                  // 与快照比对,只 UPDATE 变化的列
 ## 仓库内容
 
 ```
-DESIGN.md           设计总纲:可行性结论、三条顶层决策、模块结构、路线图
-docs/               18 篇模块细化设计(约 8700 行)
-verification/       v0.0 技术验证:四个会推翻架构的技术点,含可运行代码
+DESIGN.md                 设计总纲:可行性结论、三条顶层决策、模块结构、路线图
+V0.1-RESULT.md            v0.1 验收结果(含未达成项与修掉的 bug)
+docs/                     18 篇模块细化设计(约 8700 行)
+verification/             v0.0 技术验证:四个会推翻架构的技术点,含可运行代码
+
+jaravel-support/          Coll / Str / Arr / Cast
+jaravel-core/             容器 / 门面 / 请求作用域 / Pipeline / 配置
+jaravel-http/             Request / Response / View / 中间件
+jaravel-routing/          路由 DSL(方法引用)
+jaravel-view/             jblade 模板引擎(Blade 前端 + jte 后端)
+jaravel-database/         查询构造器 + 三方言 Grammar
+jaravel-spring-boot-starter/   自动装配与 Spring 适配(唯一接触 Spring 的模块)
+jaravel-archunit-rules/   ADR-001 的阻断式强制
+
+examples/todo/            v0.1 垂直切片的示例应用
+benchmark/laravel-parity/ parity 门禁:与等价 Laravel 实现的代码量对比
+```
+
+## 快速开始
+
+```bash
+mvn install                                  # 构建 + 244 个测试
+cd examples/todo && mvn spring-boot:run      # → http://localhost:8000
+python verify-todo.py                        # 35 项端到端验收
+python benchmark/laravel-parity/parity.py    # parity 门禁
 ```
 
 ### 文档入口
@@ -156,11 +180,32 @@ bash verification/v4-hotreload-coverage/run.sh  # 需网络克隆样本仓库
 
 ---
 
+## v0.1 垂直切片结果(2026-10-29)
+
+8 个模块、**244 个测试通过**、示例应用**35 项端到端验收通过**。详见 [V0.1-RESULT.md](V0.1-RESULT.md)。
+
+| 验收项 | 结果 |
+|---|---|
+| 示例应用端到端可跑 | ✅ 35/35 |
+| parity 比值 ≤ 1.3 | ✅ **1.27**(勉强。差距几乎全来自「还没有 Eloquent」) |
+| 模板错误定位到 `.jblade.html` 行号 + 相似度建议 | ✅ |
+| ArchUnit 边界规则生效 | ✅ 7/7,且已验证能抓住违规 |
+| 冷启动 < 1.5 s | ❌ **1.73 s**,超标 15% |
+
+parity 的 1.27 里,`TodoRepository`(43 行,Laravel 侧完全不存在)是全部差距来源 ——
+去掉它是 0.98。v0.2 的 Eloquent 落地后这一项会消失。
+
+**已知缺口**:无 Eloquent / 无验证器(v0.2);无认证 / 会话 / CSRF(v0.3);
+fat jar 需要模板预编译(v0.9,目前用展开 classpath 部署)。
+
+---
+
 ## 下一步
 
-进入 **v0.1 垂直切片**:只做「路由 + 一个 jblade 页面 + 一个模型的 CRUD」,然后与等价的 Laravel 代码逐行对比。
+进入 **v0.2**:Eloquent + APT + 迁移 + 验证器。
 
-退出判断:**代码量比值 ≤ 1.3**(按完整功能切片统计),否则回头重新设计 API,而不是继续往上堆模块。
+v0.1 的 go/no-go 判断已通过,但通过得勉强。v0.2 必须让 parity 比值明显下降,
+否则需要重新审视 API 设计,而不是继续往上堆模块。
 
 ---
 

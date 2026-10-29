@@ -1,0 +1,3 @@
+view:
+  root: ${VIEW_ROOT:src/main/resources/views}
+  compiled: ${VIEW_COMPILED:target/jblade-classes}

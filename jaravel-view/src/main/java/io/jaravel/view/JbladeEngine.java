@@ -101,7 +101,7 @@ public final class JbladeEngine implements ViewEngine {
         try {
             jte.render(templatePath, params, out);
         } catch (TemplateException e) {
-            throw translateError(e, name);
+            throw isPrecompileRequired(e) ? precompileRequired(name, e) : translateError(e, name);
         } catch (JbladeException e) {
             throw e;   // 转写阶段的错误已有正确位置
         }
@@ -117,6 +117,30 @@ public final class JbladeEngine implements ViewEngine {
     public void invalidate() {
         lineMaps.clear();
         // jte 的 DirectoryCodeResolver 靠 getLastModified 判断,无需显式清理
+    }
+
+    /**
+     * jte 在**自包含 jar** 里不支持运行时编译,只能用预编译的模板类。
+     * 它的原始报错是一串 jte 文档链接,对 Jaravel 用户毫无上下文 ——
+     * 换成说明「这是什么、为什么、怎么办」的消息。
+     */
+    private static boolean isPrecompileRequired(TemplateException e) {
+        String m = e.getMessage();
+        return m != null && m.contains("must be precompiled");
+    }
+
+    private JbladeException precompileRequired(String viewName, TemplateException cause) {
+        return new JbladeException(viewName + SUFFIX, 0,
+                "打包成单体 jar 后无法在运行时编译模板,必须预编译。",
+                null,
+                """
+                开发期(mvn spring-boot:run / IDE 运行)不受影响,模板改完即生效。
+                       打包部署需要模板预编译,该能力由 jaravel-maven-plugin 提供(排期 v0.9)。
+                       v0.1 的部署方式:用展开的 classpath 运行,例如
+                         mvn dependency:copy-dependencies
+                         java -cp "target/classes;target/dependency/*" app.Application\
+                """,
+                cause);
     }
 
     // ================= 错误映射 =================

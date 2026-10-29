@@ -536,6 +536,11 @@ class QueueTest {
 
             store.pop("mail", Duration.ofSeconds(90)).orElseThrow();
 
+            // reserved_at 是毫秒精度,而候选条件是 `reserved_at < now - retryAfter`
+            // (严格小于是对的:retryAfter 是「多久之后算失联」)。
+            // 不等这一下的话同一毫秒内不成立 —— 本测试原本因此**偶发失败**
+            sleep(30);
+
             // 用一个极短的 retryAfter 模拟「持有它的 worker 失联了」
             assertThat(store.pop("mail", Duration.ZERO))
                     .as("不恢复的话崩掉的 worker 持有的任务永久卡住")
@@ -874,6 +879,14 @@ class QueueTest {
     }
 
     // ================= 工具 =================
+
+    private static void sleep(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
 
     private static DataSource nonClosing(java.sql.Connection real) {
         java.sql.Connection proxy = (java.sql.Connection) java.lang.reflect.Proxy.newProxyInstance(

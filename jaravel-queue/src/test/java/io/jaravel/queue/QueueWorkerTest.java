@@ -480,19 +480,32 @@ class QueueWorkerTest {
     class Heartbeats {
 
         @Test
-        @DisplayName("心跳续约让长任务不被判失联")
-        void heartbeatKeepsReservation() throws Exception {
+        @DisplayName("★ touch 把 reserved_at 推到现在,于是任务不被判失联")
+        void touchRefreshesReservation() throws Exception {
             var store = new DatabaseQueue(connection, serializer);
             Queue.dispatch(new Sleeps(10));
 
             var popped = store.pop("default", Duration.ofSeconds(30)).orElseThrow();
 
-            // 没有续约的话,极短的 retryAfter 会让它立刻可被别人取走
-            assertThat(store.pop("default", Duration.ZERO)).isPresent();
+            // reserved_at 是毫秒精度,而候选条件是 `reserved_at < now - retryAfter`。
+            // 不等这一下的话,同一毫秒内 `<` 不成立 —— 这个测试原本因此
+            // **偶发失败**,而 flaky 测试比确定性失败更糟:
+            // 它会训练人去忽略红色
+            Thread.sleep(30);
 
-            // 续约之后,reserved_at 被推到现在
-            Thread.sleep(20);
+            // retryAfter=0 → 任何已保留的任务都被判失联,可被别人取走
+            assertThat(store.pop("default", Duration.ZERO))
+                    .as("没有续约时,极短的 retryAfter 会让它立刻可被别人取走")
+                    .isPresent();
+
+            // 续约之后它又属于我们了(上面那次 pop 把 reserved_at 刷新成了
+            // 那个时刻,所以这里 touch 的是同一行、仍处于保留中)
             assertThat(store.touch(popped, Duration.ofSeconds(30))).isTrue();
+
+            Thread.sleep(30);
+            assertThat(store.pop("default", Duration.ofSeconds(30)))
+                    .as("续约后用正常的 retryAfter 取不到 —— 它还在被持有")
+                    .isEmpty();
         }
 
         @Test

@@ -190,12 +190,32 @@ public final class PendingDispatch {
                 queues.serializer().toData(job), Instant.now(), delay);
         this.uuid = envelope.uuid();
 
+        // 唯一性在**投递时**判定。执行时判定意味着重复任务已经占了
+        // 队列空间与一次 pop,而「队列里有 5000 条重复任务」本身就是问题
+        if (job instanceof UniqueJob unique && !acquireUniqueLock(unique)) {
+            this.uuid = null;       // 没有入队,就没有 uuid 可返回
+            return null;
+        }
+
         if (shouldWaitForCommit(store)) {
             currentConnection().orElseThrow().afterCommit(() -> store.push(envelope));
         } else {
             store.push(envelope);
         }
         return uuid;
+    }
+
+    /**
+     * 抢唯一性锁。
+     *
+     * <p>**锁的 TTL 是兜底**,不是唯一性窗口:正常情况下 Worker 在
+     * 任务结束时释放它。TTL 只在 worker 崩掉、没机会释放时起作用。
+     *
+     * @return 抢到了吗。false = 已有同 key 的任务,本次丢弃
+     */
+    private boolean acquireUniqueLock(UniqueJob unique) {
+        var cache = queues.requireUniqueLocks((ShouldQueue) unique);
+        return cache.lock(unique.uniqueLockKey(), unique.uniqueFor()).get();
     }
 
     /**

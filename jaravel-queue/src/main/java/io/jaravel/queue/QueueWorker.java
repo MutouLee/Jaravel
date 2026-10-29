@@ -273,8 +273,25 @@ public final class QueueWorker {
         }
 
         var heartbeat = startHeartbeat(envelope);
+        var decision = new MiddlewareDecision(job, envelope);
         try {
-            runWithTimeout(envelope, job);
+            if (job instanceof UniqueJob unique && unique.uniqueUntilProcessing()
+                    && queues.hasUniqueLocks()) {
+                // 「同一个 key 同时只有一个在**排队**」—— 开始跑了就放开,
+                // 让下一个能排进来
+                queues.requireUniqueLocks(job)
+                        .restoreLock(unique.uniqueLockKey(), "queue-unique")
+                        .forceRelease();
+            }
+
+            runThroughMiddleware(envelope, job, decision);
+
+            // 中间件决定了结果(release / delete)—— 任务没有执行,
+            // 这既不是成功也不是失败
+            if (decision.isResolved()) {
+                applyDecision(envelope, decision);
+                return;
+            }
 
             // **成功也要先看标记**:这条任务可能在执行途中被判定失联
             // 并被别人接手了。此时删掉它等于把别人的那次执行抹掉
@@ -299,6 +316,36 @@ public final class QueueWorker {
         } finally {
             heartbeat.stop();
             abandonedJobs.remove(envelope.uuid());
+            releaseUniqueLock(job);
+        }
+    }
+
+    /**
+     * 释放唯一性锁。
+     *
+     * <p>在 {@code finally} 里 —— 任务失败、超时、被接手时都要释放,
+     * 否则这个 key 会被挡到锁 TTL 过期为止,而那期间的新任务
+     * 全部被静默丢弃。
+     *
+     * <p>{@link UniqueJob#uniqueUntilProcessing()} 为 true 时**不在这里释放**:
+     * 它的语义是「开始执行时就释放」,那已经在进入 handle 之前做掉了。
+     */
+    private void releaseUniqueLock(ShouldQueue job) {
+        if (!(job instanceof UniqueJob unique)) return;
+        if (unique.uniqueUntilProcessing()) return;
+        if (!queues.hasUniqueLocks()) return;
+
+        try {
+            // forceRelease:锁是**投递方**加的,owner 不是本 worker。
+            // 普通 release 会因为 owner 不符而拒绝 —— 那个 owner 检查
+            // 对缓存锁是对的(防止误释放别人的锁),但唯一性锁的
+            // 持有者与释放者天生不同
+            queues.requireUniqueLocks(job)
+                    .restoreLock(unique.uniqueLockKey(), "queue-unique")
+                    .forceRelease();
+        } catch (RuntimeException e) {
+            System.err.printf("[jaravel] 释放唯一性锁失败(%s):%s%n",
+                    unique.uniqueLockKey(), e.getMessage());
         }
     }
 
@@ -309,6 +356,137 @@ public final class QueueWorker {
     private void reportAbandoned(QueuedJob envelope) {
         abandoned.incrementAndGet();
         listeners.forEach(l -> l.onAbandoned(envelope));
+    }
+
+    /**
+     * 跑中间件链,终点是带超时的 handle。
+     *
+     * <p>中间件**不在**超时控制之内:它们自己就是「等待」的表达
+     * (等锁、等限流),把它们算进任务超时会让「等了 2 分钟锁」
+     * 变成「任务超时失败」。
+     */
+    private void runThroughMiddleware(QueuedJob envelope, ShouldQueue job,
+                                      MiddlewareDecision decision) throws Throwable {
+        var middleware = job.middleware();
+        if (middleware == null || middleware.isEmpty()) {
+            runWithTimeout(envelope, job);
+            return;
+        }
+
+        // ★ 终点必须把异常**原样抛出**,不能存进一个数组里。
+        //
+        // 存起来的话中间件的 next.run() 永远不抛,于是
+        // ThrottlesExceptions(熔断)数不到任何失败 —— 它声明了
+        // 要「数异常」却永远数到 0。这是接线时的真实缺陷,
+        // 只有在熔断的测试里才会暴露。
+        //
+        // Runnable 不能抛 checked 异常,所以用 sneakyThrow 穿过这个边界。
+        // 保持**原始类型**是必要的:中间件可能按异常类型做判断,
+        // 包一层 wrapper 会让那些判断失效。
+        JobMiddleware.run(middleware, decision, () -> {
+            decision.markTerminalReached();
+            try {
+                runWithTimeout(envelope, job);
+            } catch (Throwable t) {
+                sneakyThrow(t);
+            }
+        });
+
+        // 中间件既没放行也没决定结果 —— 任务会静默消失(它已经被 pop 了)。
+        // 报错而不是放过:静默消失的任务是队列系统里最难查的一类问题
+        if (!decision.isResolved() && !decision.reachedTerminal()) {
+            throw new IllegalStateException("""
+                    任务 %s 的中间件链既没有放行也没有决定结果。
+                      中间件不调 next.run() 时必须显式 release(...) 或 delete(...) ——
+                      否则这个任务已经被取出队列却没有被处理,会静默消失。
+                      检查这些中间件:%s"""
+                    .formatted(envelope.displayName(),
+                               middleware.stream().map(JobMiddleware::name).toList()));
+        }
+    }
+
+    /**
+     * 穿过 {@code Runnable} 边界把原始异常抛出去。
+     *
+     * <p>泛型擦除让这个强转在运行时无操作 —— 编译器以为抛的是
+     * {@code RuntimeException},实际抛的是原来那个。
+     *
+     * <p>这个技巧只用在这一处:中间件链的终点。它要让中间件看到
+     * 任务**真正**抛的异常,而 {@code Runnable.run()} 的签名不允许。
+     */
+    @SuppressWarnings("unchecked")
+    private static <E extends Throwable> void sneakyThrow(Throwable t) throws E {
+        throw (E) t;
+    }
+
+    private void applyDecision(QueuedJob envelope, MiddlewareDecision decision) {
+        if (decision.deleted()) {
+            store.delete(envelope);
+            listeners.forEach(l -> l.onDiscarded(envelope, decision.reason()));
+            return;
+        }
+
+        // release 走的是「主动让出」—— **不计入异常次数**,
+        // 见 ShouldQueue.maxExceptions 的注释。等锁等了 50 次
+        // 不该耗尽重试配额
+        store.release(envelope, decision.releaseDelay());
+        released.incrementAndGet();
+        listeners.forEach(l -> l.onYielded(envelope, decision.releaseDelay()));
+    }
+
+    /**
+     * 中间件对这个任务做了什么。
+     *
+     * <p>刻意只记录决定,**不自己执行** —— 执行要在心跳与超时的
+     * 控制之内,而那是 {@link #process} 的职责。中间件直接操作
+     * QueueStore 会绕过那些控制。
+     */
+    private static final class MiddlewareDecision implements JobMiddleware.Context {
+
+        private final ShouldQueue job;
+        private final QueuedJob envelope;
+
+        private boolean released;
+        private boolean deleted;
+        private Duration releaseDelay = Duration.ZERO;
+        private String reason;
+        private boolean reachedTerminal;
+
+        MiddlewareDecision(ShouldQueue job, QueuedJob envelope) {
+            this.job = job;
+            this.envelope = envelope;
+        }
+
+        @Override public ShouldQueue job()     { return job; }
+        @Override public QueuedJob envelope()  { return envelope; }
+
+        @Override
+        public void release(Duration delay) {
+            if (isResolved()) return;
+            this.released = true;
+            this.releaseDelay = delay == null ? Duration.ZERO : delay;
+        }
+
+        @Override
+        public void delete(String why) {
+            if (isResolved()) return;
+            this.deleted = true;
+            this.reason = why;
+        }
+
+        @Override
+        public boolean isResolved() {
+            return released || deleted;
+        }
+
+        void markTerminalReached() {
+            this.reachedTerminal = true;
+        }
+
+        boolean reachedTerminal()   { return reachedTerminal; }
+        boolean deleted()           { return deleted; }
+        Duration releaseDelay()     { return releaseDelay; }
+        String reason()             { return reason; }
     }
 
     /**
@@ -569,6 +747,12 @@ public final class QueueWorker {
 
         /** 任务被别的 worker 接手了,本 worker 放弃 */
         default void onAbandoned(QueuedJob job) {}
+
+        /** 中间件主动让出(等锁、等限流)—— 不算失败 */
+        default void onYielded(QueuedJob job, Duration delay) {}
+
+        /** 中间件丢弃了任务 —— 不算失败,是个正常结束 */
+        default void onDiscarded(QueuedJob job, String reason) {}
     }
 
     /** 超时。见 {@link QueueWorker} 类注释里的语义限制。 */

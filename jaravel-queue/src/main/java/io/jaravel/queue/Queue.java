@@ -51,7 +51,9 @@ public final class Queue {
     /**
      * 用任务自己的配置投递。
      *
-     * @return 任务的 uuid,可用于日志关联与失败查询
+     * @return 任务的 uuid,可用于日志关联与失败查询。
+     *         **任务实现了 {@link UniqueJob} 且已有同 key 的任务时返回 null** ——
+     *         那表示本次投递被去重丢弃了。需要区分的调用方要检查它
      */
     public static String dispatch(ShouldQueue job) {
         return new PendingDispatch(manager(), job).dispatch();

@@ -32,6 +32,12 @@
       <artifactId>jaravel-database</artifactId>
     </dependency>
 
+    <!-- 任务中间件的锁与限流器;唯一性任务也用它 -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-cache</artifactId>
+    </dependency>
+
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>

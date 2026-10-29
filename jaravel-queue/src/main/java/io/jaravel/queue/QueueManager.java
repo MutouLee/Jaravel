@@ -44,8 +44,46 @@ public final class QueueManager {
      */
     private boolean afterCommitByDefault = true;
 
+    /**
+     * 唯一性任务的锁存储。
+     *
+     * <p>没有它时 {@link UniqueJob} **不生效**,而那是个会被当成 bug 的
+     * 静默行为 —— 所以 {@link #requireUniqueLocks} 在真的遇到
+     * UniqueJob 时报错,而不是悄悄放过。
+     */
+    private io.jaravel.cache.Repository uniqueLocks;
+
     public QueueManager(JobSerializer serializer) {
         this.serializer = serializer;
+    }
+
+    /** 装上唯一性任务需要的锁存储(通常是默认 cache store) */
+    public QueueManager uniqueLocks(io.jaravel.cache.Repository cache) {
+        this.uniqueLocks = cache;
+        return this;
+    }
+
+    /**
+     * 取锁存储,没有就报错。
+     *
+     * <p>不静默跳过:一个声明了 {@code UniqueJob} 的任务却不去重,
+     * 症状是「队列里有 5000 条重复任务」,而那很难联想到
+     * 「缓存没配」。
+     */
+    io.jaravel.cache.Repository requireUniqueLocks(ShouldQueue job) {
+        if (uniqueLocks != null) return uniqueLocks;
+
+        throw new IllegalStateException("""
+                任务 %s 声明了 UniqueJob,但队列没有配锁存储,唯一性无法生效。
+                  修复:给 QueueManager 调 uniqueLocks(cache.store()),
+                        或在 config/cache.yml 里配一个可用的 cache.default。
+                  这里报错而不是静默跳过 —— 不去重的症状是
+                  「队列里有一堆重复任务」,很难联想到缓存没配。"""
+                .formatted(job.getClass().getName()));
+    }
+
+    boolean hasUniqueLocks() {
+        return uniqueLocks != null;
     }
 
     // ================= 注册 =================

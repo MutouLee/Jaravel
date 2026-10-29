@@ -145,6 +145,33 @@ public interface ShouldQueue {
     }
 
     /**
+     * 任务中间件(docs/10 §1.3)。
+     *
+     * <p>由 Worker 在 handle 之前依次执行。它们能做 handle 做不到的事:
+     * **把任务放回队列**(等锁、等限流)。
+     *
+     * <pre>{@code
+     * @Override public List<JobMiddleware> middleware() {
+     *     return List.of(new WithoutOverlapping(cache, "invoice:" + orderId));
+     * }
+     * }</pre>
+     *
+     * <p>中间件要的依赖(cache / limiter)从**构造它的地方**传进来 ——
+     * 而这个方法在任务实例上,它拿不到容器。实践中的写法是让任务
+     * 从 handle 的注入参数里拿不到的东西走一个静态门面,
+     * 或者在 Kernel 式的集中处配置。
+     *
+     * <p>这是一个已知的粗糙点:Laravel 里 {@code middleware()} 能用
+     * 容器解析,因为 PHP 的全局容器随处可达。Jaravel 的等价做法是
+     * 门面({@code Cache.lock(...)}),但那把依赖藏起来了。
+     * **列入 v0.5 重新设计** —— 候选方案是让 Worker 在调用
+     * {@code middleware()} 时注入一个 {@code MiddlewareFactory}。
+     */
+    default java.util.List<JobMiddleware> middleware() {
+        return java.util.List.of();
+    }
+
+    /**
      * 任务的展示名,用于日志与失败列表。
      *
      * <p>默认是类的简单名。覆盖它可以带上关键参数 ——

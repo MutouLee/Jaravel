@@ -35,9 +35,23 @@ public class SendInvoice implements ShouldQueue {
         Notification.route("slack", OPS).notify(new JobFailed(this, e));
     }
 
-    /** 唯一性约束:同一订单的发票任务不重复入队 */
-    @Override public String uniqueId()      { return String.valueOf(orderId); }
-    @Override public Duration uniqueFor()   { return Duration.ofMinutes(10); }
+    /*
+     * 唯一性约束:同一订单的发票任务不重复入队。
+     *
+     * v0.4 实现时改成了**独立接口** `UniqueJob` 而不是 ShouldQueue 的
+     * 默认方法 —— 它需要一个锁存储才能生效,做成默认方法意味着
+     * 「所有任务都声明了这个能力,但只在配了缓存时才真的工作」,
+     * 而那正是 v0.3 反复修的那类问题:声明了却不生效的 API。
+     *
+     *   public class SendInvoice implements ShouldQueue, UniqueJob {
+     *       @Override public String uniqueId()    { return String.valueOf(orderId); }
+     *       @Override public Duration uniqueFor() { return Duration.ofMinutes(10); }
+     *   }
+     *
+     * 没配锁存储时**报错**,不静默跳过去重 —— 不去重的症状是
+     * 「队列里有一堆重复任务」,很难联想到缓存没配。
+     * uniqueFor 是**兜底 TTL**:正常情况下 Worker 在任务结束时释放锁。
+     */
 }
 ```
 
@@ -104,6 +118,26 @@ public class SendInvoice implements ShouldQueue {
 ```
 
 复用 `jaravel-core` 的 `Pipeline`(见 [02](02-core-container.md) §4)。
+
+> **v0.4 实现说明**
+>
+> 任务中间件比 HTTP 中间件多一个动作:**把任务放回队列**
+> (`context.release(delay)`)。这是「等锁」「等限流」的正确表达 ——
+> 阻塞等待会占着一个并发额度干等,而那个额度本可以去跑别的任务。
+>
+> 三个内置中间件都已实现:`WithoutOverlapping`、`RateLimited`、
+> `ThrottlesExceptions`。被它们 release 的任务**不计入异常次数** ——
+> 这是 `maxExceptions` 与 `tries` 分开的理由:等锁等了 50 次
+> 不该耗尽重试配额。
+>
+> **一个已知的粗糙点**:`middleware()` 是任务实例上的方法,它拿不到容器,
+> 所以中间件要的 cache / limiter 没有注入通道。Laravel 里这不是问题 ——
+> PHP 的全局容器随处可达。Jaravel 的等价做法是门面(`Cache.lock(...)`),
+> 但那把依赖藏起来了。**列入 v0.5 重新设计**,候选方案是让 Worker 在调用
+> `middleware()` 时传入一个 `MiddlewareFactory`。
+>
+> 中间件既不放行也不 release/delete 时**报错**:任务已经被 pop 出来了,
+> 什么都不做等于它静默消失,而那是队列系统里最难查的一类问题。
 
 ### 1.4 Worker
 

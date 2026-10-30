@@ -58,7 +58,20 @@ Cache.tags("users").flush();              // 失效所有带 users 标签的条�
 Cache.tags("users", "posts").get("user:1:posts", PostList.class);
 ```
 
-仅 `redis` / `caffeine` 驱动支持标签(`database` / `file` 驱动抛 `UnsupportedOperationException` 并给出清晰提示——而非静默降级,后者会导致缓存永不失效的隐蔽 bug)。
+> ### v0.4 实现说明:标签在**所有**驱动上都能用 —— 这一条原文写错了
+>
+> 原文说「仅 `redis` / `caffeine` 支持标签,`database` / `file` 抛
+> `UnsupportedOperationException`」。实际的 `TaggedCache` 用的是
+> **标签版本号**而不是「维护一份成员清单」:`flush()` 只是把那个标签的
+> 版本号 +1,于是带旧版本的 key 再也命不中。
+>
+> 那个实现只需要 `get` / `put` / `increment`,**任何**驱动都支持 ——
+> 所以 database 与 file 上标签照样工作。
+>
+> 代价要说清:被失效的条目**不会被立刻删除**,它们留到各自的 TTL
+> 到期,所以存储占用比「真的删掉」高一些。换来的是 `flush()` 是
+> O(1) —— 而维护成员清单的方案在一个标签下有十万个 key 时,
+> `flush()` 会变成一次灾难。
 
 ### 1.3 原子锁
 
@@ -88,12 +101,35 @@ Redis 实现用 `SET key owner NX PX ttl` + Lua 脚本释放(校验 owner,避免
 | 驱动 | 实现 | 场景 |
 |---|---|---|
 | `caffeine` | Caffeine(进程内) | 单实例、高频读、默认开发驱动 |
-| `redis` | Lettuce | 生产默认,支持标签与锁 |
+| `redis` | Lettuce | 生产默认。**⚠ v0.4 未实现** —— 见下 |
 | `database` | `cache` 表 | 无 Redis 的小项目 |
 | `file` | 文件系统 | 本地开发 |
 | `array` | `HashMap` | 测试,请求结束即丢 |
 | `null` | 黑洞 | 禁用缓存 |
-| `tiered` | Caffeine + Redis 两级 | 热点数据,L1 本地 + L2 共享 |
+| `tiered` | Caffeine + Redis 两级 | 热点数据。**`TieredStore` 已实现,但 L2 配 redis 不可用** |
+
+> ### ⚠ v0.4 实现状态:**没有 redis 驱动**
+>
+> **已实现**:`caffeine`、`database`、`file`、`array`、`null`、`tiered`。
+> **未实现**:`redis`。
+>
+> 它会**响亮失败**:`cache.default: redis` 在启动时报错并列出已注册的
+> 驱动,不会静默退回别的。
+>
+> 但**文档此前把它写成「生产默认」而没有任何未实现标记** ——
+> 这是这次对账查出的最严重的一处脱节:一个照着本节配置的人会在启动时
+> 撞墙,而文档读起来像是他配错了。
+>
+> **多实例共享缓存现在用 `database` 驱动**,它是真的能用的:
+> `isShared()` 为 true,`add` 靠主键冲突保证原子性 ——
+> 调度器的 `onOneServer` 就跑在它上面(见 docs/10 §3.4)。
+> 代价是每次读写一条 SQL,比 Redis 慢一个量级。
+>
+> 不先做 redis 的理由是**测试策略要先定**:它需要一个真的 Redis
+> (testcontainers 要 Docker;嵌入式 Redis 的行为与真实版本有差异,
+> 而「驱动换了行为就变」正是 §1.4 这组契约测试要防的事),
+> 而一个「只在有 Docker 的机器上才跑」的测试组会慢慢腐烂。
+> 这个决定该在动手之前定下来。
 
 ```yaml
 # config/cache.yml
@@ -185,7 +221,7 @@ Session.id();
 | 驱动 | 说明 |
 |---|---|
 | `cookie` | 加密后存客户端。无服务端状态,水平扩展最简单。限制 4KB |
-| `redis` | 生产默认 |
+| `redis` | 生产默认。**⚠ 它转给 cache 驱动,而 cache 的 redis 未实现** —— 见 §1.4 |
 | `database` | `sessions` 表,带 `user_id`/`ip`/`user_agent`/`last_activity`,支持「登出其他设备」 |
 | `file` | 本地开发 |
 | `memory` | 测试 |

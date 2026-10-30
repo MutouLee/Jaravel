@@ -105,6 +105,8 @@ public final class JbladeTranspiler {
             }
             if (line.trim().equals("@verbatim")) { inVerbatim = true; emit("", sourceLine); continue; }
 
+            rejectComponentTag(line, sourceLine);
+
             lineHadDirective = false;
             String translated = translateLine(line, sourceLine);
             if (translated == null) continue;
@@ -420,6 +422,51 @@ public final class JbladeTranspiler {
                     "@extends 需要布局名,如 @extends('layouts.app')");
         }
         layout = stripQuotes(parts.get(0));
+    }
+
+    /**
+     * 组件标签 {@code <x-foo>} —— **还没实现,所以直接报错**。
+     *
+     * <h2>为什么需要这个检查</h2>
+     * <p>docs/04 §1.7 完整地描述了组件系统(匿名组件、类组件、
+     * slot、属性透传),而它**一行都还没实现**。
+     *
+     * <p>没有这个检查的话,{@code <x-post-card :post="post" />} 会被
+     * 当成普通 HTML **原样输出到页面上** —— 浏览器遇到未知标签不报错,
+     * 只是什么都不渲染。于是症状是「那块内容是空的」,
+     * 而从那个症状到「组件系统没实现」之间没有任何线索:
+     * 开发者会先怀疑自己的数据、再怀疑条件判断,最后才想到去查文档的
+     * 实现状态。
+     *
+     * <p>这正是这个项目反复修的那一类缺陷 ——
+     * **静默地少做一件事**比响亮地失败糟得多。
+     *
+     * <h2>误报与出路</h2>
+     * <p>检查的是文本里有没有 {@code <x-},所以一个**被注释掉**的
+     * 组件用法(或者一篇讲组件的文档模板)也会被拦下。
+     *
+     * <p>那是刻意的取舍:误报给出的是一条指名道姓的错误,
+     * 而漏报给出的是一个空白的页面。消息里给出 {@code @verbatim}
+     * 这条出路。
+     */
+    private void rejectComponentTag(String line, int sourceLine) {
+        int at = line.indexOf("<x-");
+        if (at < 0) return;
+
+        throw new JbladeException(templateName, sourceLine, """
+                组件标签 <x- 还没实现(docs/04 §1.7 描述的组件系统尚未落地)。
+
+                  这里直接报错而不是原样输出:浏览器对未知标签不报错,
+                  只是什么都不渲染 —— 于是症状会是「这块内容是空的」,
+                  而那与真正的原因之间没有线索。
+
+                  现在的替代写法:
+                    @include('components.post-card', Map.of("post", post))
+
+                  如果这一行是**注释或文档**里的示例,用 @verbatim 包起来:
+                    @verbatim
+                    <x-post-card :post="post" />
+                    @endverbatim""");
     }
 
     // ================= 表达式重写 =================

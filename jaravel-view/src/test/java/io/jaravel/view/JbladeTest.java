@@ -630,6 +630,46 @@ class JbladeTest {
             var r = JbladeTranspiler.transpile("<style>@media (max-width: 600px) { }</style>\n", "t");
             assertThat(r.jteSource()).contains("@media");
         }
+
+        @Test
+        @DisplayName("★ 组件标签 <x- 直接报错,而不是原样输出")
+        void componentTagsFailLoudly() {
+            assertThatThrownBy(() -> JbladeTranspiler.transpile(
+                    "<div>\n  <x-post-card :post=\"post\" />\n</div>\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("还没实现")
+                    .as("错误要指向出问题的那一行")
+                    .hasMessageContaining(":2");
+        }
+
+        @Test
+        @DisplayName("★ 为什么不能原样输出:浏览器对未知标签不报错,只是什么都不渲染")
+        void whyNotPassThrough() {
+            // 这一条没有断言可写 —— 它记录的是一个**取舍**。
+            //
+            // docs/04 §1.7 完整描述了组件系统,而它一行都没实现。
+            // 原样输出的话 <x-post-card> 会进到 HTML 里,浏览器忽略它,
+            // 于是症状是「那块内容是空的」—— 而从那个症状到
+            // 「组件系统没实现」之间没有任何线索。
+            //
+            // 代价是误报:被注释掉的组件用法也会被拦下。
+            // 出路是 @verbatim,下面那条测试守着它
+            assertThat(true).isTrue();
+        }
+
+        @Test
+        @DisplayName("@verbatim 里的 <x- 不报错 —— 文档模板的出路")
+        void verbatimEscapesTheCheck() {
+            var r = JbladeTranspiler.transpile("""
+                    @verbatim
+                    <x-post-card :post="post" />
+                    @endverbatim
+                    """, "t");
+
+            assertThat(r.jteSource())
+                    .as("@verbatim 里的内容对 jte 不可见,也不过组件检查")
+                    .contains("x-post-card");
+        }
     }
 
     // ================= 热重载 =================

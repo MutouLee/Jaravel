@@ -47,6 +47,27 @@ public interface StatefulGuard extends Guard {             // 会话型
 | `SanctumGuard` | SPA + API 混合 | 同源请求走 Session,跨域走 Token |
 | `BasicGuard` | 内部工具 | HTTP Basic |
 
+> ### ⚠ v0.4 实现状态:只有前三个
+>
+> **已实现**:`SessionGuard`、`TokenGuard`、`JwtGuard`。
+> **未实现**:`SanctumGuard`、`BasicGuard`。
+>
+> 两者都会**响亮失败** —— `auth.yml` 里写 `driver: sanctum` 时
+> 启动直接报错并列出可用的驱动(见
+> `JaravelAuthAutoConfiguration.unknownDriver`),不会静默退回。
+>
+> docs/17 的 v0.3 范围行写的是「认证:`JwtGuard` + `SanctumGuard`」,
+> 而当时只做了前者 —— 此前没有任何地方标注这件事。
+>
+> **`SanctumGuard` 的难点不在实现而在设计**:它要判定「这个请求算
+> 同源吗」,而那个判定(`stateful-domains` 配置)是 Laravel Sanctum
+> 最常见的困惑来源 —— 本文 §7 的待决清单里原本就列着这一条。
+> 判错的后果是安全问题:把跨域请求当成同源会让 CSRF 防护失效。
+> 所以它不该为了「表格里不留空」而草率实现。
+>
+> **当前的替代**:SPA 用 `JwtGuard` 或 `TokenGuard`
+> (`examples/auth` 演示了用会话身份换一个无状态令牌的做法)。
+
 ### 1.2 配置
 
 ```yaml

@@ -280,6 +280,25 @@ public class User extends Model<User> { ... }
 | `@MorphTo` | `morphTo` | `Rel1<Object>` + 类型解析器 |
 | `@MorphToMany` | `morphToMany` | `Rel<T>` |
 
+> ### ⚠ v0.4 实现状态:10 个里实现了 7 个
+>
+> **已实现**:`@HasOne`、`@HasMany`、`@BelongsTo`、`@BelongsToMany`、
+> `@HasManyThrough`、`@MorphMany`、`@MorphTo`。
+>
+> **未实现**:`@HasOneThrough`、`@MorphOne`、`@MorphToMany`。
+>
+> 三个都是**编译错误**(注解类不存在),所以不会静默坑人。
+> 但此前这张表没有任何标记 —— 读者会以为十个都能用。
+>
+> 为什么是这三个:它们各自是一个已实现关联的「单数/多对多」变体,
+> 而变体的代价不是对称的 ——
+> `@HasOneThrough` 与 `@MorphOne` 只差一个「取第一条」
+> (在 `Rel1` 上已有的能力),**它们是低垂的果实**;
+> 而 `@MorphToMany` 要一张带 `*_type` 的中间表,
+> 预加载的分组逻辑与 `@BelongsToMany` 完全不同 —— 那是真正的工作量。
+>
+> 当前的替代:`@HasManyThrough` + `.first()`;多态多对多手写查询。
+
 ### 4.2 `Rel<T>` 的设计
 
 ```java

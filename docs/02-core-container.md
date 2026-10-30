@@ -475,6 +475,20 @@ DateX.now().timezone("UTC");
 
 包装 `java.time`(内部持 `ZonedDateTime`),提供链式 + 人类可读差值 + 本地化。**不重新实现时间逻辑**,只做 API 门面。
 
+> ### ⚠ 截至 v0.4,`DateX` **完全不存在**
+>
+> `jaravel-support` 里只有 `Coll` / `Str` / `Arr` / `Cast`。
+> 它是 docs/17 的 **v0.1 范围行**(「`Coll`、`Str`、`Arr`、`DateX`
+> 的 80% 常用方法」)里唯一没交付的一项,而此前没有任何地方标注这件事。
+>
+> **不存在是编译错误**,所以它不会静默坑人 —— 这是它优先级不高的原因。
+> 当前写法:直接用 `java.time`。`diffForHumans()` 这类人类可读差值
+> 没有等价物(JDK 不提供),要么自己写,要么引 `PrettyTime`。
+>
+> 它仍然该做:Laravel 的 Carbon 在模板里用得极多
+> (`{{ post.createdAt.diffForHumans() }}`),而 `java.time` 的
+> API 在模板里写起来很笨重。列入 v0.5。
+
 ---
 
 ## 7. 逃生口

@@ -64,6 +64,31 @@ public class JaravelDefaults implements EnvironmentPostProcessor {
         p.put("spring.web.resources.add-mappings", "false");
         p.put("server.error.whitelabel.enabled", "false");
 
+        // ★ 让 Jaravel 掌握重启的时机,而不是 spring-boot-devtools。
+        //
+        // 没有这一行的话 devtools 在**文件一变**时就重启自己,
+        // 于是 Jaravel 的两件事同时失效:
+        //   · 「按需重启」(存文件不立刻重启,下一个请求才触发,
+        //     连续编辑 10 个文件只重启一次)—— docs/15 §3.3 的交付项;
+        //   · L2 方法体热替换 —— 刚换完字节,devtools 就把整个
+        //     应用重启了,于是 L2 等于不存在。
+        //
+        // 配一个 trigger-file 之后 devtools 只在**那个文件**变化时重启,
+        // 而 Jaravel 通过 Restarter.restart() 在自己选的时刻触发。
+        // 那个文件从不需要真的存在。
+        //
+        // ⚠ 为什么不用 spring.devtools.restart.enabled=false:
+        // devtools 的 RestartApplicationListener 在
+        // ApplicationStartingEvent 上就读它,而那**早于**
+        // EnvironmentPostProcessor —— 它读的是 System property,
+        // 不是 Environment。在这里设它不生效。
+        // 而且关掉之后 Restarter 根本不初始化,Jaravel 也就没法
+        // 主动触发重启了,L3 会一起没。
+        //
+        // trigger-file 走的是 DevToolsProperties 的绑定,那是 Environment
+        // 级的,所以在这里设有效。
+        p.put("spring.devtools.restart.trigger-file", ".jaravel-restart-trigger");
+
         return p;
     }
 }

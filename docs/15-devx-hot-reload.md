@@ -121,7 +121,7 @@ JVM 标准 HotSwap(`Instrumentation.redefineClasses`)**只支持方法体修改*
 
 | 方案 | 可用性 | 说明 |
 |---|---|---|
-| 标准 HotSwap | ✅ 任何 JDK | 仅方法体。覆盖约 60% 的日常改动 |
+| 标准 HotSwap | ✅ 任何 JDK（**v0.4 已实现**） | 仅方法体。实测覆盖 50%~78%，见 §9 |
 | **JetBrains Runtime (JBR)** | ✅ 免费,随 IntelliJ 分发 | 增强的 HotSwap,支持加字段/方法 |
 | DCEVM + HotswapAgent | ⚠️ 开源但对新 JDK 的支持滞后 | 能力最强 |
 | JRebel | 💰 商业 | 能力最强,企业可选 |
@@ -131,6 +131,62 @@ JVM 标准 HotSwap(`Instrumentation.redefineClasses`)**只支持方法体修改*
 - 检测到运行在 JBR 上 → 自动启用增强模式(`jaravel doctor` 会提示用户「用 JBR 可获得更好的热重载」);
 - HotswapAgent / JRebel 作为可选增强,文档给出配置方法;
 - **不把项目的核心体验押在非标准 JVM 上** —— L3 的 < 2s 重启是兜底保证。
+
+> **v0.4 已实现 L2(标准 HotSwap)。** docs/17 的 v0.3 复盘把这一项挪进了 v0.4。
+>
+> 在这之前 `ReloadCoordinator` 的 `HOTSWAP` 分支有一个 `onHotswap` 钩子,
+> 但**没有任何地方给它赋值** —— 于是它永远走 else 降级到 L3。
+> 分类是对的,执行是空的。
+>
+> **Instrumentation 怎么拿到。** 两条路,按顺序试:
+> ① 用户加了 `-javaagent:...jaravel-devtools.jar`;
+> ② **运行时自挂载**(`jdk.attach` 挂到自己的 pid 上)。
+>
+> 第二条要 `-Djdk.attach.allowAttachSelf=true`(JDK 9 之后自挂载默认禁止),
+> 并且要跑在 **JDK** 上(JRE 没有 `jdk.attach` 模块)。
+> 两个条件都会在启动时**明确报出来**并给出照着做的修复步骤 ——
+> 一个静默降级的 L2 会让用户以为「0 重启」生效了,然后困惑于
+> 为什么每次都等两秒。
+>
+> **Instrumentation 放在 `System.getProperties()` 里。** 看起来脏,
+> 但 agent 类由系统类加载器加载,而 `HotSwapper` 跑在应用的加载器里
+> (spring-boot-devtools 把整个应用放进 `RestartClassLoader`)——
+> 两边是**两个不同的 `HotSwapAgent` 类**,静态字段传不过去。
+> `System.getProperties()` 是个 `Hashtable`,由引导类加载器持有,
+> 对所有加载器可见。
+>
+> **★ 失败是常态,必须降级。** 增删方法/字段、改签名在开发期极其常见,
+> 而它们一律被标准 HotSwap 拒绝。任何失败都转 L3 并打印原因。
+> 不降级的后果是「文件已经改了、运行时还是旧的」且没有提示 ——
+> 那是最难排查的一类状态,用户会开始怀疑自己的代码。
+>
+> **★ 带 APT 注解的类不走 L2。** HotSwap 不重跑注解处理,于是
+> `XxxBase` / `Xxx_` 这些生成物会与新代码脱节,而那种不一致的报错
+> **指向生成的代码**。`ChangeClassifier.triggersAnnotationProcessing`
+> 看的是源码文本,而 L2 这条路走的是 `.class` 变更 —— 那时没有源码,
+> 所以 `HotSwapper` 另外按**已加载 Class 上的注解**再查一遍。
+> (接上 L2 之前,前者**没有任何生产调用方**,也就是说这个风险
+> 此前是无人看守的。)
+>
+> **★ 顺带修了一个让 L2 与「按需重启」同时失效的问题。**
+> devtools 自己监听 classpath,**文件一变就重启**。于是:刚换完字节
+> 就被整体重启(L2 等于不存在),而 §3.3 承诺的「连续编辑 10 个文件
+> 只重启一次」也从未成立。
+>
+> 修法是给 devtools 配一个 `trigger-file`(`JaravelDefaults` 里的
+> 一个默认值),它只在那个文件变化时重启,而 Jaravel 通过
+> `Restarter.restart()` 在自己选的时刻触发。那个文件从不需要存在。
+> 不用 `spring.devtools.restart.enabled=false`:devtools 在
+> `ApplicationStartingEvent` 上就从 **System property** 读它
+> (早于 `EnvironmentPostProcessor`),而且关掉之后 `Restarter`
+> 不初始化,L3 会一起没。
+>
+> **验证范围要说清。** `HotSwapperTest` 现场编译一个类的两个版本、
+> 真的调 `redefineClasses`、再调用那个方法看返回值 —— 11 条,
+> 含「加方法被拒」「加字段被拒」「带 `@Model` 的类降级」三条反例。
+> ⚠ **「IDE 里保存 → 文件监听 → 分类 → 热替换」这条完整链路
+> 没有自动化测试** —— 它需要一个真实的 IDE 增量编译与一次
+> devtools 重启。starter 里那段降级逻辑是靠人工验证的。
 
 ### 3.5 状态保持
 

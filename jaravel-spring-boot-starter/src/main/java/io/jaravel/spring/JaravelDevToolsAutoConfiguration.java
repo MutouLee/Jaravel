@@ -79,7 +79,24 @@ public class JaravelDevToolsAutoConfiguration {
                 "org.springframework.boot.devtools.restart.Restarter",
                 getClass().getClassLoader());
 
-        var coordinator = new ReloadCoordinator(gate, new ChangeClassifier(false))
+        // ★ L2。docs/17 在 v0.3 复盘里把这一项挪进了 v0.4。
+        //
+        // available() 第一次调用会尝试自挂载 agent(几十毫秒),
+        // 结果决定 ChangeClassifier 要不要把「只改了 .class」
+        // 分类成 HOTSWAP —— 不可用时它直接给 RESTART_LOADER,
+        // 于是 L2 这条路径根本不会被走到
+        var hotSwapper = new io.jaravel.devtools.HotSwapper();
+        boolean hotswapEnabled = config.bool("jaravel.hot-reload.hotswap", true)
+                && hotSwapper.available();
+
+        reportHotswapStatus(hotswapEnabled, hotSwapper, config);
+
+        // onHotswap 的 Runnable 要读「这次改了哪些文件」,而那在
+        // coordinator 身上 —— 用一个 holder 打破构造顺序的循环
+        var holder = new java.util.concurrent.atomic.AtomicReference<ReloadCoordinator>();
+
+        var coordinator = new ReloadCoordinator(gate,
+                        new ChangeClassifier(hotswapEnabled))
                 // L1:丢弃已编译的模板。配置的重读由 ConfigRepository 自己
                 // 按文件 mtime 处理(开发期从文件系统读)
                 .onResource(views::invalidate)
@@ -100,8 +117,75 @@ public class JaravelDevToolsAutoConfiguration {
                     }
                 });
 
+        if (hotswapEnabled) {
+            coordinator.onHotswap(() -> hotswap(hotSwapper, holder.get()));
+        }
+
+        holder.set(coordinator);
         startWatcher(coordinator, config);
         return coordinator;
+    }
+
+    /**
+     * 一次 L2 热替换。
+     *
+     * <p>★ **失败必须降级到 L3**,这是这个方法里唯一重要的事。
+     *
+     * <p>标准 JVM 的 {@code redefineClasses} 只接受方法体变化,
+     * 而「加一个字段」「加一个方法」是开发期最常见的改动之一 ——
+     * 也就是说**失败是常态**,不是异常。
+     *
+     * <p>不降级的后果:文件已经改了、运行时还是旧的,而且没有任何
+     * 提示。那是最难排查的一类状态 —— 用户会开始怀疑自己的代码。
+     */
+    private void hotswap(io.jaravel.devtools.HotSwapper swapper,
+                         ReloadCoordinator coordinator) {
+        var result = swapper.redefine(coordinator.lastChanged());
+
+        if (result.ok()) {
+            System.out.printf("[jaravel] L2 方法体热替换:%s%n", result.describe());
+            return;
+        }
+
+        System.out.printf("""
+
+                [jaravel] L2 热替换没成功,降级到类加载器重启(L3)。
+                          %s
+                %n""", describeFailures(result));
+
+        // 降级。这里直接调 L3 的动作 —— 不是重新走一遍 classify,
+        // 那会再判一次 HOTSWAP 然后无限循环
+        DevtoolsBridge.restart();
+    }
+
+    private String describeFailures(io.jaravel.devtools.HotSwapper.Result result) {
+        return result.failures().entrySet().stream()
+                .map(e -> "  · " + e.getKey() + " —— " + e.getValue())
+                .collect(java.util.stream.Collectors.joining("\n"));
+    }
+
+    /**
+     * 启动时说清 L2 的状态。
+     *
+     * <p>**不可用时要说原因**。一个静默降级的 L2 会让用户以为
+     * 「改方法体 0 重启」生效了,然后困惑于为什么每次都等 2 秒 ——
+     * 而那个困惑没有任何线索可循。
+     */
+    private void reportHotswapStatus(boolean enabled,
+                                     io.jaravel.devtools.HotSwapper swapper,
+                                     ConfigRepository config) {
+        if (enabled) {
+            System.out.println("[jaravel] L2 方法体热替换:已启用");
+            return;
+        }
+
+        if (!config.bool("jaravel.hot-reload.hotswap", true)) {
+            System.out.println(
+                    "[jaravel] L2 方法体热替换:已由 jaravel.hot-reload.hotswap 关闭");
+            return;
+        }
+
+        System.out.printf("%n[jaravel] %s%n%n", swapper.unavailableReason());
     }
 
     private void startWatcher(ReloadCoordinator coordinator, ConfigRepository config) {

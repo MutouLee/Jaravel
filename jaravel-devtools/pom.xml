@@ -36,4 +36,22 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <!-- L2 的测试要真的挂载 agent,而 JDK 9 之后
+               自挂载默认禁止。
+               不加这个参数的话 HotSwapperTest 里那组
+               真正验证热替换的测试会全部跳过 ——
+               而一组永远跳过的测试等于没有测试 -->
+          <argLine>-Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8
+                   -Djdk.attach.allowAttachSelf=true</argLine>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
 </project>

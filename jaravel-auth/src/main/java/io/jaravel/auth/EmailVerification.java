@@ -104,6 +104,13 @@ public class EmailVerification {
         }
 
         marker.accept(user);
+
+        // 事件在 marker **之后**发 —— 监听器里读 isVerified(user)
+        // 要能看到 true。提前发的话一个「验证后送优惠券」的监听器
+        // 会看到一个还没验证的用户,然后它自己的「已验证才送」判断
+        // 会把自己挡掉
+        io.jaravel.events.Event.tryDispatch(
+                new io.jaravel.auth.events.AuthEvents.Verified(user));
         return Result.VERIFIED;
     }
 

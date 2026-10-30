@@ -363,6 +363,75 @@ class FrameworkEventsTest {
         }
     }
 
+    // ================= 认证 =================
+
+    @Nested
+    @DisplayName("认证事件")
+    class Auth {
+
+        private io.jaravel.cache.RateLimiter limiter;
+
+        @BeforeEach
+        void authSetUp() {
+            var cache = new CacheManager()
+                    .register("array", new ArrayStore())
+                    .defaultStore("array")
+                    .store();
+            limiter = new io.jaravel.cache.RateLimiter(cache);
+        }
+
+        @Test
+        @DisplayName("★ 失败次数超限 → Lockout,带剩余秒数")
+        void lockout() {
+            collect(io.jaravel.auth.events.AuthEvents.Lockout.class);
+
+            var throttle = new io.jaravel.auth.LoginThrottle(limiter, 2, 100,
+                    Duration.ofMinutes(1));
+
+            throttle.recordFailure("a@b.com", "1.2.3.4");
+            throttle.recordFailure("a@b.com", "1.2.3.4");
+
+            // 第三次尝试被挡住
+            try {
+                throttle.guardAttempt("a@b.com", "1.2.3.4");
+                throw new AssertionError("该被挡住");
+            } catch (RuntimeException expected) {
+                // 预期的 429
+            }
+
+            assertThat(received(io.jaravel.auth.events.AuthEvents.Lockout.class))
+                    .singleElement()
+                    .satisfies(e -> {
+                        assertThat(e.identifier()).isEqualTo("a@b.com");
+                        assertThat(e.seconds())
+                                .as("告警要能说出「还要等多久」")
+                                .isPositive();
+                    });
+        }
+
+        @Test
+        @DisplayName("★ 每次被挡住都发,不只第一次")
+        void lockoutRepeats() {
+            collect(io.jaravel.auth.events.AuthEvents.Lockout.class);
+
+            var throttle = new io.jaravel.auth.LoginThrottle(limiter, 1, 100,
+                    Duration.ofMinutes(1));
+            throttle.recordFailure("a@b.com", "1.2.3.4");
+
+            for (int i = 0; i < 3; i++) {
+                try {
+                    throttle.guardAttempt("a@b.com", "1.2.3.4");
+                } catch (RuntimeException ignored) {
+                    // 预期
+                }
+            }
+
+            assertThat(received(io.jaravel.auth.events.AuthEvents.Lockout.class))
+                    .as("只发一次的话,攻击持续两小时在监控上只是一个孤立的点")
+                    .hasSize(3);
+        }
+    }
+
     // ================= 队列 =================
 
     @Nested

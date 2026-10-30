@@ -160,6 +160,12 @@ public class PasswordBroker {
 
         // **单次有效**:无论后续发生什么,这个 token 不能再用
         delete(identifier);
+
+        // 事件在 token 删掉**之后**发 —— 一个「密码改了,把其它设备
+        // 的会话踢掉」的监听器如果在这之前跑并且抛了异常,
+        // 那个 token 会留在表里继续可用
+        io.jaravel.events.Event.tryDispatch(
+                new io.jaravel.auth.events.AuthEvents.PasswordReset(user.get()));
         return Status.RESET;
     }
 

@@ -69,11 +69,31 @@ public class LoginThrottle {
      */
     public void guardAttempt(String identifier, String ip) {
         if (limiter.tooManyAttempts(accountKey(identifier), maxPerAccount)) {
+            emitLockout(identifier, accountKey(identifier));
             throw lockout(accountKey(identifier), "该账号");
         }
         if (limiter.tooManyAttempts(ipKey(ip), maxPerIp)) {
+            emitLockout(identifier, ipKey(ip));
             throw lockout(ipKey(ip), "该 IP");
         }
+    }
+
+    /**
+     * 发锁定事件。
+     *
+     * <p>在**每次被挡住**时都发,不只是「刚好跨过阈值」那一次 ——
+     * 后者需要额外的状态来判断「这是第一次吗」,而一个
+     * 「某个账号正在被喷洒」的告警监听器要的恰恰是持续的信号:
+     * 只发一次的话,攻击持续两小时在监控上只是一个孤立的点。
+     *
+     * <p>代价是监听器要自己做去重(通常靠告警系统的抑制窗口)。
+     * 这个取舍写在这里,因为反过来改会让告警变得不可靠。
+     */
+    private void emitLockout(String identifier, String key) {
+        io.jaravel.events.Event.tryDispatchIfListening(
+                io.jaravel.auth.events.AuthEvents.Lockout.class,
+                () -> new io.jaravel.auth.events.AuthEvents.Lockout(
+                        identifier, key, limiter.availableInSeconds(key)));
     }
 
     public boolean isLocked(String identifier, String ip) {

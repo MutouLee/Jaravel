@@ -1,5 +1,7 @@
 package apptest;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import java.util.Map;
 
 import org.junit.jupiter.api.DisplayName;
@@ -25,6 +27,25 @@ import io.jaravel.testing.FeatureTest;
  * 容器的字符编码),而那一层也确实出过问题。
  */
 class AuthFeatureTest extends FeatureTest {
+
+    @org.springframework.beans.factory.annotation.Autowired
+    app.listeners.AuthAudit audit;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    io.jaravel.cache.CacheManager caches;
+
+    @org.junit.jupiter.api.BeforeEach
+    void resetSingletonState() {
+        // ★ 这两样都**不随事务回滚**,必须手工清。
+        //
+        // audit 是单例 bean,它的记录会跨测试累积。
+        //
+        // 缓存里装着登录节流的计数 —— 不清的话「几个测试各失败一次」
+        // 会累加成 429,于是一个与节流无关的测试因为**别的测试**
+        // 失败过几次而变红。那种失败极难归因:单独跑它是绿的。
+        audit.reset();
+        caches.store().flush();
+    }
 
     private User createUser(String email, String password) {
         User user = new User();
@@ -452,6 +473,106 @@ class AuthFeatureTest extends FeatureTest {
 
             // notes 没有软删除列,所以这里断言的是硬删除
             assertDatabaseMissing("notes", Map.of("id", id));
+        }
+    }
+
+    // ================= 框架事件 =================
+
+    /**
+     * 认证事件真的被发出来、真的被监听器收到了。
+     *
+     * <p>这一组断言覆盖的是**三段接线**:APT 生成绑定 →
+     * starter 从 listeners.idx 装上 → 框架在调用点发出。
+     * 三者缺任何一个,{@code AuthAudit} 都会「存在但从不触发」,
+     * 而那在没有断言的情况下完全看不出来。
+     */
+    @Nested
+    @DisplayName("认证事件")
+    class Events {
+
+        @Test
+        @DisplayName("★ 登录成功 → Login 事件到达监听器")
+        void loginIsAudited() {
+            createUser("ev@example.com", "secret-pass");
+
+            post("/login", Map.of("email", "ev@example.com", "password", "secret-pass"))
+                    .assertRedirect("/dashboard");
+
+            assertThat(audit.entries())
+                    .as("APT + starter 装配 + 调用点发出,三段接线都要通")
+                    .anyMatch(e -> e.startsWith("login:") && e.endsWith("remember=false"));
+        }
+
+        @Test
+        @DisplayName("记住我时 Login 事件带 remember=true")
+        void rememberIsReported() {
+            createUser("rem@example.com", "secret-pass");
+
+            post("/login", Map.of("email", "rem@example.com",
+                    "password", "secret-pass", "remember", "true"));
+
+            assertThat(audit.entries()).anyMatch(e -> e.endsWith("remember=true"));
+        }
+
+        @Test
+        @DisplayName("★ 登录失败 → Failed 事件,且**不含密码**")
+        void failedCarriesNoPassword() {
+            createUser("ev@example.com", "secret-pass");
+
+            post("/login", Map.of("email", "ev@example.com", "password", "wrong-pass"));
+
+            var failed = audit.entries().stream()
+                    .filter(e -> e.startsWith("failed:"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError(
+                            "没有收到 Failed 事件:" + audit.entries()));
+
+            assertThat(failed)
+                    .as("exists=true 区分「密码错」与「账号不存在」—— "
+                            + "这个区别不该返回给客户端,但对内部审计有用")
+                    .contains("exists=true");
+            assertThat(failed)
+                    .as("★ 事件里只有**键名**没有值 —— 否则一个把事件写进"
+                            + "日志的监听器会把明文密码写进日志文件")
+                    .contains("keys=[email, password]")
+                    .doesNotContain("wrong-pass")
+                    .doesNotContain("secret-pass");
+        }
+
+        @Test
+        @DisplayName("账号不存在时 Failed 的 exists=false")
+        void failedForUnknownAccount() {
+            post("/login", Map.of("email", "nobody@example.com", "password", "x"));
+
+            assertThat(audit.entries())
+                    .anyMatch(e -> e.startsWith("failed:nobody@example.com:exists=false"));
+        }
+
+        @Test
+        @DisplayName("★ 注册 → Registered(由应用自己发)")
+        void registeredIsDispatchedByTheApp() {
+            post("/register", Map.of(
+                    "name", "李四",
+                    "email", "newreg@example.com",
+                    "password", "correct-horse",
+                    "password_confirmation", "correct-horse"))
+                    .assertRedirect("/dashboard");
+
+            assertThat(audit.entries())
+                    .as("框架不发这个事件 —— 注册是业务。"
+                            + "但事件定义在框架里,好让「发欢迎邮件」这类监听器可复用")
+                    .anyMatch(e -> e.startsWith("registered:"));
+        }
+
+        @Test
+        @DisplayName("★ 登出 → Logout")
+        void logoutIsAudited() {
+            var user = createUser("out@example.com", "secret-pass");
+            actingAs(user);
+
+            post("/logout", Map.of()).assertRedirect("/");
+
+            assertThat(audit.entries()).anyMatch(e -> e.startsWith("logout:"));
         }
     }
 

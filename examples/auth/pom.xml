@@ -107,6 +107,16 @@
               <artifactId>jaravel-eloquent-processor</artifactId>
               <version>${jaravel.version}</version>
             </path>
+            <!--
+              @Listener 的绑定生成。没有它监听器会**静默不触发** ——
+              类还在、@Listener 还在,但 listeners.idx 里没有它,
+              于是 starter 装不上。这是脚手架必须包含这一段的理由。
+            -->
+            <path>
+              <groupId>io.jaravel</groupId>
+              <artifactId>jaravel-events-processor</artifactId>
+              <version>${jaravel.version}</version>
+            </path>
           </annotationProcessorPaths>
         </configuration>
       </plugin>

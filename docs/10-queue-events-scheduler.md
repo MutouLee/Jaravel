@@ -519,15 +519,28 @@ Event.listen("order.*", (name, payload) -> ...);
 > |---|---|
 > | 数据库 | `QueryExecuted`、`TransactionEvents.{Beginning,Committed,RolledBack}` |
 > | 缓存 | `CacheEvents.{Hit,Missed,KeyWritten,KeyForgotten}` |
-> | 认证 | `AuthEvents.{Login,Logout,Failed}` |
+> | 认证 | `AuthEvents.{Login,Logout,Failed,Lockout,Verified,PasswordReset}` |
 > | 队列 | `QueueEvents.{JobQueued,JobProcessing,JobProcessed,JobFailed,JobRetryRequested}` |
 >
-> **尚未接线**(类已定义但调用点还没接,或类还没写):
-> `AuthEvents.{Lockout,Registered,Verified,PasswordReset}`(类已定义)、
+> `AuthEvents.Registered` **由应用自己发**,框架不发它 —— Jaravel 没有
+> 内置的注册控制器(要收哪些字段、要不要邀请码,框架无从决定)。
+> 它仍然定义在框架里:「发欢迎邮件」「发验证链接」这类监听器是跨项目
+> 通用的,每个项目各自定义一个 `UserRegistered` 会让那些监听器没法复用。
+> Laravel 的这个事件也是由 `laravel/ui` 脚手架的控制器发的,
+> 本质上是同一个分工。`examples/auth` 里有它的实际用法与断言。
+>
+> **尚未接线**:
 > 应用生命周期(`Booting`/`Booted`/`Terminating`)、
 > 请求(`RequestHandled`/`RouteMatched`)、
 > 模型(`ModelRetrieved`/`Creating`/`Created`/…)、
 > 邮件/通知/调度(那几个模块本身还没实现)。
+>
+> **`examples/auth` 里有一个真实的监听器**(`app.listeners.AuthAudit`)
+> 与对它的断言。它覆盖的是**三段接线**:APT 生成绑定 →
+> starter 从 `listeners.idx` 装上 → 框架在调用点发出。
+> 三者缺任何一个,那个监听器都会「存在但从不触发」。
+> 脚手架因此必须包含 `jaravel-events-processor` 这一段 ——
+> 漏了它的症状正是「监听器静默不触发」。
 >
 > 这张表是刻意分开写的:**「事件类存在」与「它真的被发出来」是两件事**,
 > 而前者看起来和后者一模一样 —— 一个 record 定义得再漂亮,没人调

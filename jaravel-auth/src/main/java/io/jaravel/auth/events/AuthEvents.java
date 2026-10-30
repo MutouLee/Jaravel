@@ -100,7 +100,31 @@ public final class AuthEvents {
     public record Lockout(String identifier, String key, long seconds) {
     }
 
-    /** 注册完成 */
+    /**
+     * 注册完成。
+     *
+     * <p>⚠ **这个事件由应用自己发**,框架不发它 —— 因为 Jaravel 没有
+     * 内置的注册控制器。注册是业务:要收哪些字段、要不要邀请码、
+     * 要不要创建一个默认工作区,这些框架无从决定。
+     *
+     * <pre>{@code
+     * public Response register(RegisterRequest request) {
+     *     var user = User.create(request.validated());
+     *     Auth.login(user);
+     *     Event.dispatch(new AuthEvents.Registered(Auth.wrap(user)));
+     *     return Redirect.to("/dashboard");
+     * }
+     * }</pre>
+     *
+     * <p>它仍然定义在框架里,理由是「发送欢迎邮件」「发邮箱验证链接」
+     * 这类监听器是跨项目通用的 —— 让每个项目各自定义一个
+     * {@code UserRegistered} 会让那些监听器没法复用。
+     *
+     * <p>Laravel 的这个事件也是由它的 {@code RegisterController} 发的,
+     * 而那个控制器属于 {@code laravel/ui} 脚手架而不是框架核心 ——
+     * 本质上是同一个分工,只是 Jaravel 没有那层脚手架
+     * ({@code install:auth} 在 v0.5)。
+     */
     public record Registered(Authenticatable user) {
     }
 

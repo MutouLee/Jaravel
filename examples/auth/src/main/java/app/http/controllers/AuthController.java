@@ -68,6 +68,17 @@ public class AuthController {
         // 直接登录刚保存的模型 —— provider 负责包装,不用再查一次库
         Auth.login(user);
 
+        // Registered **由应用自己发** —— 框架不发它,因为 Jaravel 没有
+        // 内置的注册控制器(要收哪些字段、要不要邀请码,框架无从决定)。
+        //
+        // 它仍然定义在框架里:「发欢迎邮件」「发验证链接」这类监听器
+        // 是跨项目通用的,每个项目各自定义一个 UserRegistered
+        // 会让那些监听器没法复用。
+        //
+        // 放在 Auth.login 之后 —— 监听器里读 Auth.user() 要能拿到人
+        io.jaravel.events.Event.dispatch(new io.jaravel.auth.events.AuthEvents.Registered(
+                Auth.guard().user().orElseThrow()));
+
         // 真实项目里这里是 Mail.send(...);示例直接闪存出来,
         // 好让集成测试拿得到链接
         return Redirect.to("/dashboard")

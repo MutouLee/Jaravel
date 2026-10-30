@@ -105,7 +105,6 @@ public final class JbladeTranspiler {
             }
             if (line.trim().equals("@verbatim")) { inVerbatim = true; emit("", sourceLine); continue; }
 
-            rejectComponentTag(line, sourceLine);
 
             lineHadDirective = false;
             String translated = translateLine(line, sourceLine);
@@ -147,6 +146,7 @@ public final class JbladeTranspiler {
 
         // 头部声明只贡献元信息,不产出 jte 行(返回 null = 不发往 jte)
         if (trimmed.startsWith("@params")) { collectParams(trimmed, sourceLine); return null; }
+        if (trimmed.startsWith("@props"))  { collectProps(trimmed, sourceLine); return null; }
         if (trimmed.startsWith("@param "))  { params.add(trimmed.substring(7).trim()); return null; }
         if (trimmed.startsWith("@import"))  { collectImport(trimmed); return null; }
         if (trimmed.startsWith("@extends")) { collectExtends(trimmed, sourceLine); return null; }
@@ -156,6 +156,19 @@ public final class JbladeTranspiler {
         // 因此必须对整个结果调用 quoteReplacement,而不是只包其中一部分。
         String work = COMMENT.matcher(line)
                 .replaceAll(m -> Matcher.quoteReplacement("<%--" + m.group(1) + "--%>"));
+
+        // 组件在**指令之前**翻译。
+        //
+        // 顺序是必须的:组件翻译出来的 @template.components.x(...) 本身
+        // 带一个 @,而 translateDirectives 会把它当成一个未知指令。
+        // 未知指令是原样保留的(邮件模板里的 @media 靠这条),
+        // 所以反过来的顺序不会报错 —— 它会**静默地**少做一层转换,
+        // 而那正是最难排查的一类。
+        //
+        // 反过来说,组件的属性值(:count="n")要过表达式重写,
+        // 而那一步在 translateComponents 里自己调 rewriteExpression,
+        // 不依赖后面的 translateEchos
+        work = translateComponents(work, sourceLine);
 
         work = translateDirectives(work, sourceLine);
         work = translateEchos(work);
@@ -406,6 +419,62 @@ public final class JbladeTranspiler {
         }
     }
 
+    /**
+     * {@code @props(...)} —— 组件模板的参数声明(docs/04 §1.7)。
+     *
+     * <p>它就是 {@code @params} **加上一个隐式的 slot 参数**:
+     *
+     * <pre>{@code
+     * @props(String type = "info", String title = null)
+     * }</pre>
+     *
+     * <p>→
+     *
+     * <pre>{@code
+     * @param String type = "info"
+     * @param String title = null
+     * @param gg.jte.Content slot = null
+     * }</pre>
+     *
+     * <h2>为什么 slot 是隐式的、而且默认 null</h2>
+     * <p>隐式:每个组件都可能被带 body 调用,要求作者每次都写一遍
+     * {@code gg.jte.Content slot = null} 是纯噪音。
+     *
+     * <p>默认 null:自闭合调用({@code <x-alert />})根本不传 slot,
+     * 而 jte 的参数没有默认值时**调用方必须给** ——
+     * 于是每个自闭合调用都要写 {@code slot = null}。
+     *
+     * <p>⚠ 后果:组件模板里 {@code ${slot}} 在没有 body 时输出空
+     * (jte 对 null 的 Content 输出空),而不是报错。
+     * 要求 body 的组件得自己判断:{@code @if(slot == null) ... @endif}。
+     *
+     * <h2>与 Blade 的偏差:要写类型</h2>
+     * <p>Blade 是 {@code @props(['type' => 'info'])} —— 无类型。
+     * 这里必须写 Java 类型,因为它落到 jte 的 {@code @param} 上。
+     *
+     * <p>那是 Java 的固有成本,但它换来一件 Blade 没有的事:
+     * **传错类型是编译错误**。Blade 里把一个 User 传给期望 string 的
+     * 组件,症状是页面上出现 "Object of class User could not be
+     * converted to string" —— 而且是在生产的那个页面上。
+     */
+    private void collectProps(String trimmed, int line) {
+        String args = extractParens(trimmed);
+        if (args == null) {
+            throw new JbladeException(templateName, line,
+                    "@props 需要括号,如 @props(String type = \"info\")"
+                  + "\n  ⚠ 与 Blade 不同,这里要写 Java 类型 —— 它落到 jte 的"
+                  + " @param 上,于是传错类型是编译错误而不是线上的一行乱码。");
+        }
+        for (String p : splitArgs(args)) {
+            if (!p.isBlank()) params.add(p.trim());
+        }
+
+        // 隐式 slot。放在最后 —— 它是「body」,语义上就该在参数列表末尾
+        boolean declared = params.stream().anyMatch(p -> p.endsWith(" slot")
+                || p.contains(" slot ") || p.contains(" slot="));
+        if (!declared) params.add("gg.jte.Content slot = null");
+    }
+
     private void collectImport(String trimmed) {
         String args = extractParens(trimmed);
         imports.add(args != null ? args.trim() : trimmed.substring(7).trim());
@@ -424,49 +493,209 @@ public final class JbladeTranspiler {
         layout = stripQuotes(parts.get(0));
     }
 
+    // ================= 组件(docs/04 §1.7)=================
+
+    /** {@code <x-name ...>} / {@code <x-name ... />} / {@code </x-name>} */
+    private static final Pattern COMPONENT_OPEN =
+            Pattern.compile("<x-([A-Za-z0-9_.:-]+)((?:\\s+[^>]*?)?)(/?)>");
+    private static final Pattern COMPONENT_CLOSE =
+            Pattern.compile("</x-([A-Za-z0-9_.:-]+)\\s*>");
+
     /**
-     * 组件标签 {@code <x-foo>} —— **还没实现,所以直接报错**。
+     * 一个属性:{@code :prop="expr"} / {@code prop="literal"} / {@code prop}
      *
-     * <h2>为什么需要这个检查</h2>
-     * <p>docs/04 §1.7 完整地描述了组件系统(匿名组件、类组件、
-     * slot、属性透传),而它**一行都还没实现**。
-     *
-     * <p>没有这个检查的话,{@code <x-post-card :post="post" />} 会被
-     * 当成普通 HTML **原样输出到页面上** —— 浏览器遇到未知标签不报错,
-     * 只是什么都不渲染。于是症状是「那块内容是空的」,
-     * 而从那个症状到「组件系统没实现」之间没有任何线索:
-     * 开发者会先怀疑自己的数据、再怀疑条件判断,最后才想到去查文档的
-     * 实现状态。
-     *
-     * <p>这正是这个项目反复修的那一类缺陷 ——
-     * **静默地少做一件事**比响亮地失败糟得多。
-     *
-     * <h2>误报与出路</h2>
-     * <p>检查的是文本里有没有 {@code <x-},所以一个**被注释掉**的
-     * 组件用法(或者一篇讲组件的文档模板)也会被拦下。
-     *
-     * <p>那是刻意的取舍:误报给出的是一条指名道姓的错误,
-     * 而漏报给出的是一个空白的页面。消息里给出 {@code @verbatim}
-     * 这条出路。
+     * <p>单引号也收 —— Blade 两种都允许,而「我用了单引号所以属性没生效」
+     * 是一个很难自己看出来的错误。
      */
-    private void rejectComponentTag(String line, int sourceLine) {
-        int at = line.indexOf("<x-");
-        if (at < 0) return;
+    private static final Pattern ATTRIBUTE = Pattern.compile(
+            "(:?)([A-Za-z_][A-Za-z0-9_-]*)(?:\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'))?");
+
+    /**
+     * 把组件标签翻译成 jte 的模板调用。
+     *
+     * <h2>映射</h2>
+     * <pre>
+     *   &lt;x-alert type="danger" :count="n" dismissible /&gt;
+     *     → @template.components.alert(ctx = ctx, type = "danger", count = n, dismissible = true)
+     *
+     *   &lt;x-card&gt;BODY&lt;/x-card&gt;
+     *     → @template.components.card(ctx = ctx, slot = @`BODY`)
+     * </pre>
+     *
+     * <p>两件事都是**实测过**才这么设计的:jte 支持把 {@code @`...`}
+     * 作为命名参数传给模板调用,也支持 kebab-case 的模板文件名
+     * (于是 {@code <x-post-card>} 能直接对应
+     * {@code components/post-card.jblade.html},与 Blade 一致)。
+     *
+     * <h2>★ 为什么复用 {@code @template} 而不另造一套</h2>
+     * <p>组件与 {@code @include} 在 jte 这一层是同一件事:
+     * 带命名参数的模板调用。另造一套意味着两条路径上的
+     * 参数传递、行号映射、编译期检查都要各写一遍 —— 而它们注定分叉。
+     *
+     * <p>代价是组件拿不到 Blade 的属性袋({@code {{ $attributes }}})——
+     * 那需要把未声明的属性收集成一个对象,而 jte 的参数是静态的。
+     * 这一条记在 docs/04。
+     */
+    private String translateComponents(String line, int sourceLine) {
+        if (line.indexOf("<x-") < 0 && line.indexOf("</x-") < 0) return line;
+
+        rejectNamedSlot(line, sourceLine);
+
+        var sb = new StringBuilder();
+        int cursor = 0;
+
+        while (cursor < line.length()) {
+            var open = COMPONENT_OPEN.matcher(line);
+            var close = COMPONENT_CLOSE.matcher(line);
+
+            boolean hasOpen = open.find(cursor);
+            boolean hasClose = close.find(cursor);
+
+            int openAt = hasOpen ? open.start() : Integer.MAX_VALUE;
+            int closeAt = hasClose ? close.start() : Integer.MAX_VALUE;
+
+            if (openAt == Integer.MAX_VALUE && closeAt == Integer.MAX_VALUE) {
+                sb.append(line, cursor, line.length());
+                break;
+            }
+
+            if (openAt < closeAt) {
+                sb.append(line, cursor, openAt);
+                sb.append(openTag(open.group(1), open.group(2),
+                                  !open.group(3).isEmpty(), sourceLine));
+                cursor = open.end();
+            } else {
+                sb.append(line, cursor, closeAt);
+                // 闭合标签:关掉 Content 块与调用的括号
+                close("component", "</x-" + close.group(1) + ">", sourceLine);
+                sb.append("`)");
+                cursor = close.end();
+            }
+        }
+        return sb.toString();
+    }
+
+    private String openTag(String name, String rawAttributes, boolean selfClosing,
+                           int sourceLine) {
+        var call = new StringBuilder("@template.")
+                .append(componentPath(name)).append("(ctx = ctx");
+
+        for (String attribute : parseAttributes(rawAttributes, sourceLine)) {
+            call.append(", ").append(attribute);
+        }
+
+        if (selfClosing) {
+            call.append(')');
+            return call.toString();
+        }
+
+        // 带 body:把 body 作为 slot 这个 Content 参数传进去。
+        // 闭合标签负责补上 `)
+        open("component", sourceLine);
+        call.append(", slot = @`");
+        return call.toString();
+    }
+
+    /**
+     * {@code x-post-card} → {@code components.post-card};
+     * {@code x-mail::message} → {@code components.mail.message}。
+     *
+     * <p>{@code ::} 是 Blade 的命名空间写法(邮件组件用它:
+     * {@code <x-mail::message>})。这里映射成一层子目录 ——
+     * 于是 {@code components/mail/message.jblade.html}。
+     */
+    private static String componentPath(String name) {
+        return "components." + name.replace("::", ".");
+    }
+
+    /**
+     * 属性 → jte 的命名参数。
+     *
+     * <ul>
+     *   <li>{@code :count="n"} → {@code count = n}(表达式,过一遍重写);</li>
+     *   <li>{@code type="danger"} → {@code type = "danger"}(字面量);</li>
+     *   <li>{@code dismissible} → {@code dismissible = true}(布尔简写)。</li>
+     * </ul>
+     *
+     * <p>⚠ 属性名里的连字符会被转成驼峰:{@code :user-id="x"} →
+     * {@code userId = x}。理由:Java 的参数名不能带连字符,而
+     * Blade 的习惯是 kebab。不转的话这个最自然的写法会变成一个
+     * 语法错误,而错误会指向生成的 jte 代码。
+     */
+    private List<String> parseAttributes(String rawAttributes, int sourceLine) {
+        var out = new ArrayList<String>();
+        if (rawAttributes == null || rawAttributes.isBlank()) return out;
+
+        var matcher = ATTRIBUTE.matcher(rawAttributes);
+        while (matcher.find()) {
+            boolean bound = !matcher.group(1).isEmpty();
+            String name = camelAttribute(matcher.group(2));
+            String doubleQuoted = matcher.group(3);
+            String singleQuoted = matcher.group(4);
+            String value = doubleQuoted != null ? doubleQuoted : singleQuoted;
+
+            if (value == null) {
+                if (bound) {
+                    throw new JbladeException(templateName, sourceLine,
+                            "组件属性 :" + matcher.group(2) + " 用了冒号前缀"
+                          + "(表示传表达式)但没给值。"
+                          + "\n  传表达式:  :" + matcher.group(2) + "=\"user.id\""
+                          + "\n  布尔简写:  " + matcher.group(2) + "(不带冒号)");
+                }
+                out.add(name + " = true");
+                continue;
+            }
+
+            out.add(name + " = " + (bound ? rewriteExpression(value)
+                                          : '"' + value.replace("\"", "\\\"") + '"'));
+        }
+        return out;
+    }
+
+    private static String camelAttribute(String name) {
+        if (name.indexOf('-') < 0) return name;
+
+        var sb = new StringBuilder();
+        boolean upper = false;
+        for (char c : name.toCharArray()) {
+            if (c == '-') {
+                upper = true;
+                continue;
+            }
+            sb.append(upper ? Character.toUpperCase(c) : c);
+            upper = false;
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 具名 slot —— **还没实现,所以直接报错**。
+     *
+     * <p>{@code <x-slot:footer>} 的难点在于它出现在组件 body **里面**,
+     * 却必须变成那次调用的**另一个参数** —— 也就是说翻译器要先找到
+     * 匹配的闭合标签、把 body 切成几段,而当前的翻译是**逐行**的。
+     *
+     * <p>做它需要一个带嵌套感知的预扫描。默认 slot 不需要那个
+     * (body 原地就是 Content 块),所以这一版先只做默认 slot。
+     *
+     * <p>报错而不是静默忽略:忽略的话 {@code <x-slot:footer>} 会被
+     * 当成普通 HTML 输出到页面上 —— 而那正是这次把组件从「静默」
+     * 改成「响亮」要解决的问题,不该在一个新功能里重新引入。
+     */
+    private void rejectNamedSlot(String line, int sourceLine) {
+        if (!line.contains("<x-slot")) return;
 
         throw new JbladeException(templateName, sourceLine, """
-                组件标签 <x- 还没实现(docs/04 §1.7 描述的组件系统尚未落地)。
+                具名 slot <x-slot:...> 还没实现 —— 这一版只支持**默认 slot**。
 
-                  这里直接报错而不是原样输出:浏览器对未知标签不报错,
-                  只是什么都不渲染 —— 于是症状会是「这块内容是空的」,
-                  而那与真正的原因之间没有线索。
+                  难点:具名 slot 写在组件 body 里面,却必须变成那次调用的
+                  另一个参数,于是翻译器要先找到匹配的闭合标签再把 body
+                  切段 —— 而当前的翻译是逐行的。
 
-                  现在的替代写法:
-                    @include('components.post-card', Map.of("post", post))
+                  替代写法:把那一段作为一个属性传进去,
+                  或者把组件拆成两个。
 
-                  如果这一行是**注释或文档**里的示例,用 @verbatim 包起来:
-                    @verbatim
-                    <x-post-card :post="post" />
-                    @endverbatim""");
+                  文档模板里要展示这个写法的话用 @verbatim 包起来。""");
     }
 
     // ================= 表达式重写 =================

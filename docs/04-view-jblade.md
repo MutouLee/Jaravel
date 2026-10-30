@@ -170,29 +170,92 @@ jblade **不发明表达式语言**,直接把表达式原样当作 Java 表达�
 
 ### 1.7 组件
 
-> ### ⚠ 截至 v0.4,这一整节**一行都没实现**
+> ### v0.4 实现状态:匿名组件可用(17 个测试),类组件与具名 slot 未实现
 >
-> 没有 `<x-...>` 的解析,没有 `@props`,没有 slot,没有类组件。
+> 这一节原先**一行都没实现**,而 `<x-post-card />` 会被当成普通 HTML
+> **原样输出** —— 浏览器对未知标签不报错,只是什么都不渲染,
+> 于是症状是「那块内容是空的」。v0.4 先把它改成报错,再实现。
 >
-> **v0.4 把它从「静默」改成了「响亮」。** 在这之前
-> `<x-post-card :post="post" />` 会被当成普通 HTML **原样输出** ——
-> 浏览器遇到未知标签不报错,只是什么都不渲染。于是症状是
-> 「那块内容是空的」,而从那个症状到「组件系统没实现」之间
-> 没有任何线索:开发者会先怀疑数据、再怀疑条件判断。
+> **已实现:**
 >
-> 现在 `JbladeTranspiler` 遇到 `<x-` 直接报错,指出行号、给出
-> `@include` 的替代写法,以及 `@verbatim`(给文档模板用)的出路。
+> | 能力 | 写法 |
+> |---|---|
+> | 匿名组件 | `<x-alert type="danger">出错了</x-alert>` |
+> | 自闭合 | `<x-badge label="热" />` |
+> | 字面量属性 | `type="danger"` |
+> | 表达式属性 | `:count="n"` |
+> | 布尔简写 | `dismissible` → `true` |
+> | 默认 slot | body 原地变成 `slot` 参数 |
+> | kebab 组件名 | `<x-post-card>` → `components/post-card.jblade.html` |
+> | 命名空间 | `<x-mail::message>` → `components/mail/message.jblade.html` |
+> | 嵌套组件 | 任意深度 |
 >
-> 代价是**误报**:被注释掉的组件用法也会被拦下。那是刻意的取舍 ——
-> 误报给出一条指名道姓的错误,漏报给出一个空白的页面。
+> **未实现:类组件、具名 slot(`<x-slot:footer>`)、属性袋
+> (`{{ $attributes }}`)、`@aware`。** 具名 slot 会**报错**
+> 而不是输出成 HTML。
 >
-> **当前的替代**:`@include('components.post-card', Map.of("post", post))`。
-> 它拿不到 slot 与属性透传,但「把一段模板抽出去复用」这件事是能做的。
+> #### ★ 实现方式:复用 `@template`,不另造一套
 >
-> 它也是 `<x-mail::message>` 那套邮件组件(docs/11 §1.4)的前置条件 ——
-> 两处的未实现是同一个原因。
+> ```
+> <x-alert type="danger" :count="n" dismissible />
+>   → @template.components.alert(ctx = ctx, type = "danger", count = n, dismissible = true)
 >
-> ⚠ 下面的内容是**设计意图**,不是可用的 API。
+> <x-card>BODY</x-card>
+>   → @template.components.card(ctx = ctx, slot = @`BODY`)
+> ```
+>
+> 组件与 `@include` 在 jte 这一层是同一件事:带命名参数的模板调用。
+> 另造一套意味着参数传递、行号映射、编译期检查都要各写一遍 ——
+> 而它们注定分叉。
+>
+> 两个前提都是**先实测再设计**的:jte 支持把 `` @`...` `` 作为命名参数
+> 传给模板调用,也支持 kebab-case 的模板文件名(于是组件文件名能与
+> Blade 完全一致)。
+>
+> #### `@props` 要写 Java 类型 —— 与 Blade 的偏差
+>
+> ```html
+> @props(String type = "info", String title = null)
+> <div class="alert alert-{{ type }}">{{ slot }}</div>
+> ```
+>
+> Blade 是 `@props(['type' => 'info'])`,无类型。这里必须写类型,
+> 因为它落到 jte 的 `@param` 上。那是 Java 的固有成本,
+> 但它换来一件 Blade 没有的事:**传错类型是编译错误**。
+> Blade 里把一个 User 传给期望 string 的组件,症状是页面上出现
+> `Object of class User could not be converted to string` ——
+> 而且是在生产的那个页面上。
+>
+> `slot` 是**隐式**参数且默认 `null`:自闭合调用不传它,而 jte 的参数
+> 没有默认值时调用方必须给 —— 否则每个 `<x-badge />` 都要写
+> `slot = null`。
+> ⚠ 后果:组件里 `{{ slot }}` 在没有 body 时输出空而不是报错。
+> 要求 body 的组件得自己判断。
+>
+> #### 两个容易踩的点
+>
+> **属性名的连字符转驼峰**:`:user-id="x"` → `userId = x`。
+> Java 的参数名带不了连字符,不转的话这个最自然的写法会变成语法错误,
+> 而错误会指向生成的 jte 代码 —— 与模板里那一行对不上。
+>
+> **`{{ slot }}` 不会被二次转义**:slot 是**已经渲染好**的 `Content`,
+> 不是用户输入。body 里的用户输入在 body 渲染时就已经转义过了 ——
+> 两条测试分别钉住这两面。
+>
+> #### 属性袋为什么没有
+>
+> `{{ $attributes }}`(把未声明的属性原样透传到标签上)需要把未知属性
+> 收集成一个对象,而 jte 的参数是**静态声明**的 —— 组件模板声明了哪些
+> 参数,调用方就只能传那些。
+>
+> 这不是「暂时没做」,它与「传错类型是编译错误」是同一个取舍的两面:
+> 静态参数带来编译期检查,也带来「不能传没声明的东西」。
+> 要做属性袋得给组件加一个 `Map<String, String> attributes` 参数,
+> 由翻译器把未声明属性收进去 —— 而翻译器**不知道**组件声明了什么
+> (它只看调用方那一行)。那需要跨模板的分析。
+>
+> `<x-mail::message>` 那套邮件组件(docs/11 §1.4)现在**不再被这一节
+> 阻塞** —— 命名空间映射已经能用,剩下的是写那几个模板。
 
 **匿名组件**(纯模板):
 

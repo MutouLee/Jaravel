@@ -632,34 +632,34 @@ class JbladeTest {
         }
 
         @Test
-        @DisplayName("★ 组件标签 <x- 直接报错,而不是原样输出")
-        void componentTagsFailLoudly() {
-            assertThatThrownBy(() -> JbladeTranspiler.transpile(
-                    "<div>\n  <x-post-card :post=\"post\" />\n</div>\n", "t"))
-                    .isInstanceOf(JbladeException.class)
-                    .hasMessageContaining("还没实现")
-                    .as("错误要指向出问题的那一行")
-                    .hasMessageContaining(":2");
+        @DisplayName("★ 组件标签转成 jte 的模板调用")
+        void componentBecomesTemplateCall() {
+            var r = JbladeTranspiler.transpile(
+                    "<x-post-card :post=\"post\" />\n", "t");
+
+            assertThat(r.jteSource())
+                    .as("""
+                            复用 @template 而不另造一套 —— 组件与 @include 在
+                            jte 这一层是同一件事:带命名参数的模板调用。""")
+                    .contains("@template.components.post-card(ctx = ctx, post = post)");
         }
 
         @Test
-        @DisplayName("★ 为什么不能原样输出:浏览器对未知标签不报错,只是什么都不渲染")
-        void whyNotPassThrough() {
-            // 这一条没有断言可写 —— 它记录的是一个**取舍**。
-            //
-            // docs/04 §1.7 完整描述了组件系统,而它一行都没实现。
-            // 原样输出的话 <x-post-card> 会进到 HTML 里,浏览器忽略它,
-            // 于是症状是「那块内容是空的」—— 而从那个症状到
-            // 「组件系统没实现」之间没有任何线索。
-            //
-            // 代价是误报:被注释掉的组件用法也会被拦下。
-            // 出路是 @verbatim,下面那条测试守着它
-            assertThat(true).isTrue();
+        @DisplayName("★ 组件在指令之前翻译 —— 否则会被当成未知指令静默保留")
+        void componentsTranslateBeforeDirectives() {
+            var r = JbladeTranspiler.transpile("<x-alert />\n", "t");
+
+            assertThat(r.jteSource())
+                    .as("""
+                            翻译出来的 @template.components.alert 本身带一个 @。
+                            反过来的顺序不会报错 —— 未知指令是原样保留的 ——
+                            它会**静默地**少做一层转换,而那是最难排查的一类。""")
+                    .doesNotContain("<x-alert");
         }
 
         @Test
-        @DisplayName("@verbatim 里的 <x- 不报错 —— 文档模板的出路")
-        void verbatimEscapesTheCheck() {
+        @DisplayName("@verbatim 里的 <x- 不翻译 —— 文档模板的出路")
+        void verbatimSkipsComponents() {
             var r = JbladeTranspiler.transpile("""
                     @verbatim
                     <x-post-card :post="post" />
@@ -667,8 +667,295 @@ class JbladeTest {
                     """, "t");
 
             assertThat(r.jteSource())
-                    .as("@verbatim 里的内容对 jte 不可见,也不过组件检查")
+                    .as("@verbatim 内的内容对 jte 不可见,也不过组件翻译")
                     .contains("x-post-card");
+        }
+    }
+
+    // ================= 组件(docs/04 §1.7)=================
+
+    /**
+     * ★ 组件系统 —— v0.4 末尾补上的。
+     *
+     * <p>在这之前 docs/04 §1.7 整节都没实现,而 `<x-card>` 会被当成
+     * 普通 HTML **原样输出**:浏览器对未知标签不报错,只是什么都不渲染,
+     * 于是症状是「那块内容是空的」。
+     *
+     * <p>这一组测试大部分走**真实渲染**而不只看转写产物 ——
+     * 组件的全部风险在「jte 能不能接住这个调用」,而转写产物看起来
+     * 对但 jte 编译不过的情况是真实存在的(属性名带连字符就是一例)。
+     */
+    @Nested
+    @DisplayName("组件")
+    class Components {
+
+        private String render(Map<String, String> templates, String entry,
+                              Map<String, Object> data, Path tmp) {
+            return JbladeEngine.forMap(templates, tmp.resolve("c"),
+                            JbladeTest.class.getClassLoader())
+                    .render(entry, data);
+        }
+
+        @Test
+        @DisplayName("★ 匿名组件:属性 + 默认 slot 真的渲染出来")
+        void anonymousComponentRenders(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.alert", """
+                            @props(String type = "info")
+                            <div class="alert-{{ type }}">${slot}</div>
+                            """,
+                    "page", """
+                            <x-alert type="danger">出错了</x-alert>
+                            """), "page", Map.of(), tmp);
+
+            assertThat(out)
+                    .contains("alert-danger")
+                    .contains("出错了");
+        }
+
+        @Test
+        @DisplayName("★ 自闭合调用:slot 默认 null,不用写 slot = null")
+        void selfClosingNeedsNoSlot(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.badge", """
+                            @props(String label = "新")
+                            <span>{{ label }}</span>
+                            """,
+                    "page", "<x-badge label=\"热\" />\n"), "page", Map.of(), tmp);
+
+            assertThat(out)
+                    .as("""
+                            jte 的参数没有默认值时调用方必须给 ——
+                            于是每个自闭合调用都要写 slot = null。
+                            @props 隐式补上默认值就是为了免掉它。""")
+                    .contains("热");
+        }
+
+        @Test
+        @DisplayName("★ :前缀传表达式,不带冒号传字面量")
+        void boundVersusLiteral(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.row", """
+                            @props(String name = "", int count = 0)
+                            <td>{{ name }}</td><td>{{ count }}</td>
+                            """,
+                    "page", """
+                            @params(int n)
+                            <x-row name="固定" :count="n" />
+                            """), "page", Map.of("n", 7), tmp);
+
+            assertThat(out).contains("固定").contains("7");
+        }
+
+        @Test
+        @DisplayName("★ 布尔简写:写了属性名就是 true")
+        void booleanShorthand(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.flag", """
+                            @props(boolean active = false)
+                            <i>{{ active }}</i>
+                            """,
+                    "page", "<x-flag active />\n"), "page", Map.of(), tmp);
+
+            assertThat(out).contains("true");
+        }
+
+        @Test
+        @DisplayName("★ 属性名的连字符转驼峰 —— Java 的参数名带不了连字符")
+        void kebabAttributeBecomesCamel(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.link", """
+                            @props(long userId = 0)
+                            <a href="/u/{{ userId }}">u</a>
+                            """,
+                    "page", """
+                            @params(long id)
+                            <x-link :user-id="id" />
+                            """), "page", Map.of("id", 42L), tmp);
+
+            assertThat(out)
+                    .as("""
+                            不转的话这个最自然的写法会变成一个语法错误,
+                            而错误会指向生成的 jte 代码 —— 与模板里写的
+                            那一行对不上。""")
+                    .contains("/u/42");
+        }
+
+        @Test
+        @DisplayName("★ kebab 的组件名直接对应 kebab 的文件名 —— 与 Blade 一致")
+        void kebabComponentName(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.post-card", """
+                            @props(String title = "")
+                            <article>{{ title }}</article>
+                            """,
+                    "page", "<x-post-card title=\"标题\" />\n"), "page", Map.of(), tmp);
+
+            assertThat(out).contains("<article>标题</article>");
+        }
+
+        @Test
+        @DisplayName("★ :: 命名空间映射成子目录(邮件组件用它)")
+        void namespacedComponent(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.mail.message", """
+                            @props(String greeting = "")
+                            <p>{{ greeting }}</p>${slot}
+                            """,
+                    "page", "<x-mail::message greeting=\"你好\">正文</x-mail::message>\n"),
+                    "page", Map.of(), tmp);
+
+            assertThat(out).contains("你好").contains("正文");
+        }
+
+        @Test
+        @DisplayName("组件嵌套组件")
+        void nestedComponents(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.outer", "@props()\n<div class=\"o\">${slot}</div>\n",
+                    "components.inner", "@props()\n<span class=\"i\">${slot}</span>\n",
+                    "page", "<x-outer><x-inner>深处</x-inner></x-outer>\n"),
+                    "page", Map.of(), tmp);
+
+            assertThat(out).contains("class=\"o\"").contains("class=\"i\"").contains("深处");
+        }
+
+        @Test
+        @DisplayName("组件 body 里的 jblade 指令照常工作")
+        void directivesInsideSlot(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.box", "@props()\n<div>${slot}</div>\n",
+                    "page", """
+                            @params(java.util.List<String> items)
+                            <x-box>@foreach(items as it){{ it }},@endforeach</x-box>
+                            """), "page",
+                    Map.of("items", java.util.List.of("甲", "乙")), tmp);
+
+            assertThat(out).contains("甲,").contains("乙,");
+        }
+
+        @Test
+        @DisplayName("★ 组件的输出照样过转义 —— 组件不是绕过安全的后门")
+        void componentOutputIsEscaped(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.show", "@props(String text = \"\")\n<p>{{ text }}</p>\n",
+                    "page", """
+                            @params(String evil)
+                            <x-show :text="evil" />
+                            """), "page",
+                    Map.of("evil", "<script>alert(1)</script>"), tmp);
+
+            assertThat(out)
+                    .as("转义由 jte 做,而组件走的是同一条输出路径")
+                    .doesNotContain("<script>")
+                    .contains("&lt;script&gt;");
+        }
+
+        @Test
+        @DisplayName("★ {{ slot }} 不会把 body 里的 HTML 转义掉")
+        void slotIsNotDoubleEscaped(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.box", """
+                            @props()
+                            <div>{{ slot }}</div>
+                            """,
+                    "page", "<x-box><strong>加粗</strong></x-box>\n"),
+                    "page", Map.of(), tmp);
+
+            assertThat(out)
+                    .as("""
+                            slot 是**已经渲染好**的 Content,不是用户输入 ——
+                            再转义一次会让 <strong> 变成页面上的字面文本。
+                            这一条针对的是 Blade 作者会写 {{ slot }}
+                            而不是原始 jte 的那种写法。""")
+                    .contains("<strong>加粗</strong>")
+                    .doesNotContain("&lt;strong&gt;");
+        }
+
+        @Test
+        @DisplayName("★ 但 body 里的**用户输入**仍然被转义")
+        void userInputInsideSlotIsStillEscaped(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.box", """
+                            @props()
+                            <div>{{ slot }}</div>
+                            """,
+                    "page", """
+                            @params(String evil)
+                            <x-box><em>{{ evil }}</em></x-box>
+                            """), "page",
+                    Map.of("evil", "<script>alert(1)</script>"), tmp);
+
+            assertThat(out)
+                    .as("转义发生在 body 渲染的时候 —— slot 只是把结果透传")
+                    .contains("<em>")
+                    .doesNotContain("<script>")
+                    .contains("&lt;script&gt;");
+        }
+
+        @Test
+        @DisplayName("★ 未闭合的组件标签在编译期报错")
+        void unclosedComponentFails() {
+            assertThatThrownBy(() -> JbladeTranspiler.transpile(
+                    "<x-card>没有闭合\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("component");
+        }
+
+        @Test
+        @DisplayName("★ :前缀但没给值 —— 报错并指出两种正确写法")
+        void boundWithoutValueFails() {
+            assertThatThrownBy(() -> JbladeTranspiler.transpile(
+                    "<x-alert :dismissible />\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("布尔简写");
+        }
+
+        @Test
+        @DisplayName("★ 具名 slot 还没实现 —— 报错而不是输出成 HTML")
+        void namedSlotFailsLoudly() {
+            assertThatThrownBy(() -> JbladeTranspiler.transpile(
+                    "<x-card>\n  <x-slot:footer>底部</x-slot:footer>\n</x-card>\n", "t"))
+                    .as("""
+                            忽略的话 <x-slot:footer> 会被当成普通 HTML 输出 ——
+                            而那正是这次把组件从「静默」改成「响亮」要解决的
+                            问题,不该在一个新功能里重新引入。""")
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("具名 slot");
+        }
+
+        @Test
+        @DisplayName("★ 目录模式:views/components/*.jblade.html 能被解析到")
+        void componentsResolveFromDirectory(@TempDir Path tmp) throws Exception {
+            Path views = tmp.resolve("views");
+            java.nio.file.Files.createDirectories(views.resolve("components"));
+            java.nio.file.Files.writeString(
+                    views.resolve("components/alert.jblade.html"),
+                    """
+                    @props(String type = "info")
+                    <div class="a-{{ type }}">{{ slot }}</div>
+                    """);
+            java.nio.file.Files.writeString(views.resolve("page.jblade.html"),
+                    "<x-alert type=\"warn\">注意</x-alert>\n");
+
+            var engine = JbladeEngine.forDirectory(views, tmp.resolve("c"),
+                    JbladeTest.class.getClassLoader());
+
+            assertThat(engine.render("page", Map.of()))
+                    .as("""
+                            这条路径与 forMap 不同:jte 会反过来向仓库
+                            要 components/alert.jte,而那要求引擎**按需转写**
+                            一个还没被渲染过的模板。
+                            真实应用走的是这一条。""")
+                    .contains("a-warn").contains("注意");
+        }
+
+        @Test
+        @DisplayName("@props 不带括号时报错,并说清要写类型")
+        void propsNeedsParens() {
+            assertThatThrownBy(() -> JbladeTranspiler.transpile("@props\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("Java 类型");
         }
     }
 

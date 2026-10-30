@@ -79,6 +79,13 @@ public class AuthController {
         io.jaravel.events.Event.dispatch(new io.jaravel.auth.events.AuthEvents.Registered(
                 Auth.guard().user().orElseThrow()));
 
+        // 欢迎通知:一条消息,两个渠道(邮件 + 站内)。
+        //
+        // 同步发 —— 这个示例里 mail 驱动是 log/array,所以很快。
+        // 真实项目里这里该用 shouldQueue()=true:一条通知可能要发
+        // 三个渠道,每个都是一次网络往返
+        user.notify(new app.notifications.WelcomeAboard(user.name));
+
         // 真实项目里这里是 Mail.send(...);示例直接闪存出来,
         // 好让集成测试拿得到链接
         return Redirect.to("/dashboard")

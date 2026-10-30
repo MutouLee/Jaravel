@@ -292,6 +292,87 @@ public class InvoicePaid extends Notification {
 }
 ```
 
+> **v0.4 实现说明与四处偏差**
+>
+> **① 渠道方法由**接口**声明,不靠反射找。** docs/11 §2.1 里的
+> `toMail` / `toDatabase` 是裸方法;Jaravel 要求
+> `implements HasMail` / `HasDatabase` / `HasSlack` / `HasSms` / `HasWebhook`。
+>
+> 理由是这组 API 最容易出的那个错:`via()` 声明了 `"sms"` 但忘了写
+> `toSms`,或者把名字拼成 `toSMS`。反射方案里拼错**不会报错** ——
+> 找不到方法就当成「这个渠道不发」,于是「短信没发出去」没有任何征兆。
+> 接口会让编译器要求你写对。
+>
+> 另一面要承认:`via()` 返回的字符串与接口之间仍然没有编译期关联
+> (via 是运行时决定的,它要看收件人的偏好)。所以渠道在找不到接口时
+> 报错并说清**是哪个通知缺哪个接口**。
+>
+> 这几个接口是**包级顶层类型**而不是 `Notification` 的嵌套类型 ——
+> 嵌套类型在同一个声明的 `implements` 子句里不在作用域内,
+> 于是 `class X extends Notification implements HasMail` 会报
+> 「找不到符号」,而那正是用户会照着文档写的第一行。
+>
+> **② 门面叫 `Notifications`(复数)。** docs/11 §2.2 写的是
+> `Notification.send(...)`,但 `Notification` 已经是通知的基类了。
+> 同一个名字既是基类又是门面在 PHP 里可行,Java 里不行。
+>
+> **③ `user.notify(...)` 是接口的默认方法,不是 APT 生成的。**
+> docs/11 §2.3 说由 APT 生成 `notify()` / `notifications()`。
+> 没那么做:这些方法**不需要**生成,默认方法就够。
+> 生成代码的理由应该是「没有它就没法做」(比如 `@Model` 的类型化查询),
+> 而不是「少写几行」—— 多一个处理器意味着多一处 pom 里要配的路径、
+> 多一处可能忘配的地方。
+>
+> ⚠ 一个 Java 特有的陷阱:`Object.notify()` 是 final 的(线程唤醒)。
+> 我们这个是**重载**,所以 `user.notify(notification)` 正常工作;
+> 但 `user.notify()`(手误少写参数)调的是 `Object.notify()`,
+> 抛 `IllegalMonitorStateException`。那个异常消息
+> (`current thread is not owner`)与「我少写了一个参数」之间
+> 没有任何线索,所以它写在 `Notifiable` 的类注释里。
+>
+> **④ `uniqueId()` 尚未生效。** 方法存在(好让签名稳定),
+> 但管理器目前忽略它 —— 去重需要一个共享锁存储
+> (与队列的 `UniqueJob` 同一套),而把那套东西接过来需要让缓存
+> 成为通知模块的依赖。这一条明确写在 javadoc 里,
+> 而不是让它看起来像已经工作了。
+>
+> **docs/11 §2.6「单个渠道失败不影响其他渠道」已实现**:
+> 投递是一个循环,每个渠道各自 try/catch。于是一条通知可能同时产生
+> 一个 `Failed` 与两个 `Sent`。**全部渠道都失败时才抛给调用方** ——
+> 部分成功不抛,因为调用方分不清「全挂了」与「Slack 挂了但邮件发出去了」,
+> 而后者通常不需要处理。
+>
+> `shouldQueue()` 时**每个渠道一条队列任务**。放一个任务里的话,
+> 第一个渠道的失败会让后两个永远不执行,而重试时又从第一个开始 ——
+> 于是邮件被发了三遍而短信一次都没发。
+>
+> **跳过一定带原因**(`NotificationSkipped` 事件)。两种跳过:
+> 收件人在那个渠道上没有地址(`routeNotificationFor` 返回 null)、
+> 或者 `shouldSend()` 返回 false。两者都正常,所以不报错 ——
+> 但它们与「发了但没收到」在外部看来一模一样,而处理方式完全不同。
+> 没有这个事件的话,「用户说没收到短信」这个工单只能靠翻代码去猜。
+>
+> **mail 渠道里不再入队。** `shouldQueue()` 时通知管理器已经为每个渠道
+> 投了任务,所以 mail 渠道的 `send` 是在 worker 里跑的。
+> 这里再调 `Mail.to(...).queue(...)` 就成了**两层队列**:
+> 通知任务会立刻成功(它只是投了封邮件),于是「通知发失败了」
+> 在通知的重试里永远不会发生,而 `NotificationSent` 的含义
+> 从「发出去了」退化成「入队了」。
+>
+> **序列化规矩的一个差异,值得单独记住**:
+>
+> | | 字段能放什么 |
+> |---|---|
+> | `ShouldQueue` | **只存主键** |
+> | `Notification` | **只存主键** |
+> | `Mailable` | 随便放 |
+>
+> 邮件能在投递时渲染完(所以 Mailable 从不进 payload),而通知不能 ——
+> 各渠道的 `toMail` / `toSms` / `toDatabase` 产出的是不同类型的东西,
+> 没有一个统一的「渲染结果」。所以 `shouldQueue()` 时通知对象本身
+> 要进 payload。从邮件那边带着「字段随便放」的印象过来的人会踩一次,
+> 所以这个差异写在了 starter 的实现里。
+
 ### 2.2 发送
 
 ```java
@@ -355,6 +436,55 @@ user.unreadNotifications().markAllAsRead();
 | `sms` | ✅ 抽象 | 具体服务商为扩展包(阿里云、腾讯云、Twilio) |
 | `webhook` | ✅ | 通用 HTTP 回调 |
 | `dingtalk` / `wechat-work` / `feishu` | 扩展包 | **中国市场的关键渠道**,应作为官方扩展优先提供 |
+
+> **v0.4 的渠道实现情况**
+>
+> | 渠道 | 状态 |
+> |---|---|
+> | `mail` | ✅ 复用 Mailable |
+> | `database` | ✅ 站内通知 |
+> | `slack` | ✅ Incoming Webhook |
+> | `webhook` | ✅ 通用 HTTP 回调 |
+> | `sms` | ✅ **只有抽象** —— 应用提供一个 `SmsSender` |
+> | `broadcast` | ❌ v0.6 |
+> | `dingtalk` / `wechat-work` / `feishu` | ❌ 扩展包 |
+>
+> **sms 只有抽象是刻意的**:短信服务商的 API 差异极大(阿里云的签名
+> 算法有一套特定的规范化规则、模板必须预先报备、国内运营商有内容审核),
+> 把其中一家塞进框架意味着框架要跟着它的 API 变更走,而那家的 SDK
+> 本身就在做这件事。
+>
+> 为此 `SmsMessage` 同时支持两种形态:`of("内容")`(Twilio 这类)
+> 与 `template("SMS_123", Map.of(...))`(阿里云/腾讯云必须用报备过的模板,
+> 不能发任意文本)。不做这个区分的话,国内服务商的适配器只能把
+> `content` 当成模板 ID,而那是一个会让人非常困惑的约定。
+>
+> 没装 `SmsSender` 时**报错**而不是静默跳过 —— 短信最常见的用途是验证码,
+> 而「验证码收不到」是一个用户会立刻放弃注册的体验。
+>
+> **slack 用 Incoming Webhook 而不是 Web API**(那需要 OAuth token
+> 与权限范围)。代价是拿不到「改消息、加表情、线程回复」这些能力。
+> 一条提醒写在 `SlackMessage.channel(...)` 上:新建的 webhook
+> 绑定到固定频道,那个字段**可能被 Slack 忽略** ——
+> 而「设了 channel 但消息还是去了原频道」看起来像 bug。
+>
+> **slack 与 webhook 用 JDK 自带的 HttpClient**,不引库。
+> 超时必须显式配(默认是无限,与 Jakarta Mail 一样):
+> 一个挂住的 Slack webhook 会让那个任务永久占着一个 worker 的并发额度,
+> 而 Slack 偶尔会挂。
+>
+> **webhook 的签名是用户的事,框架不做。** 签名算法与密钥管理是双方
+> 约定的,框架替用户选一套的话接收方那边未必能对上。
+> 但这件事必须说清:**一个不带签名的 webhook 等于任何人都能伪造你的事件。**
+>
+> **`notifiable_id` 是 varchar 而不是 bigint**(docs/11 §2.4 写的是
+> bigint)。主键不一定是数字 —— UUID 主键在多实例写入时很常见。
+> 做成 bigint 的后果是一个 UUID 主键的应用用不了站内通知,
+> 而那时的报错是一个数据库层的类型转换错误。
+>
+> **`type` 与 `notifiable_type` 存简单名/表名,不存全限定名。**
+> 一次包重构会让所有历史通知对不上,而那些数据还在表里,
+> 只是前端按类型分支的那段代码全部失效了。
 
 自定义渠道:
 

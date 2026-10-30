@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.jaravel</groupId>
+    <artifactId>jaravel-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>jaravel-notifications</artifactId>
+  <name>Jaravel :: 通知</name>
+  <description>同一条消息、多渠道投递:mail / database / slack / webhook / sms</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-support</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-events</artifactId>
+    </dependency>
+
+    <!--
+      mail 渠道。**不是 optional** —— toMail 的返回类型是 Mailable,
+      用户的通知代码直接引用它,所以这个类型必须在。
+      「只用 database 渠道的应用」仍然会拉进邮件模块,
+      而那是可以接受的:通知的首要渠道就是邮件。
+    -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-mail</artifactId>
+    </dependency>
+
+    <!--
+      database 渠道。用 jaravel-database(查询构造器)而不是
+      jaravel-eloquent:站内通知是一张结构固定的表,
+      手写 SQL 比为它建一个模型更直接,也不必依赖 APT。
+    -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-database</artifactId>
+    </dependency>
+
+    <!--
+      注意:slack / webhook 渠道用 JDK 自带的 HttpClient,不引任何库。
+      队列(每渠道一个任务)走 SPI,由 starter 注入。
+    -->
+
+    <!--
+      JSON:database 渠道的 data 列、slack/webhook 的请求体。
+      显式声明而不是靠 jaravel-mail 传递过来 —— 传递依赖会在
+      别人调整 mail 的依赖时无声地消失。
+    -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.datatype</groupId>
+      <artifactId>jackson-datatype-jsr310</artifactId>
+    </dependency>
+
+    <!-- database 渠道的测试要一个真库 -->
+    <dependency>
+      <groupId>org.xerial</groupId>
+      <artifactId>sqlite-jdbc</artifactId>
+      <version>${sqlite.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

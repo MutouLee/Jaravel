@@ -28,11 +28,46 @@ import io.jaravel.eloquent.annotations.Model;
 @MustVerifyEmail
 @Fillable({"name", "email"})
 @HasMany(name = "notes", target = Note.class)
-public class User extends UserBase {
+public class User extends UserBase implements io.jaravel.notifications.Notifiable {
 
     @Id public Long id;
     public String name;
     public String email;
+
+    // ================= Notifiable(docs/11 §2.3)=================
+    //
+    // 三个方法,各自解决一件事:
+    //   · routeNotificationFor —— 「这个渠道往哪发」
+    //   · notifiableId / Type  —— 「站内通知属于谁」
+    //
+    // 返回 null 表示「这个渠道不可用」,那个渠道会被**跳过**
+    // (并发一个 Skipped 事件),而不是报错 ——
+    // 「有邮箱但没填手机号」是完全正常的。
+
+    @Override
+    public String routeNotificationFor(String channel) {
+        return switch (channel) {
+            case "mail" -> email;
+            default -> null;
+        };
+    }
+
+    @Override
+    public Object notifiableId() {
+        return id;
+    }
+
+    /**
+     * 用**表名**而不是类的全限定名。
+     *
+     * <p>全限定名的话,一次包重构(com.app.User → com.app.models.User)
+     * 会让所有历史通知查不到归属 —— 而那些数据还在表里,
+     * 只是没人能读到了。
+     */
+    @Override
+    public String notifiableType() {
+        return "users";
+    }
 
     @Hidden public String password;
     @Hidden public String rememberToken;

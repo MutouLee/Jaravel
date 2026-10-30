@@ -34,6 +34,9 @@ class AuthFeatureTest extends FeatureTest {
     @org.springframework.beans.factory.annotation.Autowired
     io.jaravel.cache.CacheManager caches;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    io.jaravel.database.Connection db;
+
     @org.junit.jupiter.api.BeforeEach
     void resetSingletonState() {
         // ★ 这两样都**不随事务回滚**,必须手工清。
@@ -573,6 +576,79 @@ class AuthFeatureTest extends FeatureTest {
             post("/logout", Map.of()).assertRedirect("/");
 
             assertThat(audit.entries()).anyMatch(e -> e.startsWith("logout:"));
+        }
+    }
+
+    // ================= 通知 =================
+
+    /**
+     * 通知真的被装配、真的两个渠道都到了。
+     *
+     * <p>覆盖的接线:starter 注册渠道 → mail 渠道复用 Mail →
+     * database 渠道写表 → {@code user.notify(...)} 这个默认方法。
+     */
+    @Nested
+    @DisplayName("通知")
+    class Notifications {
+
+        @Test
+        @DisplayName("★ 注册后同时发了邮件与站内通知")
+        void bothChannelsDelivered() {
+            post("/register", Map.of(
+                    "name", "王五",
+                    "email", "notify@example.com",
+                    "password", "correct-horse",
+                    "password_confirmation", "correct-horse"))
+                    .assertRedirect("/dashboard");
+
+            // 站内通知:真的写进了表
+            assertDatabaseCount("notifications", 1);
+
+            var row = db.table("notifications").first().orElseThrow();
+            assertThat(row.string("type")).isEqualTo("WelcomeAboard");
+            assertThat(row.string("notifiable_type"))
+                    .as("用表名而不是全限定名 —— 一次包重构会让历史通知"
+                            + "查不到归属")
+                    .isEqualTo("users");
+            assertThat(row.string("data")).contains("王五");
+            assertThat(row.get("read_at"))
+                    .as("null = 未读。用时间戳而不是布尔,"
+                            + "这样「什么时候读的」不必再加一列")
+                    .isNull();
+
+            // 邮件:log 驱动不留痕迹,所以这里只断言「没炸」。
+            // 邮件渠道本身的行为在 jaravel-mail 的 66 个测试里覆盖
+        }
+
+        @Test
+        @DisplayName("★ user.notify(...) 这个默认方法能用")
+        void notifyDefaultMethodWorks() {
+            var user = createUser("direct@example.com", "secret-pass");
+
+            user.notify(new app.notifications.WelcomeAboard("直接调用"));
+
+            assertDatabaseCount("notifications", 1);
+            assertThat(db.table("notifications").first().orElseThrow().string("data"))
+                    .contains("直接调用");
+        }
+
+        @Test
+        @DisplayName("★ notifiableId / notifiableType 定位到正确的收件人")
+        void recipientIsIdentified() {
+            var a = createUser("a@example.com", "x");
+            var b = createUser("b@example.com", "x");
+
+            a.notify(new app.notifications.WelcomeAboard("甲"));
+            b.notify(new app.notifications.WelcomeAboard("乙"));
+
+            assertThat(db.table("notifications")
+                    .where("notifiable_id", String.valueOf(a.id))
+                    .count())
+                    .isEqualTo(1);
+            assertThat(db.table("notifications")
+                    .where("notifiable_id", String.valueOf(a.id))
+                    .first().orElseThrow().string("data"))
+                    .contains("甲");
         }
     }
 

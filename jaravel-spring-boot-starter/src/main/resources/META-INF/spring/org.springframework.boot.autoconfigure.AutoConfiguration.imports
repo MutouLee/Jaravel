@@ -5,4 +5,5 @@ io.jaravel.spring.JaravelEventsAutoConfiguration
 io.jaravel.spring.JaravelSchedulerAutoConfiguration
 io.jaravel.spring.JaravelMailAutoConfiguration
 io.jaravel.spring.JaravelNotificationsAutoConfiguration
+io.jaravel.spring.JaravelStorageAutoConfiguration
 io.jaravel.spring.JaravelDevToolsAutoConfiguration

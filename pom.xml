@@ -40,6 +40,7 @@
     <module>jaravel-mail</module>
     <module>jaravel-http-client</module>
     <module>jaravel-notifications</module>
+    <module>jaravel-storage</module>
     <module>jaravel-cache</module>
     <module>jaravel-session</module>
     <module>jaravel-auth</module>
@@ -95,6 +96,7 @@
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-mail</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-http-client</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-notifications</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-storage</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-cache</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-session</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-auth</artifactId><version>${project.version}</version></dependency>

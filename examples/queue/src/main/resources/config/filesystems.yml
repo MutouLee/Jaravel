@@ -1,0 +1,31 @@
+filesystems:
+  default: ${FILESYSTEM_DISK:local}
+
+  disks:
+    # 私有磁盘:root 不在 web 根下,所以文件不能被直接访问。
+    # 要给出限时访问就用 Storage.temporaryUrl(...) —— 它签一个
+    # 指向应用自己路由的 URL
+    local:
+      driver: local
+      root: storage/app
+      visibility: private
+
+    # 对外可访问的磁盘。
+    #
+    # ⚠ 它会打开**可执行类型检查**:往这里写 .php / .jsp / .html / .svg
+    # 会被拒。理由见 PathGuard 的类注释 —— 前几个是远程代码执行,
+    # 后两个是存储型 XSS。
+    #
+    # 确实需要的话用 allow-extensions 显式允许,但更好的做法是把它们
+    # 放到一个**不同的域名**下(user-content.example.com),
+    # 那样 XSS 拿不到主站的 cookie。
+    public:
+      driver: local
+      root: storage/app/public
+      url: ${APP_URL:http://localhost:8003}/storage
+      visibility: public
+
+    # 测试用。注意 Storage.fake(...) 不需要这里注册它 ——
+    # 但「把 FILESYSTEM_DISK 改成 memory 看看」是一个常用的排查手段
+    memory:
+      driver: memory

@@ -68,7 +68,8 @@ public class JaravelAutoConfiguration {
     static final List<String> CONFIG_FILES = List.of(
             "app.yml", "database.yml", "view.yml", "jaravel.yml",
             "auth.yml", "cache.yml", "session.yml", "hashing.yml", "queue.yml",
-            "events.yml", "schedule.yml", "mail.yml", "notifications.yml");
+            "events.yml", "schedule.yml", "mail.yml", "notifications.yml",
+            "filesystems.yml");
 
     // ================= 容器与应用 =================
 

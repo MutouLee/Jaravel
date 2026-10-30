@@ -209,7 +209,16 @@ L3 的 < 2s 重启是兜底保证」。
 
 ### 验收
 
-1. 「下单 → 异步发票 → 邮件 + 站内通知」流程打通;
+1. 「下单 → 异步发票 → 邮件 + 站内通知」流程打通 ——
+   **补测时发现「站内通知」那一半在这个示例里的覆盖是零**。
+   零件分开都测过（队列/邮件在 `examples/queue`，通知在
+   `examples/auth`），但没有任何一条测试把两个出口接在
+   **同一条流程**上 —— 而「各自都对、接起来不对」正是这个项目里
+   最常见的缺陷类型。现已补上：`examples/queue` 增了
+   `Customer`（Notifiable）与 `InvoiceReady`（database 渠道），
+   `QueueFeatureTest.OrderToMailAndNotification` 4 条走完整链路：
+   HTTP 下单 → 投递 → worker → 任务里又入队一封邮件 →
+   通知系统 → notifications 表；
 2. `--concurrency=200` 下 worker 内存增长 < 100MB(验证虚拟线程优势)——
    **已实测:并发 200 + 400 个阻塞任务,堆增长 2.5 MB**
    (`WorkerConcurrencyBudgetTest`)。

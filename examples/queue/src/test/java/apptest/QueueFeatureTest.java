@@ -93,6 +93,8 @@ class QueueFeatureTest extends FeatureTest {
         db.table("failed_jobs").allowUnconditional().delete();
         db.table("job_batches").allowUnconditional().delete();
         db.table("invoices").allowUnconditional().delete();
+        db.table("notifications").allowUnconditional().delete();
+        db.table("customers").allowUnconditional().delete();
 
         gateway.reset();
         ledger.reset();
@@ -913,5 +915,191 @@ class QueueFeatureTest extends FeatureTest {
          * 这条测试(本示例)的职责是「批处理在真实的 Spring 接线下
          * 能跑通」,上面那条已经说明了这一点。
          */
+    }
+
+    // ================= v0.4 验收第 1 条 =================
+
+    /**
+     * ★ **「下单 → 异步发票 → 邮件 + 站内通知」整条走通**。
+     *
+     * <p>docs/17 的 v0.4 验收第 1 条就是这句话。
+     *
+     * <h2>为何单独开一组,而不是「上面那些加起来就是它」</h2>
+     * <p>因为那些加起来**不是**它。补这组测试之前,这个示例里
+     * 「站内通知」的覆盖是**零** —— grep 不到一处。通知那一半在
+     * {@code examples/auth} 里单独测过,但没有任何一条测试把两个出口
+     * 接在**同一条流程**上。
+     *
+     * <p>而「各自都对、接起来不对」正是这个项目里最常见的缺陷类型
+     * (v0.3 与 v0.4 一共修掉 14 个,每一个都是接线)。
+     * 这条流程要穿过:HTTP 请求 → 模型写入 → 投递 → worker 线程 →
+     * 任务里又入队一封邮件 → 通知系统 → database 渠道 →
+     * notifications 表。任一环的装配没接上,这条测试就红。
+     */
+    @Nested
+    @DisplayName("v0.4 验收第 1 条:下单 → 异步发票 → 邮件 + 站内通知")
+    class OrderToMailAndNotification {
+
+        private static final String EMAIL = "lin@example.com";
+
+        /** 下一单,带客户 */
+        private Long placeOrder(String orderNo) {
+            var response = postJson("/api/invoices", Map.of(
+                    "order_no", orderNo,
+                    "amount", 250,
+                    "customer_email", EMAIL,
+                    "customer_name", "小林"));
+            response.assertOk();
+
+            assertThat(response.json().get("customer_id"))
+                    .as("接口应该把认下的客户回给调用方")
+                    .isNotNull();
+            return response.json().get("id").asLong();
+        }
+
+        private long customerId() {
+            return ((Number) db.table("customers").where("email", EMAIL)
+                    .first().orElseThrow().get("id")).longValue();
+        }
+
+        @Test
+        @DisplayName("★ 一次下单之后:发票已发、邮箱有信、站内通知有行")
+        void wholeFlow() {
+            mailbox.clear();
+
+            Long invoiceId = placeOrder("ORD-FLOW-1");
+
+            // ① 投递之后、worker 跑之前:三样都还没发生
+            assertThat(db.table("invoices").where("id", invoiceId)
+                    .first().orElseThrow().string("status"))
+                    .as("接口只投递 —— 活儿留给 worker")
+                    .isEqualTo("pending");
+            assertThat(mailbox.count()).isZero();
+            assertThat(db.table("notifications").count()).isZero();
+
+            // ② 先只跑**一个**任务 —— 也就是 SendInvoice 本身。
+            //
+            // 用 drainOne 而不是 drain:SendInvoice 会在队列里**又入队**
+            // 一封渲染好的邮件,而那封邮件进的也是 mail 队列
+            // (starter 把邮件的队列通道接到了 mail 上)。
+            // drain 的 worker 在队列排空后会再取一次,于是两个任务
+            // 会在同一次 drain 里跑完 —— 那样「邮件是入队发的」
+            // 这件事就看不见了。
+            //
+            // ⚠ 写这条测试时我又按错的直觉写了一遍(以为邮件进
+            // default 队列,于是断言 drain("mail") 之后邮箱是空的)。
+            // drainOne 的 javadoc 里记着前两次 —— 这是第三次。
+            drainOne("mail");
+
+            assertThat(mailbox.count())
+                    .as("SendInvoice 结束时邮件只是**入队**了,还没投递")
+                    .isZero();
+            assertThat(Queue.size("mail"))
+                    .as("渲染好的那封邮件在 mail 队列里等着")
+                    .isEqualTo(1);
+
+            // 再把剩下的跑完
+            drain("mail");
+
+            // ③ 结果逐项到位
+            assertThat(db.table("invoices").where("id", invoiceId)
+                    .first().orElseThrow().string("status"))
+                    .as("发票应该已发出")
+                    .isEqualTo("sent");
+            assertThat(gateway.sent())
+                    .as("下游网关真的被调了")
+                    .hasSize(1);
+
+            assertThat(db.table("notifications").count())
+                    .as("""
+                            ★ 站内通知没落库。
+                              这是验收第 1 条里「站内通知」那一半的落点。
+                              可能原因:NotificationManager 没装、
+                              database 渠道没注册、Customer 没实现 Notifiable。""")
+                    .isEqualTo(1);
+
+            var notification = db.table("notifications").first().orElseThrow();
+            assertThat(notification.string("type")).isEqualTo("InvoiceReady");
+            assertThat(notification.string("notifiable_type")).isEqualTo("Customer");
+            assertThat(notification.string("data"))
+                    .as("通知的内容要带着当时的单号与金额")
+                    .contains("ORD-FLOW-1")
+                    .contains("250");
+            assertThat(notification.get("read_at"))
+                    .as("新通知是未读的")
+                    .isNull();
+
+            // ④ 邮件也投递了
+            assertThat(mailbox.sent()).singleElement().satisfies(message -> {
+                assertThat(message.to().get(0).email())
+                        .isEqualTo("customer@example.com");
+                assertThat(message.html()).contains("ORD-FLOW-1");
+            });
+        }
+
+        @Test
+        @DisplayName("★ 站内通知寄在**客户**名下,不是发票名下")
+        void notificationBelongsToTheCustomer() {
+            Long invoiceId = placeOrder("ORD-FLOW-2");
+            drain("mail");
+
+            assertThat(db.table("notifications").first().orElseThrow()
+                    .string("notifiable_id"))
+                    .as("""
+                            notifiable_id 要指向客户。
+                              让 Invoice 自己实现 Notifiable 在语义上是错的 ——
+                              通知属于客户,不属于那张发票,而一个语义上
+                              错的示例会被照抄。
+                              (发票 id 是 %s,客户 id 是 %s)""",
+                            invoiceId, customerId())
+                    .isEqualTo(String.valueOf(customerId()));
+        }
+
+        @Test
+        @DisplayName("★ 没带客户的发票只走邮件,不报错")
+        void invoiceWithoutCustomerStillWorks() {
+            mailbox.clear();
+
+            // 走原来的路径(不传 customer_email)
+            Long invoiceId = createInvoice("ORD-FLOW-3");
+            drain("mail");
+
+            assertThat(db.table("invoices").where("id", invoiceId)
+                    .first().orElseThrow().string("status")).isEqualTo("sent");
+            assertThat(mailbox.count()).isEqualTo(1);
+            assertThat(db.table("notifications").count())
+                    .as("没有客户就没有收件人 —— 跳过而不是报错。"
+                            + "这也是上面那些只关心队列本身的测试能继续跑的原因")
+                    .isZero();
+        }
+
+        @Test
+        @DisplayName("★ 站内通知的失败不会让整个任务重试")
+        void notificationFailureDoesNotRetryTheJob() {
+            mailbox.clear();
+            placeOrder("ORD-FLOW-4");
+
+            // 把客户删掉 —— 任务执行时 find 会拿到 empty。
+            //
+            // 这模拟的是「通知那一步出了问题」。它必须**不影响**
+            // 这个任务:重试会再发一封发票邮件,于是客户因为
+            // 一条站内通知的失败收到了两封发票
+            db.table("customers").where("email", EMAIL).delete();
+
+            drain("mail");
+
+            var invoice = db.table("invoices")
+                    .where("order_no", "ORD-FLOW-4").first().orElseThrow();
+            assertThat(invoice.string("status"))
+                    .as("发票照样发出去了")
+                    .isEqualTo("sent");
+            assertThat(invoice.get("attempts"))
+                    .as("只尝试了一次 —— 通知那一步的问题不该触发重试")
+                    .isEqualTo(1);
+            assertThat(mailbox.count())
+                    .as("★ 只有一封发票邮件。重试的话这里会是两封")
+                    .isEqualTo(1);
+            assertThat(db.table("failed_jobs").count()).isZero();
+        }
     }
 }

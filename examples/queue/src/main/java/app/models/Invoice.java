@@ -16,7 +16,7 @@ import io.jaravel.eloquent.annotations.Model;
 @Model(table = "invoices")
 // @Fillable 列的是**数据库列名**而不是属性名 —— 它守的是
 // 「哪些列允许从请求批量赋值」,而那道防线的对象是列
-@Fillable({"order_no", "amount", "status"})
+@Fillable({"order_no", "amount", "status", "customer_id"})
 public class Invoice extends InvoiceBase {
 
     @Id public Long id;
@@ -26,6 +26,15 @@ public class Invoice extends InvoiceBase {
 
     /** 这张发票被处理了几次 —— 用来断言重试真的发生了 */
     public Integer attempts;
+
+    /**
+     * 开给哪个客户 —— 站内通知要寄到他名下。
+     *
+     * <p>可为 null：这个示例里很多测试直接造一张
+     * 「没有客户的发票」来验证队列本身的行为。
+     * {@code SendInvoice} 在它为 null 时跳过站内通知。
+     */
+    public Long customerId;
 
     public Instant createdAt;
     public Instant updatedAt;

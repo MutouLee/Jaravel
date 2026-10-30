@@ -28,11 +28,21 @@ public class InvoiceController {
 
     /** 建一张发票并投递发送任务 */
     public Map<String, Object> store(Request request) {
+        // 下单时顺带认下客户 —— 站内通知要寄到他名下。
+        //
+        // 没传 customer_email 时客户为 null,那张发票就只走邮件。
+        // 不强制:很多调用方(与测试)只关心队列本身的行为
+        Long customerId = request.input("customer_email")
+                .map(email -> customerFor(email,
+                        request.input("customer_name", "客户")).id)
+                .orElse(null);
+
         Invoice invoice = new Invoice();
         invoice.fill(Map.of(
                 "order_no", request.input("order_no", "ORD-" + System.nanoTime()),
                 "amount", Integer.parseInt(request.input("amount", "100")),
                 "status", "pending"));
+        invoice.customerId = customerId;
         invoice.save();
 
         // 返回 uuid 给调用方。**null 表示被唯一性约束去重了** ——
@@ -40,9 +50,35 @@ public class InvoiceController {
         // 完全看不出来
         String uuid = Queue.dispatch(new SendInvoice(invoice.id));
 
-        return Map.of(
-                "id", invoice.id,
-                "job", uuid == null ? "deduplicated" : uuid);
+        var out = new java.util.LinkedHashMap<String, Object>();
+        out.put("id", invoice.id);
+        out.put("job", uuid == null ? "deduplicated" : uuid);
+        if (customerId != null) out.put("customer_id", customerId);
+        return out;
+    }
+
+    /**
+     * 按邮箱找客户,没有就建一个。
+     *
+     * <p>⚠ 这里有一个**竞态**:两个并发的下单带同一个邮箱时,
+     * 两边都可能查不到然后都去 insert,于是其中一个撞上
+     * {@code customers.email} 的唯一约束。
+     *
+     * <p>示例里不处理它(真实应用应该 catch 唯一冲突后重查一次),
+     * 但写在这里 —— 一个「看起来对」的 find-or-create 在并发下
+     * 失败是一个很常见的生产事故,而示例被照抄的概率很高。
+     */
+    private app.models.Customer customerFor(String email, String name) {
+        return app.models.Customer.query()
+                .where(app.models.Customer_.email, email)
+                .first()
+                .orElseGet(() -> {
+                    var customer = new app.models.Customer();
+                    customer.name = name;
+                    customer.email = email;
+                    customer.save();
+                    return customer;
+                });
     }
 
     /** 延迟投递 */

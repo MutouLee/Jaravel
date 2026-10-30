@@ -94,6 +94,42 @@ public class SendInvoice implements ShouldQueue, UniqueJob {
         // 于是 retryAfter 要配得更长(否则任务会在还在发邮件时被判失联)。
         io.jaravel.mail.Mail.to("customer@example.com")
                 .queue(new app.mail.InvoiceSent(invoice));
+
+        notifyCustomer(invoice);
+    }
+
+    /**
+     * 站内通知 —— v0.4 验收第 1 条的后半截。
+     *
+     * <p>⚠ **在邮件之后、而且不让它的失败影响这个任务。**
+     *
+     * <p>顺序的理由:发票邮件是这个任务的**主要产出**,
+     * 站内通知是附带的。反过来的话一个「通知表写失败」会让
+     * 整个任务重试,而重试会再发一封邮件 —— 客户因为
+     * 一条站内通知的失败收到了两封发票。
+     *
+     * <p>所以这里把异常吞掉并写进日志。这是这个示例里**唯一**
+     * 一处刻意吞异常的地方,因为它是唯一一处
+     * 「失败了也不该重试整个任务」的副作用。
+     *
+     * <p>客户为 null 时直接跳过:很多测试只造一张发票来验证队列
+     * 本身的行为,而为此强制每张发票都有客户会让那些测试
+     * 变成在测通知。
+     */
+    private void notifyCustomer(Invoice invoice) {
+        if (invoice.customerId == null) return;
+
+        try {
+            app.models.Customer.query().find(invoice.customerId)
+                    .ifPresent(customer -> customer.notify(
+                            new app.notifications.InvoiceReady(
+                                    invoice.id, invoice.orderNo, invoice.amount)));
+        } catch (RuntimeException e) {
+            // 见上:不能让它触发重试
+            System.err.printf(
+                    "[示例] 发票 %s 的站内通知失败(邮件已发出,不重试):%s%n",
+                    invoice.orderNo, e);
+        }
     }
 
     /**

@@ -163,7 +163,14 @@ final class MetamodelGenerator {
                     .formatted(Code.str(r.name()), r.targetType(), r.throughType(),
                                Code.str(r.foreignKey()), Code.str(r.secondKey()),
                                Code.str(blankToNull(r.localKey())));
+            case HAS_ONE_THROUGH -> "RelationDef.hasOneThrough(%s, %s.class, %s.class, %s, %s, %s)"
+                    .formatted(Code.str(r.name()), r.targetType(), r.throughType(),
+                               Code.str(r.foreignKey()), Code.str(r.secondKey()),
+                               Code.str(blankToNull(r.localKey())));
             case MORPH_MANY -> "RelationDef.morphMany(%s, %s.class, %s, %s)".formatted(
+                    Code.str(r.name()), r.targetType(), Code.str(r.morphPrefix()),
+                    Code.str(blankToNull(r.localKey())));
+            case MORPH_ONE -> "RelationDef.morphOne(%s, %s.class, %s, %s)".formatted(
                     Code.str(r.name()), r.targetType(), Code.str(r.morphPrefix()),
                     Code.str(blankToNull(r.localKey())));
             case MORPH_TO -> "RelationDef.morphTo(%s, java.util.List.of(%s), %s)".formatted(

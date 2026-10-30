@@ -81,20 +81,20 @@ public final class RelationLoader {
             List<RelPath> group) {
 
         return switch (def.kind()) {
-            case HAS_ONE, HAS_MANY, MORPH_MANY ->
+            case HAS_ONE, HAS_MANY, MORPH_MANY, MORPH_ONE ->
                     loadByForeignKey(ownerMeta, owners, def, group);
             case BELONGS_TO ->
                     loadBelongsTo(ownerMeta, owners, def, group);
             case BELONGS_TO_MANY ->
                     loadBelongsToMany(ownerMeta, owners, def, group);
-            case HAS_MANY_THROUGH ->
+            case HAS_MANY_THROUGH, HAS_ONE_THROUGH ->
                     loadThrough(ownerMeta, owners, def, group);
             case MORPH_TO ->
                     loadMorphTo(owners, def);
         };
     }
 
-    /** HAS_ONE / HAS_MANY / MORPH_MANY:外键在目标表上,按外键分组回填 */
+    /** HAS_ONE / HAS_MANY / MORPH_MANY / MORPH_ONE:外键在目标表上,按外键分组回填 */
     @SuppressWarnings("unchecked")
     private static <M extends Model<M>, T extends Model<T>> List<T> loadByForeignKey(
             ModelMeta<M> ownerMeta, List<M> owners, RelationDef def,
@@ -107,15 +107,22 @@ public final class RelationLoader {
         }
 
         ModelMeta<T> targetMeta = RelationSupport.metaOf(def.target());
-        String fkName = def.kind() == RelationDef.Kind.MORPH_MANY
-                ? def.morphIdColumn() : def.foreignKey();
+        // 多态关联的「外键」是 morph 的 id 列。
+        //
+        // MORPH_ONE 与 MORPH_MANY 共用这条路径，所以两边都要列在这里 ——
+        // 漏了 MORPH_ONE 的症状是「关联需要列 Image.null」，
+        // 因为多态关联的 foreignKey() 本来就是 null
+        boolean morph = def.kind() == RelationDef.Kind.MORPH_MANY
+                || def.kind() == RelationDef.Kind.MORPH_ONE;
+
+        String fkName = morph ? def.morphIdColumn() : def.foreignKey();
         Col<T, Object> fk = (Col<T, Object>) RelationSupport.columnOf(targetMeta, fkName);
 
         List<T> all = new ArrayList<>();
         for (List<Object> batch : partition(ownerKeys)) {
             Query<T> q = Query.of(targetMeta);
             q.whereIn(fk, batch);
-            if (def.kind() == RelationDef.Kind.MORPH_MANY) {
+            if (morph) {
                 Col<T, Object> typeCol = (Col<T, Object>)
                         RelationSupport.columnOf(targetMeta, def.morphTypeColumn());
                 q.where(typeCol, RelationSupport.morphAlias(ownerMeta.type()));
@@ -236,7 +243,7 @@ public final class RelationLoader {
         return all;
     }
 
-    /** HAS_MANY_THROUGH:同样两条查询,中间模型只用来建立映射 */
+    /** HAS_MANY_THROUGH / HAS_ONE_THROUGH:同样两条查询,中间模型只用来建立映射 */
     @SuppressWarnings("unchecked")
     private static <M extends Model<M>, T extends Model<T>> List<T> loadThrough(
             ModelMeta<M> ownerMeta, List<M> owners, RelationDef def,

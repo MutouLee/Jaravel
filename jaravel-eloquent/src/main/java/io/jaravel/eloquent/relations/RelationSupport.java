@@ -59,12 +59,12 @@ public final class RelationSupport {
                 query.where(owner2, fkValue);
             }
             case BELONGS_TO_MANY -> constrainBelongsToMany(query, def, ownerKey);
-            case MORPH_MANY -> {
+            case MORPH_MANY, MORPH_ONE -> {
                 Col<T, Object> idCol = (Col<T, Object>) columnOf(query.meta(), def.morphIdColumn());
                 Col<T, Object> typeCol = (Col<T, Object>) columnOf(query.meta(), def.morphTypeColumn());
                 query.where(idCol, ownerKey).where(typeCol, morphAlias(owner.meta().type()));
             }
-            case HAS_MANY_THROUGH -> constrainThrough(query, def, ownerKey);
+            case HAS_MANY_THROUGH, HAS_ONE_THROUGH -> constrainThrough(query, def, ownerKey);
             case MORPH_TO -> throw new UnsupportedOperationException(
                     "MORPH_TO 的目标类型在运行时才确定,不能用统一的 Query 约束;"
                   + "应走 MorphTo 的专用解析路径");
@@ -110,12 +110,12 @@ public final class RelationSupport {
                         query.meta(), ownerKeyName(def, query.meta()));
                 query.whereIn(ownerCol, ownerKeys);
             }
-            case MORPH_MANY -> {
+            case MORPH_MANY, MORPH_ONE -> {
                 Col<T, Object> idCol = (Col<T, Object>) columnOf(query.meta(), def.morphIdColumn());
                 Col<T, Object> typeCol = (Col<T, Object>) columnOf(query.meta(), def.morphTypeColumn());
                 query.whereIn(idCol, ownerKeys).where(typeCol, morphAlias(ownerType));
             }
-            case BELONGS_TO_MANY, HAS_MANY_THROUGH ->
+            case BELONGS_TO_MANY, HAS_MANY_THROUGH, HAS_ONE_THROUGH ->
                 // 这两种需要把连接键一起选出来才能分组回填,走专用路径
                 throw new IllegalStateException(
                         def.kind() + " 的预加载走 RelationLoader 的专用分支");
@@ -136,7 +136,7 @@ public final class RelationSupport {
                 Col<T, Object> fk = (Col<T, Object>) columnOf(meta, def.foreignKey());
                 fk.fromDatabase(model, ownerKey);
             }
-            case MORPH_MANY -> {
+            case MORPH_MANY, MORPH_ONE -> {
                 ((Col<T, Object>) columnOf(meta, def.morphIdColumn())).fromDatabase(model, ownerKey);
                 ((Col<T, Object>) columnOf(meta, def.morphTypeColumn()))
                         .fromDatabase(model, morphAlias(owner.meta().type()));

@@ -44,10 +44,21 @@ public record RelationDef(
         BELONGS_TO(false),
         /** 经中间表,多对多 */
         BELONGS_TO_MANY(true),
-        /** 经中间模型 */
+        /** 经中间模型,一对多 */
         HAS_MANY_THROUGH(true),
+        /**
+         * 经中间模型,一对一。
+         *
+         * <p>查询与 {@link #HAS_MANY_THROUGH} 完全相同 ——
+         * 所有机制分支里它们共用一条路径。
+         * 唯一的区别是 {@code isMany()} 为 false,
+         * 于是生成的访问器是 {@code Rel1<T>}。
+         */
+        HAS_ONE_THROUGH(false),
         /** 多态一对多 */
         MORPH_MANY(true),
+        /** 多态一对一。同上:与 {@link #MORPH_MANY} 共用机制 */
+        MORPH_ONE(false),
         /** 多态反向 */
         MORPH_TO(false);
 
@@ -95,6 +106,17 @@ public record RelationDef(
 
     public static RelationDef morphMany(String name, Class<?> target, String morphPrefix, String localKey) {
         return new RelationDef(Kind.MORPH_MANY, name, target, null, List.of(),
+                null, localKey, null, null, null, null, List.of(), false, morphPrefix);
+    }
+
+    public static RelationDef hasOneThrough(String name, Class<?> target, Class<?> through,
+                                            String firstKey, String secondKey, String localKey) {
+        return new RelationDef(Kind.HAS_ONE_THROUGH, name, target, through, List.of(),
+                firstKey, localKey, secondKey, null, null, null, List.of(), false, null);
+    }
+
+    public static RelationDef morphOne(String name, Class<?> target, String morphPrefix, String localKey) {
+        return new RelationDef(Kind.MORPH_ONE, name, target, null, List.of(),
                 null, localKey, null, null, null, null, List.of(), false, morphPrefix);
     }
 

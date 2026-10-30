@@ -28,10 +28,12 @@ import io.jaravel.eloquent.annotations.GlobalScope;
 import io.jaravel.eloquent.annotations.Guarded;
 import io.jaravel.eloquent.annotations.HasMany;
 import io.jaravel.eloquent.annotations.HasManyThrough;
+import io.jaravel.eloquent.annotations.HasOneThrough;
 import io.jaravel.eloquent.annotations.HasOne;
 import io.jaravel.eloquent.annotations.Hidden;
 import io.jaravel.eloquent.annotations.Id;
 import io.jaravel.eloquent.annotations.MorphMany;
+import io.jaravel.eloquent.annotations.MorphOne;
 import io.jaravel.eloquent.annotations.MorphTo;
 import io.jaravel.eloquent.annotations.Scope;
 import io.jaravel.eloquent.annotations.SoftDeletes;
@@ -383,10 +385,30 @@ final class ModelAnalyzer {
                     target, first, null, through, second, null, null, null,
                     List.of(), false, null, List.of()));
         }
+        // 与 HasManyThrough 完全平行 —— 只是 Kind 不同。
+        //
+        // 没把两个循环合成一个泛型方法:注解类型不共父类,
+        // getAnnotationsByType 也没有共同接口，强行抽象要走反射。
+        // 重复六行比那好
+        for (var a : type.getAnnotationsByType(HasOneThrough.class)) {
+            String target = targetOf(type, HasOneThrough.class, a.name(), "target");
+            String through = targetOf(type, HasOneThrough.class, a.name(), "through");
+            String first = a.firstKey().isBlank() ? Naming.foreignKey(simpleName) : a.firstKey();
+            String second = a.secondKey().isBlank() ? Naming.foreignKey(simple(through)) : a.secondKey();
+            out.add(relation(type, seen, a.name(), RelationDef.Kind.HAS_ONE_THROUGH,
+                    target, first, null, through, second, null, null, null,
+                    List.of(), false, null, List.of()));
+        }
         for (var a : type.getAnnotationsByType(MorphMany.class)) {
             String prefix = a.morphName().isBlank() ? Naming.morphPrefix(a.name()) : a.morphName();
             out.add(relation(type, seen, a.name(), RelationDef.Kind.MORPH_MANY,
                     targetOf(type, MorphMany.class, a.name(), "target"), null, null,
+                    null, null, null, null, null, List.of(), false, prefix, List.of()));
+        }
+        for (var a : type.getAnnotationsByType(MorphOne.class)) {
+            String prefix = a.morphName().isBlank() ? Naming.morphPrefix(a.name()) : a.morphName();
+            out.add(relation(type, seen, a.name(), RelationDef.Kind.MORPH_ONE,
+                    targetOf(type, MorphOne.class, a.name(), "target"), null, null,
                     null, null, null, null, null, List.of(), false, prefix, List.of()));
         }
         for (var a : type.getAnnotationsByType(MorphTo.class)) {

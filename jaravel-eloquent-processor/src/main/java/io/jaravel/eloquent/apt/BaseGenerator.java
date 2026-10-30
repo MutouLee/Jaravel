@@ -204,7 +204,9 @@ final class BaseGenerator {
             case BELONGS_TO        -> "归属";
             case BELONGS_TO_MANY   -> "多对多";
             case HAS_MANY_THROUGH  -> "远程一对多";
+            case HAS_ONE_THROUGH   -> "远程一对一";
             case MORPH_MANY        -> "多态一对多";
+            case MORPH_ONE         -> "多态一对一";
             case MORPH_TO          -> "多态归属";
         };
     }

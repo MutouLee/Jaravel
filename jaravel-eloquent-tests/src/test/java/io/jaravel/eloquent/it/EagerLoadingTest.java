@@ -162,6 +162,86 @@ class EagerLoadingTest extends EloquentTestBase {
         assertThat(selectCount()).isZero();
     }
 
+    /**
+     * ★ 单值的 {@code @MorphOne} 也要能预加载。
+     *
+     * <p>这一条值得单独有:{@code MORPH_ONE} 复用了
+     * {@code MORPH_MANY} 的加载机制(外键 + 类型列),而
+     * **单值与集合的回填路径不同**。
+     * 共用机制时最容易漏的就是这一步 —— 加载对了但填错了句柄,
+     * 症状是「预加载之后访问仍然发查询」,而那在功能上是正确的,
+     * 只有数 SQL 的测试才看得见。
+     */
+    @Test
+    @DisplayName("★ MorphOne 的预加载:2 条查询,访问不再发 SQL")
+    void eagerLoadMorphOne() {
+        var author = new User();
+        author.name = "甲";
+        author.save();
+
+        for (int i = 0; i < 3; i++) {
+            var post = new Post();
+            post.title = "文章" + i;
+            post.body = "正文";
+            post.userId = author.id;
+            post.save();
+
+            var image = new io.jaravel.eloquent.it.models.Image();
+            image.url = "cover" + i + ".png";
+            image.imageableId = post.id;
+            image.imageableType = Post.class.getName();
+            image.save();
+        }
+
+        clearSql();
+        var posts = Post.query().load(Post_.cover).get();
+
+        assertThat(posts).hasSize(3);
+        assertThat(selectCount())
+                .as("一条查文章 + 一条查图片 —— 不是 1 + 3")
+                .isEqualTo(2);
+
+        clearSql();
+        for (Post p : posts) {
+            assertThat(p.cover().getLoaded())
+                    .as("单值句柄要被填好,否则这里会再发一条查询")
+                    .isPresent();
+        }
+        assertThat(selectCount()).isZero();
+    }
+
+    /** ★ 单值的 {@code @HasOneThrough} 同理 —— 它复用 through 的两段式加载 */
+    @Test
+    @DisplayName("★ HasOneThrough 的预加载:访问不再发 SQL")
+    void eagerLoadHasOneThrough() {
+        var country = new io.jaravel.eloquent.it.models.Country();
+        country.name = "中国";
+        country.save();
+
+        var user = new User();
+        user.name = "甲";
+        user.countryId = country.id;
+        user.save();
+
+        var post = new Post();
+        post.title = "甲的文章";
+        post.body = "正文";
+        post.userId = user.id;
+        post.save();
+
+        clearSql();
+        var countries = io.jaravel.eloquent.it.models.Country.query()
+                .load(io.jaravel.eloquent.it.models.Country_.firstPost).get();
+
+        assertThat(countries).hasSize(1);
+
+        clearSql();
+        assertThat(countries.get(0).firstPost().getLoaded()).isPresent();
+        assertThat(selectCount())
+                .as("预加载之后访问不该再发查询")
+                .isZero();
+    }
+
     @Test
     @DisplayName("prevent-lazy-loading 打开时,未预加载的访问直接报错并给出可粘贴的修复")
     void preventLazyLoadingIsActionable() {

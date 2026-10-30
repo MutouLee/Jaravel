@@ -132,6 +132,85 @@ class RelationTest extends EloquentTestBase {
                 .containsExactly("甲的文章");
     }
 
+    /**
+     * ★ {@code @HasOneThrough} —— v0.4 末尾那次文档↔现实对账补上的。
+     *
+     * <p>它与 {@code @HasManyThrough} 的查询**完全相同**,差别只在
+     * 返回 {@code Rel1<T>}。这条测试与上面那条跑在**同一个模型**上
+     * (Country 同时声明了两条),所以它顺带证明了两者
+     * 共用机制而不互相干扰。
+     */
+    @Test
+    @DisplayName("★ HasOneThrough:同一条链路,返回单值")
+    void hasOneThrough() {
+        Country country = new Country();
+        country.name = "中国";
+        country.save();
+
+        User user = new User();
+        user.name = "甲";
+        user.countryId = country.id;
+        user.save();
+
+        post(user, "甲的文章");
+
+        assertThat(country.firstPost().get())
+                .as("单值句柄返回 Optional —— 调用方不用自己 .first()")
+                .isPresent()
+                .get().extracting(p -> p.title).isEqualTo("甲的文章");
+
+        assertThat(country.posts().query().get())
+                .as("两条关联并存,互不干扰")
+                .hasSize(1);
+    }
+
+    @Test
+    @DisplayName("★ HasOneThrough:链路上没有记录时返回 empty,不抛")
+    void hasOneThroughWhenEmpty() {
+        Country country = new Country();
+        country.name = "无人国";
+        country.save();
+
+        assertThat(country.firstPost().get())
+                .as("「这个国家还没有文章」是一个正常结果")
+                .isEmpty();
+    }
+
+    /**
+     * ★ {@code @MorphOne} —— 同样是对账补上的。
+     *
+     * <p>⚠ 这条测试刻意放了**两张**图片,用来钉住一个取舍:
+     * 没有数据库级唯一约束时 {@code @MorphOne} 只是一个**断言**,
+     * 它会默默取第一条。多态表很少能在
+     * {@code (xxx_id, xxx_type)} 上加唯一索引(那会挤到其它宿主类型),
+     * 所以这个风险在多态关联上尤其真实。
+     */
+    @Test
+    @DisplayName("★ MorphOne:取第一条,而「第一条」在多于一条时是不确定的")
+    void morphOne() {
+        Post post = post(user("甲"), "文章");
+
+        image("cover.png", post.id, Post.class.getName());
+
+        assertThat(post.cover().get())
+                .isPresent()
+                .get().extracting(i -> i.url).isEqualTo("cover.png");
+
+        // 再挂一张 —— MorphOne 仍然只给一条,而给哪条由数据库决定
+        image("second.png", post.id, Post.class.getName());
+
+        assertThat(post.cover().get())
+                .as("""
+                        ⚠ 仍然返回一条,但**具体是哪条没有保证** ——
+                          没有 order by 的「第一条」由数据库的返回顺序决定。
+                          要确定就用 @MorphMany + 显式排序。
+                          这一条断言只钉「不抛、不返回集合」。""")
+                .isPresent();
+        assertThat(post.images().query().get())
+                .as("同一个前缀上 MorphMany 看得见两张")
+                .hasSize(2);
+    }
+
     @Test
     @DisplayName("MorphMany:同一批图片挂在不同类型的宿主上")
     void morphMany() {

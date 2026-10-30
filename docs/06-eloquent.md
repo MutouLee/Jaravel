@@ -280,24 +280,34 @@ public class User extends Model<User> { ... }
 | `@MorphTo` | `morphTo` | `Rel1<Object>` + 类型解析器 |
 | `@MorphToMany` | `morphToMany` | `Rel<T>` |
 
-> ### ⚠ v0.4 实现状态:10 个里实现了 7 个
+> ### v0.4 实现状态:10 个里实现了 9 个
 >
 > **已实现**:`@HasOne`、`@HasMany`、`@BelongsTo`、`@BelongsToMany`、
-> `@HasManyThrough`、`@MorphMany`、`@MorphTo`。
+> `@HasManyThrough`、`@HasOneThrough`、`@MorphMany`、`@MorphOne`、
+> `@MorphTo`。
 >
-> **未实现**:`@HasOneThrough`、`@MorphOne`、`@MorphToMany`。
+> **未实现**:`@MorphToMany`。它要一张带 `*_type` 的中间表,
+> 预加载的分组逻辑与 `@BelongsToMany` 完全不同 —— 那是真正的工作量,
+> 不是一个变体。**编译错误**(注解类不存在),不会静默坑人。
+> 当前替代:手写查询。
 >
-> 三个都是**编译错误**(注解类不存在),所以不会静默坑人。
-> 但此前这张表没有任何标记 —— 读者会以为十个都能用。
+> `@HasOneThrough` 与 `@MorphOne` 是 v0.4 末尾那次文档↔现实对账
+> 补上的。它们与各自的复数版**共用全部机制**(同一条 SQL、
+> 同一条预加载路径),差别只在 `Kind.isMany()` 为 false,
+> 于是生成的访问器是 `Rel1<T>`。
 >
-> 为什么是这三个:它们各自是一个已实现关联的「单数/多对多」变体,
-> 而变体的代价不是对称的 ——
-> `@HasOneThrough` 与 `@MorphOne` 只差一个「取第一条」
-> (在 `Rel1` 上已有的能力),**它们是低垂的果实**;
-> 而 `@MorphToMany` 要一张带 `*_type` 的中间表,
-> 预加载的分组逻辑与 `@BelongsToMany` 完全不同 —— 那是真正的工作量。
+> ⚠ **没有数据库级唯一约束时,这两个只是一个断言。** 目标表里真有
+> 多条时它们默默取第一条,而「第一条」在没有 `order by` 时是
+> **不确定的**。多态尤其容易踩到:多态表很少能在
+> `(xxx_id, xxx_type)` 上加唯一索引(那会挤到其它宿主类型)。
+> 要确定就用复数版 + 显式排序。
 >
-> 当前的替代:`@HasManyThrough` + `.first()`;多态多对多手写查询。
+> ⚠ 补的过程中**抓到一个共用机制的陷阱**:多态关联的
+> `foreignKey()` 本来就是 null(它用 `morphIdColumn()`),而预加载
+> 路径上原先只判了 `== MORPH_MANY`,于是 `@MorphOne` 的预加载报
+> 「关联需要列 Image.null」。
+> 这是靠**数 SQL 条数**的预加载测试发现的 —— 只断言数据正确的测试
+> 抓不到它(那个报错只在 `load(...)` 这条路径上出现)。
 
 ### 4.2 `Rel<T>` 的设计
 

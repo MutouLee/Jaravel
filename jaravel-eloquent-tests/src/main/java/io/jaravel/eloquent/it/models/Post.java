@@ -9,6 +9,7 @@ import io.jaravel.eloquent.annotations.HasMany;
 import io.jaravel.eloquent.annotations.Id;
 import io.jaravel.eloquent.annotations.Model;
 import io.jaravel.eloquent.annotations.MorphMany;
+import io.jaravel.eloquent.annotations.MorphOne;
 import io.jaravel.eloquent.annotations.Scope;
 import io.jaravel.eloquent.query.Query;
 
@@ -18,6 +19,7 @@ import io.jaravel.eloquent.query.Query;
 @HasMany(name = "comments", target = Comment.class)
 @BelongsToMany(name = "tags", target = Tag.class, pivot = "post_tag", pivotTimestamps = false)
 @MorphMany(name = "images", target = Image.class, morphName = "imageable")
+@MorphOne(name = "cover", target = Image.class, morphName = "imageable")
 public class Post extends PostBase {
 
     @Id public Long id;

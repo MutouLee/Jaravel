@@ -251,11 +251,19 @@ def main():
     lines.append("=" * 62)
     lines.append(" 门禁上限: %.2f    以「不含 CSS」为准" % max_ratio)
     lines.append("-" * 62)
+    # 三位小数而不是两位。
+    #
+    # 两位的时候 518/398 = 1.3015 会打印成「1.30 超标」—— 一个
+    # 看起来自相矛盾的结论(1.30 不大于门禁的 1.30)。
+    # 判定用的是原始值,而显示把它藏了起来,于是读者会以为脚本坏了。
+    #
+    # 这是实打实踩到的:v0.4 往切片 03 的被测文件里多加了三条路由,
+    # 比值从 1.294 变成 1.3015,而输出两次都显示「1.30」。
     for title, rw, rwo in summary:
-        lines.append(" %-30s 含 CSS %.2f   不含 CSS %.2f   %s"
+        lines.append(" %-30s 含 CSS %.3f   不含 CSS %.3f   %s"
                      % (title, rw, rwo, "通过" if rwo <= max_ratio else "超标"))
     lines.append("-" * 62)
-    lines.append(" 最差切片: %.2f   %s" % (worst, "通过" if worst <= max_ratio else "超标"))
+    lines.append(" 最差切片: %.3f   %s" % (worst, "通过" if worst <= max_ratio else "超标"))
     lines.append("=" * 62)
 
     text = "\n".join(lines) + "\n"

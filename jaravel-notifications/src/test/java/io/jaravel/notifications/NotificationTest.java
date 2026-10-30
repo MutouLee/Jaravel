@@ -371,6 +371,156 @@ class NotificationTest {
         }
     }
 
+    // ================= slack / webhook =================
+
+    /**
+     * slack 与 webhook 渠道。
+     *
+     * <p>这两个渠道在换用 {@code Http} 门面**之前没有测试** ——
+     * 它们自己 new 了一个 HttpClient,要测只能起一个真 HTTP 服务器,
+     * 于是实际上就没测。
+     *
+     * <p>这是「把 HTTP 收拢到一个门面」顺带得到的东西:
+     * {@code Http.fake()} 让它们变得可测。
+     */
+    @Nested
+    @DisplayName("slack / webhook 渠道")
+    class HttpChannelsTests {
+
+        @BeforeEach
+        void registerChannels() {
+            notifications.register(new io.jaravel.notifications.channel
+                    .HttpChannels.Slack());
+            notifications.register(new io.jaravel.notifications.channel
+                    .HttpChannels.Webhook());
+        }
+
+        @org.junit.jupiter.api.AfterEach
+        void stopFakingHttp() {
+            io.jaravel.http.client.Http.reset();
+        }
+
+        @Test
+        @DisplayName("★ slack 渠道 POST 了正确的 payload")
+        void slackPostsPayload() {
+            io.jaravel.http.client.Http.fake(Map.of(
+                    "https://hooks.slack.com/*",
+                    io.jaravel.http.client.Http.response(Map.of("ok", true))));
+
+            var target = Notifications.route("slack",
+                    "https://hooks.slack.com/services/XXX");
+            assertThat(target.deliver(new SlackAlert())).isEqualTo(1);
+
+            io.jaravel.http.client.Http.assertSent(r ->
+                    r.method().equals("POST")
+                            && r.bodyContains("发票已支付")
+                            && r.bodyContains("good"));
+        }
+
+        @Test
+        @DisplayName("★ slack 返回 4xx 时失败,并把响应体放进错误")
+        void slackFailureIncludesBody() {
+            // body 是 String 时原样发,所以这是一个 404 + 纯文本响应体
+            io.jaravel.http.client.Http.fake(Map.of("*",
+                    io.jaravel.http.client.Http.response("channel_not_found", 404)));
+
+            assertThatThrownBy(() -> Notifications
+                    .route("slack", "https://hooks.slack.com/x")
+                    .deliver(new SlackAlert()))
+                    .hasMessageContaining("返回了 404")
+                    .hasMessageContaining("channel_not_found");
+        }
+
+        @Test
+        @DisplayName("★ 5xx 会重试(门面带来的,第一版完全没有)")
+        void serverErrorsAreRetried() {
+            var calls = new java.util.concurrent.atomic.AtomicInteger();
+            io.jaravel.http.client.Http.use((request, connectTimeout) -> {
+                int n = calls.incrementAndGet();
+                return n < 3
+                        ? io.jaravel.http.client.Http.status(503)
+                        : io.jaravel.http.client.Http.response(Map.of("ok", true));
+            });
+
+            Notifications.route("slack", "https://hooks.slack.com/x")
+                    .deliver(new SlackAlert());
+
+            assertThat(calls.get())
+                    .as("Slack 的限流与瞬时 5xx 很常见,"
+                            + "而第一版手写的 HttpClient 完全没有重试")
+                    .isEqualTo(3);
+        }
+
+        @Test
+        @DisplayName("连接失败时报错并提示常见原因")
+        void connectionFailureExplains() {
+            io.jaravel.http.client.Http.fake(Map.of("*",
+                    io.jaravel.http.client.Http.failedConnection()));
+
+            assertThatThrownBy(() -> Notifications
+                    .route("slack", "https://hooks.slack.com/x")
+                    .deliver(new SlackAlert()))
+                    .hasMessageContaining("出口网络被封");
+        }
+
+        @Test
+        @DisplayName("★ webhook 渠道带上自定义头部(签名走这里)")
+        void webhookSendsHeaders() {
+            io.jaravel.http.client.Http.fake(Map.of("*",
+                    io.jaravel.http.client.Http.response(Map.of())));
+
+            Notifications.route("webhook", "https://hooks.example.com/x")
+                    .deliver(new WebhookAlert());
+
+            io.jaravel.http.client.Http.assertSent(r ->
+                    r.hasHeader("X-Signature", "abc123")
+                            && r.bodyContains("invoice.paid"));
+        }
+
+        @Test
+        @DisplayName("webhook 支持 PUT")
+        void webhookSupportsPut() {
+            io.jaravel.http.client.Http.fake(Map.of("*",
+                    io.jaravel.http.client.Http.response(Map.of())));
+
+            Notifications.route("webhook", "https://hooks.example.com/x")
+                    .deliver(new PuttingWebhook());
+
+            io.jaravel.http.client.Http.assertSent(r -> r.method().equals("PUT"));
+        }
+    }
+
+    static class SlackAlert extends Notification implements io.jaravel.notifications.HasSlack {
+        @Override public List<String> via(Notifiable n) { return List.of("slack"); }
+
+        @Override
+        public SlackMessage toSlack(Notifiable n) {
+            return SlackMessage.of("发票已支付")
+                    .attachment(a -> a.title("#42").color("good"));
+        }
+    }
+
+    static class WebhookAlert extends Notification
+            implements io.jaravel.notifications.HasWebhook {
+        @Override public List<String> via(Notifiable n) { return List.of("webhook"); }
+
+        @Override
+        public WebhookMessage toWebhook(Notifiable n) {
+            return WebhookMessage.post(Map.of("event", "invoice.paid", "id", 42))
+                    .header("X-Signature", "abc123");
+        }
+    }
+
+    static class PuttingWebhook extends Notification
+            implements io.jaravel.notifications.HasWebhook {
+        @Override public List<String> via(Notifiable n) { return List.of("webhook"); }
+
+        @Override
+        public WebhookMessage toWebhook(Notifiable n) {
+            return WebhookMessage.put(Map.of("x", 1));
+        }
+    }
+
     // ================= 入队 =================
 
     @Nested

@@ -50,6 +50,16 @@
     </dependency>
 
     <!--
+      slack / webhook 渠道走 Http 门面,不自己手写 HttpClient。
+      理由见 HttpChannels 的类注释 —— 它与调度的心跳 ping
+      原先各写了一遍,注定会分叉。
+    -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-http-client</artifactId>
+    </dependency>
+
+    <!--
       注意:slack / webhook 渠道用 JDK 自带的 HttpClient,不引任何库。
       队列(每渠道一个任务)走 SPI,由 starter 注入。
     -->

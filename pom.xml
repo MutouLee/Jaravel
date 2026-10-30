@@ -38,6 +38,7 @@
     <module>jaravel-events-tests</module>
     <module>jaravel-scheduler</module>
     <module>jaravel-mail</module>
+    <module>jaravel-http-client</module>
     <module>jaravel-notifications</module>
     <module>jaravel-cache</module>
     <module>jaravel-session</module>
@@ -92,6 +93,7 @@
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-events-processor</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-scheduler</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-mail</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-http-client</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-notifications</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-cache</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-session</artifactId><version>${project.version}</version></dependency>

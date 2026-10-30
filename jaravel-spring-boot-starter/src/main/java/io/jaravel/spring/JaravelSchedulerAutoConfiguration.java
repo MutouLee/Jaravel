@@ -1,9 +1,5 @@
 package io.jaravel.spring;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 
@@ -161,32 +157,37 @@ public class JaravelSchedulerAutoConfiguration {
     }
 
     /**
-     * 心跳 ping。
+     * 心跳 ping —— 走 {@code Http} 门面。
      *
      * <p>**超时必须短**(5 秒):ping 是在任务结束后同步做的,
      * 一个挂住的监控端点会让调度线程卡在那里,而后果是
      * **其它所有任务都延迟** —— 比 ping 失败严重得多。
      *
      * <p>只发 GET、不看响应体:Healthchecks.io 这类服务只关心请求到达。
+     *
+     * <p>**不重试**(retry(1))。这一点与通知的 slack/webhook 渠道
+     * 相反,理由是 ping 的语义:它报告「这次任务跑完了」,
+     * 而重试会让调度线程等得更久 —— 而下一次任务运行时会再 ping 一次。
+     * 漏一次心跳的代价(监控可能误报一次)小于拖住调度线程。
+     *
+     * <p>原先这里自己 new 了一个 HttpClient。换成门面是因为
+     * 通知的 slack/webhook 渠道也做了同样的一遍 ——
+     * 两处的超时值与错误判定注定会分叉。
      */
     private Scheduler.Pinger httpPinger() {
-        var client = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(5))
-                .build();
-
         return url -> {
-            try {
-                var request = HttpRequest.newBuilder(URI.create(url))
-                        .timeout(Duration.ofSeconds(5))
-                        .GET()
-                        .build();
-                client.send(request, HttpResponse.BodyHandlers.discarding());
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("ping 被中断:" + url, e);
-            } catch (Exception e) {
+            var response = io.jaravel.http.client.Http
+                    .timeout(Duration.ofSeconds(5))
+                    .connectTimeout(Duration.ofSeconds(5))
+                    .retry(1, Duration.ZERO)
+                    .get(url);
+
+            if (response.failed()) {
                 throw new IllegalStateException(
-                        "ping 失败 " + url + ":" + e.getMessage(), e);
+                        "ping 失败 %s:%s".formatted(url,
+                                response.connectionFailed()
+                                        ? String.valueOf(response.failure())
+                                        : "HTTP " + response.status()));
             }
         };
     }

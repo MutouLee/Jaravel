@@ -1,18 +1,14 @@
 package io.jaravel.notifications.channel;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Map;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-
-import io.jaravel.notifications.Notifiable;
-import io.jaravel.notifications.Notification;
+import io.jaravel.http.client.Http;
+import io.jaravel.http.client.HttpResponse;
 import io.jaravel.notifications.HasSlack;
 import io.jaravel.notifications.HasWebhook;
+import io.jaravel.notifications.Notifiable;
+import io.jaravel.notifications.Notification;
 import io.jaravel.notifications.NotificationChannel;
 import io.jaravel.notifications.SlackMessage;
 import io.jaravel.notifications.WebhookMessage;
@@ -21,90 +17,77 @@ import io.jaravel.notifications.WebhookMessage;
  * slack 与 webhook 渠道 —— 都是「POST 一个 JSON」(docs/11 §2.5)。
  *
  * <p>两个渠道放一个文件里:它们只有 payload 的形状不同,
- * 而 HTTP 的那部分(超时、状态码判定、错误消息)完全一样 ——
- * 分成两个文件意味着那部分要么重复、要么抽一个共同父类,
- * 而两者都比放在一起更绕。
+ * 而 HTTP 的那部分完全一样。
  *
- * <h2>用 JDK 的 HttpClient,不引库</h2>
- * <p>「POST 一个 JSON」不需要 OkHttp 或 Apache HttpClient。
- * JDK 11+ 自带的够用,而少一个依赖意味着少一次版本冲突。
+ * <h2>★ 走 {@link Http} 门面,不再自己手写 HttpClient</h2>
+ * <p>这个类的第一版自己 new 了一个 {@code HttpClient},自己设超时、
+ * 自己判状态码、自己截断响应体 —— 而调度的心跳 ping 也做了同样的一遍。
  *
- * <h2>超时必须配</h2>
- * <p>{@code HttpClient} 的默认超时是**无限**(与 Jakarta Mail 一样)。
- * 一个挂住的 Slack webhook 会让这个任务永久占着一个 worker 的
- * 并发额度 —— 而 Slack 偶尔会挂。
+ * <p>那两处在没有一个共同门面之前注定会分叉:超时值不同、
+ * 「什么算失败」的判定不同、错误消息的详细程度不同 ——
+ * 而其中最不详细的那一处就是出问题时最难查的。
  *
- * <p>所以连接与请求各 10 秒。
+ * <p>换成门面之后顺带得到两样东西:
+ * <ul>
+ *   <li><b>重试</b> —— 429 与 5xx 自动重试,且按对方的
+ *       {@code Retry-After} 等。Slack 的限流很常见,而第一版
+ *       完全没有重试;</li>
+ *   <li><b>{@code Http.fake()} 可测</b> —— 这两个渠道原先只能靠
+ *       起一个真 HTTP 服务器来测,所以实际上**没有测**。</li>
+ * </ul>
  */
 public final class HttpChannels {
-
-    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private HttpChannels() {
     }
 
-    private static HttpClient client() {
-        return HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .build();
-    }
-
     /**
-     * POST 一个 JSON 并检查状态码。
+     * 发出去并检查结果。
      *
-     * <p>2xx 以外都算失败。**把响应体放进错误消息** ——
-     * Slack 与大多数 webhook 接收方会在响应体里说明原因
-     * ({@code invalid_payload}、{@code channel_not_found}),
-     * 而只报一个状态码的错误消息毫无帮助。
+     * <p>重试 3 次:slack 与大多数 webhook 接收方的失败多是瞬时的
+     * (限流、连接重置)。**4xx 不重试** —— 一个
+     * {@code channel_not_found} 重试一百次还是同样的结果。
+     * 那条判定在 {@code PendingHttpRequest.worthRetrying} 里,
+     * 这里不必重复。
      */
-    private static void post(String url, String method, Map<String, Object> body,
-                             Map<String, String> headers, String channelName) {
-        String json;
-        try {
-            json = MAPPER.writeValueAsString(body);
-        } catch (Exception e) {
+    private static void deliver(String url, String method, Map<String, Object> body,
+                                Map<String, String> headers, String channelName) {
+        if (url == null || url.isBlank()) {
+            // 正常情况下走不到这 —— manager 已经按 requiresRoute 跳过了。
+            // 但这个渠道可能被别人直接调
             throw new DeliveryException(
-                    "%s 渠道的 payload 无法序列化成 JSON:%s"
-                            .formatted(channelName, e.getMessage()), e);
+                    "%s 渠道没有目标 URL".formatted(channelName), null);
         }
 
-        var builder = HttpRequest.newBuilder(URI.create(url))
+        var request = Http.withHeaders(headers)
                 .timeout(Duration.ofSeconds(10))
-                .header("Content-Type", "application/json; charset=utf-8")
-                .method(method, HttpRequest.BodyPublishers.ofString(json));
+                .retry(3, Duration.ofMillis(300));
 
-        headers.forEach(builder::header);
+        HttpResponse response = "PUT".equalsIgnoreCase(method)
+                ? request.put(url, body)
+                : request.post(url, body);
 
-        HttpResponse<String> response;
-        try {
-            response = client().send(builder.build(),
-                    HttpResponse.BodyHandlers.ofString());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new DeliveryException(
-                    "%s 渠道的请求被中断".formatted(channelName), e);
-        } catch (Exception e) {
+        if (response.connectionFailed()) {
             throw new DeliveryException("""
                     %s 渠道请求失败:%s
                       常见原因:URL 写错、出口网络被封、对方限流。"""
-                    .formatted(channelName, e.getMessage()), e);
+                    .formatted(channelName,
+                               response.failure() == null
+                                       ? "连接失败"
+                                       : response.failure().getMessage()),
+                    response.failure());
         }
 
-        if (response.statusCode() / 100 != 2) {
+        if (response.failed()) {
             throw new DeliveryException("""
                     %s 渠道返回了 %d。
                       响应体:%s
                       (响应体通常就是原因 —— Slack 会返回 invalid_payload /
                        channel_not_found 这类说明,而只看状态码毫无帮助。)"""
-                    .formatted(channelName, response.statusCode(),
-                               truncate(response.body())), null);
+                    .formatted(channelName, response.status(),
+                               response.body().isEmpty() ? "(空)" : response.body()),
+                    null);
         }
-    }
-
-    /** 响应体可能很长(一个 HTML 错误页),截断它 */
-    private static String truncate(String body) {
-        if (body == null) return "(空)";
-        return body.length() <= 500 ? body : body.substring(0, 500) + "…(已截断)";
     }
 
     /** slack 渠道 */
@@ -120,8 +103,8 @@ public final class HttpChannels {
             SlackMessage message = require(notifiable, notification,
                     HasSlack.class).toSlack(notifiable);
 
-            String webhook = notifiable.routeNotificationFor("slack");
-            post(webhook, "POST", message.payload(), Map.of(), "slack");
+            deliver(notifiable.routeNotificationFor("slack"), "POST",
+                    message.payload(), Map.of(), "slack");
         }
     }
 
@@ -138,8 +121,8 @@ public final class HttpChannels {
             WebhookMessage message = require(notifiable, notification,
                     HasWebhook.class).toWebhook(notifiable);
 
-            String url = notifiable.routeNotificationFor("webhook");
-            post(url, message.method(), message.body(), message.headers(), "webhook");
+            deliver(notifiable.routeNotificationFor("webhook"), message.method(),
+                    message.body(), message.headers(), "webhook");
         }
     }
 

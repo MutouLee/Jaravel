@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.jaravel</groupId>
+    <artifactId>jaravel-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>jaravel-http-client</artifactId>
+  <name>Jaravel :: HTTP 客户端</name>
+  <description>Http 门面(包装 java.net.http.HttpClient)、重试、Http.fake() 断言</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-support</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+    </dependency>
+
+    <!--
+      独立成模块而不是放进 jaravel-http。
+
+      jaravel-http 是**服务端**的抽象(Request / Response / Cookie),
+      而这里是客户端。Laravel 也是分开的
+      (Illuminate\Http 与 Illuminate\Http\Client)。
+
+      更实际的理由:通知与调度要用这个客户端,而它们不该为此
+      拉进一整套服务端的 HTTP 类型。
+    -->
+  </dependencies>
+</project>

@@ -646,41 +646,78 @@ filesystems:
 ### 3.3 文件上传
 
 ```java
-public Response store(Request req) {
-    UploadedFile file = req.file("avatar").orElseThrow();
+public Object store(UploadedFile avatar, Request request) {
+    // 校验。avatar 在 request.all() 里 —— 文件也进 all(),
+    // 否则规则拿到的是 null
+    Validator.make(request.all(), Map.of(
+            "avatar", "required|image|mimes:jpg,png|max:2048")).validate();
 
-    // 校验
-    req.validate(Map.of("avatar", "required|image|max:2048|dimensions:max_width=4000"));
-
-    // 存储
-    String path = file.store("avatars", "s3");                // 随机名
-    String path2 = file.storeAs("avatars", user.getId() + ".png");
-    String path3 = file.storePublicly("avatars");
+    // 存储:随机名 + 扩展名由内容嗅探
+    String path  = Storage.putFile("avatars", avatar);
+    String onS3  = Storage.putFile("avatars", avatar, "s3");
+    String named = Storage.putFileAs("avatars", avatar, user.id + ".png");
 
     // 元信息
-    String name = file.originalName();
-    String ext = file.extension();                             // 由内容嗅探,不信任客户端
-    String mime = file.mimeType();
-    long size = file.size();
-    String hash = file.hashName();                             // 随机 + 保留扩展名
+    String name = avatar.originalName();          // ⚠ 不可信
+    String ext  = avatar.extension();             // 先嗅探内容,再退回文件名
+    var mime    = avatar.mimeType();              // Optional,按内容
+    var claimed = avatar.clientMimeType();        // ⚠ 客户端声称的,只用于排查
+    long size   = avatar.size();                  // 字节(校验规则里按 KB)
+    boolean img = avatar.isImage();               // 按内容,**SVG 不算**
 
-    user.setAvatar(path);
+    user.avatar = path;
     user.save();
     return Redirect.back();
 }
+
+// 多个文件 / 可选文件:走 Request
+Optional<UploadedFile> maybe = request.file("avatar");
+List<UploadedFile> photos    = request.files("photos");
+boolean has                  = request.hasFile("avatar");
 ```
 
-> **v0.4 实现说明:安全约束已全部实现(148 个测试),但上传那一层还没有**
+**上传大小限制**(`config/uploads.yml`):
+
+```yaml
+uploads:
+  max-file-size: 2MB       # 单个文件
+  max-request-size: 8MB    # 整个请求
+```
+
+> **v0.4 实现说明:这一节已完整实现并有端到端验证**
 >
-> ⚠ **`req.file("avatar")` / `UploadedFile` 不存在** —— 它需要 HTTP 层的
-> multipart 处理,而那还没实现。
+> HTTP 层的 multipart 解析、`UploadedFile`、`request.file(...)`、
+> `file` / `image` / `mimes` / `mimetypes` / `extensions` 五条校验规则
+> 都实现了,`examples/auth` 的 `UploadFlowTest` 用**真实的 multipart
+> POST** 覆盖了 13 条(含伪装的 PHP 脚本、文件名里的 `../`、
+> 超限的 413、往 public 磁盘写 `.php`)。
 >
-> 所以存储这一侧定义了一个最小接口 `Storage.Upload`(内容 + 原始文件名),
-> `putFile` / `putFileAs` 以及那组安全检查都基于它,现在就完整可用、
-> 也被完整地测了。上传那一层接上时让 `UploadedFile` 实现它即可。
+> **⚠ 一处与上面示例的偏差:没有 `file.store("avatars")`。**
 >
-> 这个顺序是刻意的:那些安全检查是这一节的核心,而
-> 「先上线功能、安全检查后补」是这类事故的标准剧本。
+> 实现它需要 `UploadedFile` 调到存储层 —— 于是 `jaravel-http` 要依赖
+> `jaravel-storage`,而一个只做 JSON API 的应用不该为此拉进存储
+> (反过来也一样:一个只往 S3 写文件的后台任务不该拉进 HTTP)。
+>
+> 所以方向反过来:`Storage.putFile(directory, upload)`,
+> 两边通过 `jaravel-support` 的 `Upload` 接口对接
+> (`UploadedFile implements Upload`)。
+> `file.storePublicly(...)` 对应 `Storage.putFile(dir, file, "public")`。
+>
+> **⚠ `dimensions` 规则仍未实现。** 它要解码图片才能知道宽高,
+> 而那引入一个解压炸弹的面:一个 100 KB 的 PNG 可以声明
+> 50000×50000 的尺寸,解码它会吃掉几 GB 内存。
+> 做它需要先限制解码的像素总数,那是一个独立的决定。
+>
+> **⚠ `file.hashName()` 不在 `UploadedFile` 上**,它在
+> `PathGuard.hashName(extension)` —— 因为「生成一个存储用的文件名」
+> 属于存储层,而 `UploadedFile` 不该知道存储路径怎么构造。
+>
+> **⚠ 文件也出现在 `request.all()` 里**(与 Laravel 一致)。
+> 这不只是兼容:校验的输入就是 `all()`,文件不在里面的话
+> `"avatar", "required|image"` **永远失败**。
+> 两个后果:`input("avatar")` 返回的是 `UploadedFile.toString()`;
+> `validated()` 里会出现 `UploadedFile` 对象,
+> 直接批量赋值给模型会试图把一个对象写进一列。
 >
 > **逐条对照下面那六条约束:**
 >
@@ -729,9 +766,22 @@ public Response store(Request req) {
 > 符号链接能绕过字符串比较:`storage/app/link` 指向 `/etc` 的话,
 > `link/passwd` 的字符串前缀完全合法。
 >
-> ⑤ **两层大小限制** —— 框架这一层还没有(它属于上传/校验层)。
-> 容器层的 `spring.servlet.multipart.max-file-size` 是 Spring 自己的,
-> 照常可用。
+> ⑤ **两层大小限制** —— 都实现了,而且**位置很关键**:
+>
+> 外层是 `config/uploads.yml` 的 `max-file-size` / `max-request-size`,
+> 它经由一个自己提供的 `MultipartConfigElement` 生效 ——
+> 容器在**读流的过程中**执行它,超限直接中断。
+> 一个「读完再检查大小」的实现保护不了任何东西:等它能检查的时候,
+> 那 2 GB 已经在内存或磁盘上了。超限映射成 **413**。
+>
+> 内层是校验规则的 `max:2048`,单位是 **KB**(与 Laravel 一致,
+> 所以这是 2 MB)。它给出带字段名的 422。
+>
+> ⚠ **覆盖了 Spring Boot 自己那个 bean。** Spring 的默认值是
+> **1 MB** —— 一个头像上传在默认配置下就会失败。更重要的是配置来源:
+> Jaravel 的配置在 `config/*.yml`,它不进 Spring 的 Environment,
+> 所以 `spring.servlet.multipart.max-file-size` 读不到它。
+> 两处都配时**直接报错**,而不是让一处静默失效。
 >
 > ⑥ **public 磁盘禁可执行类型** —— 实现了,分两类理由:
 > php/jsp/cgi/exe 这些放在对外可访问的目录里意味着**远程代码执行**;
@@ -753,7 +803,7 @@ public Response store(Request req) {
 - 默认用 `hashName()` 随机文件名,防止路径穿越与覆盖;
 - 原始文件名若被使用,必须经过 `sanitize`(去除 `../`、空字节、控制字符、Windows 保留名);
 - `local` 驱动的 root 做路径规范化检查,拒绝逃出 root 的路径;
-- 上传大小限制在两层:框架校验 + 容器层 `spring.servlet.multipart.max-file-size`;
+- 上传大小限制在两层:容器层 `config/uploads.yml`(读流时中断,413)+ 框架校验 `max:2048`(单位 KB,422);
 - `public` 磁盘默认不允许上传可执行类型(`.php`、`.jsp`、`.html` 需显式配置允许)。
 
 ---
@@ -812,11 +862,28 @@ jaravel-notifications
 └── NotificationFake
 
 jaravel-storage
-├── Filesystem (contract) · FilesystemManager
-├── drivers/ LocalDriver · S3Driver · SftpDriver · MemoryDriver
-├── UploadedFile · MimeDetector(Tika)· PathSanitizer
-└── StorageFake
+├── Filesystem (contract) · FilesystemManager · Storage(门面)
+├── disk/ LocalFilesystem · MemoryFilesystem · MimeTypes
+├── PathGuard(规范化 / sanitize / hashName / public 安全检查)
+└── Storage.FakeDisk
 ```
+
+> **v0.4 实际的模块划分有两处与上面不同**
+>
+> `UploadedFile` 在 **`jaravel-http`** 而不是存储模块 ——
+> 它是一个 HTTP 概念(它来自 multipart 的一个 part)。
+>
+> 两边的契约是 `jaravel-support` 里的 `Upload` 接口
+> (内容 + 原始文件名,零依赖)。放在任何一侧都会造成一次
+> 不该有的依赖:放存储里的话 HTTP 要依赖存储;
+> 放 HTTP 里的话存储要依赖 HTTP(更糟 —— 一个
+> 「从 zip 里解出来的文件」也该能存,而它与 HTTP 无关)。
+>
+> 同理,`ContentSniffer`(上面的 `MimeDetector`)在
+> **`jaravel-support`** —— 它被两层都用到:
+> 上传那一层的 `UploadedFile.extension()` 与存储那一层的
+> `Storage.putFile`。一个只操作 `byte[]` 的纯函数
+> 不该强迫 HTTP → 存储的依赖。
 
 ### 5.1 为什么不用 Spring Mail / Spring Resource 抽象
 

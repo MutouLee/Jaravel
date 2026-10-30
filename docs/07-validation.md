@@ -120,17 +120,45 @@ Rule.exists(Tag.class, Tag_.ID).where(q -> q.where(Tag_.ACTIVE, true));
 
 ### 2.7 其他
 
-`confirmed`(需 `{field}_confirmation`)· `same:other` · `different:other` · `in:a,b` · `not_in:a,b` · `in_array:other.*` · `distinct` · `accepted` · `accepted_if` · `declined` · `current_password` · `password`(强度)· `enum:UserStatus` · `dimensions` · `mimes:jpg,png` · `mimetypes:image/*` · `extensions:jpg`
+`confirmed`(需 `{field}_confirmation`)· `same:other` · `different:other` · `in:a,b` · `not_in:a,b` · `in_array:other.*` · `distinct` · `accepted` · `accepted_if` · `declined` · `current_password` · `password`(强度)· `enum:UserStatus` · `mimes:jpg,png` · `mimetypes:image/*` · `extensions:jpg`(`dimensions` 见 §2.8,未实现)
 
 ### 2.8 文件
 
 ```java
-.field("avatar", Rule.file()
-    .image()
-    .maxKb(2048)
-    .mimes("jpg", "png", "webp")
-    .dimensions(d -> d.minWidth(100).maxWidth(2000).ratio(16, 9)))
+Map.of("avatar", "required|image|mimes:jpg,png|max:2048")
 ```
+
+> **v0.4 实现说明**
+>
+> 五条规则实现了:`file` · `image` · `mimes:jpg,png` ·
+> `mimetypes:image/png,image/*` · `extensions:csv,txt`。
+> `min` / `max` / `size` / `between` / `gt` 等对文件按 **KB**
+> (与 Laravel 一致 —— 所以 `max:2048` 是 2 MB)。
+>
+> ★ **`image` / `mimes` / `mimetypes` 按内容嗅探判断**,不看文件名也不看
+> 客户端声称的 `Content-Type`。一个检查 `.endsWith(".png")` 的实现
+> 等于没检查:攻击者把 PHP 脚本命名为 `avatar.png` 就过了。
+>
+> ⚠ **`mimes` 对嗅探不出来的类型一律拒绝**,所以 `mimes:txt` /
+> `mimes:csv` **永远不通过** —— 纯文本没有魔数。一个「认不出就放过」
+> 的白名单等于没有白名单。文本类文件用 `extensions:csv,txt`
+> (它看**文件名**,所以不是安全检查 —— 文档里这么写是刻意的)。
+>
+> ⚠ **`image` 不把 SVG 算作图片。** SVG 能带 `<script>`,
+> 放过它等于一个存储型 XSS。Laravel 有 `image:allow_svg`,
+> 这里**不提供** —— Jaravel 没有 SVG 消毒器,给一个开关却不给消毒
+> 等于给了一把没有保险的枪。
+>
+> ⚠ **`dimensions` 未实现。** 它要解码图片才能知道宽高,而那引入一个
+> 解压炸弹的面:一个 100 KB 的 PNG 可以声明 50000×50000 的尺寸,
+> 解码它会吃掉几 GB 内存。做它需要先限制解码的像素总数。
+>
+> ⚠ **没有 `Rule.file()` 的 Builder 写法**(上面原本的示例)——
+> 字符串写法已经覆盖,而一个只在文件这一类上有的 Builder
+> 会与其余 60 条规则的形式不一致。
+>
+> 消息会自动用 `.file` 的措辞(「不能超过 2048 KB」),
+> 而不是落到 string 分支说成「不能超过 2048 个字符」。
 
 ---
 

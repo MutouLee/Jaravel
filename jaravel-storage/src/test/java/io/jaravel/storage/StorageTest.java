@@ -21,7 +21,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-import io.jaravel.storage.disk.ContentSniffer;
+import io.jaravel.support.io.ContentSniffer;
 import io.jaravel.storage.disk.LocalFilesystem;
 import io.jaravel.storage.disk.MemoryFilesystem;
 import io.jaravel.storage.disk.MimeTypes;
@@ -432,7 +432,7 @@ class StorageTest {
         @DisplayName("★ putFile 用随机名,且扩展名来自**内容嗅探**")
         void putFileSniffsContent() {
             // 客户端声称这是一个 .php,内容其实是 PNG
-            var upload = Storage.Upload.of(PNG, "evil.php");
+            var upload = Storage.upload(PNG, "evil.php");
 
             String path = Storage.putFile("avatars", upload);
 
@@ -447,7 +447,7 @@ class StorageTest {
         @Test
         @DisplayName("★ 嗅探不出来时退回**清理后的**原始扩展名")
         void fallsBackToSanitizedExtension() {
-            var upload = Storage.Upload.of("随便的内容".getBytes(StandardCharsets.UTF_8),
+            var upload = Storage.upload("随便的内容".getBytes(StandardCharsets.UTF_8),
                     "notes.txt");
 
             String path = Storage.putFile("notes", upload);
@@ -458,7 +458,7 @@ class StorageTest {
         @Test
         @DisplayName("★ 随机名防覆盖 —— 同名上传两次得到两个文件")
         void randomNamesPreventOverwrite() {
-            var upload = Storage.Upload.of(PNG, "avatar.png");
+            var upload = Storage.upload(PNG, "avatar.png");
 
             String first = Storage.putFile("avatars", upload);
             String second = Storage.putFile("avatars", upload);
@@ -472,7 +472,7 @@ class StorageTest {
         @Test
         @DisplayName("★ putFileAs 的名字会被清理")
         void putFileAsSanitizes() {
-            var upload = Storage.Upload.of(PNG, "x.png");
+            var upload = Storage.upload(PNG, "x.png");
 
             String path = Storage.putFileAs("avatars", upload, "../../etc/passwd");
 
@@ -484,7 +484,7 @@ class StorageTest {
         @Test
         @DisplayName("原始文件名里的路径穿越被去掉")
         void traversalInNameIsStripped() {
-            var upload = Storage.Upload.of(PNG, "../../../etc/passwd.png");
+            var upload = Storage.upload(PNG, "../../../etc/passwd.png");
 
             String path = Storage.putFile("avatars", upload);
 
@@ -494,7 +494,7 @@ class StorageTest {
         @Test
         @DisplayName("可以指定磁盘")
         void canTargetADisk() {
-            var upload = Storage.Upload.of(PNG, "a.png");
+            var upload = Storage.upload(PNG, "a.png");
 
             String path = Storage.putFile("avatars", upload, "memory");
 
@@ -727,7 +727,7 @@ class StorageTest {
             var disk = Storage.fake("local");
 
             Storage.putFile("avatars",
-                    Storage.Upload.of(new byte[] {(byte) 0x89, 'P', 'N', 'G',
+                    Storage.upload(new byte[] {(byte) 0x89, 'P', 'N', 'G',
                             0x0D, 0x0A, 0x1A, 0x0A}, "x.png"));
 
             String path = disk.assertSingleFileIn("avatars");

@@ -551,7 +551,7 @@ class QueueFeatureTest extends FeatureTest {
 
             // 客户端声称这是 .php,内容其实是 PNG
             String path = io.jaravel.storage.Storage.putFile("avatars",
-                    io.jaravel.storage.Storage.Upload.of(PNG, "evil.php"));
+                    io.jaravel.storage.Storage.upload(PNG, "evil.php"));
 
             assertThat(path)
                     .as("扩展名由内容决定,不信客户端给的文件名")

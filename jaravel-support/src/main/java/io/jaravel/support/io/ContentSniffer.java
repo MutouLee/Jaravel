@@ -1,4 +1,4 @@
-package io.jaravel.storage.disk;
+package io.jaravel.support.io;
 
 import java.util.Optional;
 
@@ -49,16 +49,18 @@ import java.util.Optional;
  *       (那是图片库的事)。</li>
  * </ul>
  *
- * <p>需要完整覆盖的项目可以自己引 Tika 并在上传层替掉它 ——
- * 这个类的方法是静态的,但 {@code UploadedFile} 那一层会留一个
- * 可替换的钩子(上传那一层本身还没实现,见下)。
+ * <p>需要完整覆盖的项目可以自己引 Tika:这个类的方法是纯函数,
+ * 应用在校验层调自己的嗅探器即可 —— {@code Storage.putFile}
+ * 用这里的结果只是为了决定**存储路径的扩展名**,
+ * 而那一步对「认不出来」已经有退路。
  *
- * <h2>⚠ 上传那一层还没有</h2>
- * <p>docs/11 §3.3 的 {@code UploadedFile} / {@code req.file("avatar")}
- * 需要 HTTP 层的 multipart 处理,而**那还没实现**。
+ * <h2>为什么在 jaravel-support 而不是存储模块里</h2>
+ * <p>它被**两层**用到:上传那一层({@code UploadedFile.extension()})
+ * 与存储那一层({@code Storage.putFile})。
  *
- * <p>这个类现在就写出来,是因为它是那条安全约束的核心,
- * 而且它能被独立地测。上传那一层接上时直接用它。
+ * <p>原本放在 {@code jaravel-storage} 里,而那会让 HTTP 层为了算一个
+ * 扩展名而依赖存储模块 —— 一个纯函数不该造成这种依赖。
+ * 它只操作 {@code byte[]},没有任何依赖,所以放在 support 里最合适。
  */
 public final class ContentSniffer {
 
@@ -143,6 +145,69 @@ public final class ContentSniffer {
         }
 
         return Optional.empty();
+    }
+
+    /**
+     * 按内容判断 MIME 类型。
+     *
+     * <p>它是 {@link #extensionOf} 的结果再查一张表 —— 两者的覆盖范围
+     * 因此**完全一致**:嗅探不出扩展名就嗅探不出 MIME。
+     *
+     * <p>不单独写一套 MIME 的魔数判断是刻意的:两套表会慢慢分叉,
+     * 而「扩展名说是 png、MIME 说认不出」这种不一致的结果
+     * 会让调用方没法写出正确的校验。
+     *
+     * @return 形如 {@code image/png};认不出时 empty
+     */
+    public static Optional<String> detect(byte[] content) {
+        return extensionOf(content).map(ContentSniffer::mimeForExtension);
+    }
+
+    /**
+     * 内容是不是一张图片。
+     *
+     * <p>⚠ **SVG 不算**。它是一张图片,但它也是一个可以带
+     * {@code <script>} 的 XML 文档 —— 把它算进「是图片」会让
+     * 一个 {@code image} 校验规则放过存储型 XSS。
+     *
+     * <p>需要支持 SVG 上传的应用要自己决定怎么消毒(去掉 script、
+     * on* 属性、外部引用),而那不是一个嗅探器该做的事。
+     */
+    public static boolean isImage(byte[] content) {
+        return extensionOf(content)
+                .map(ext -> java.util.Set.of("png", "jpg", "gif", "webp", "bmp")
+                        .contains(ext))
+                .orElse(false);
+    }
+
+    private static String mimeForExtension(String extension) {
+        return switch (extension) {
+            case "png"   -> "image/png";
+            case "jpg"   -> "image/jpeg";
+            case "gif"   -> "image/gif";
+            case "webp"  -> "image/webp";
+            case "bmp"   -> "image/bmp";
+            case "pdf"   -> "application/pdf";
+            case "zip"   -> "application/zip";
+            case "gz"    -> "application/gzip";
+            case "7z"    -> "application/x-7z-compressed";
+            case "rar"   -> "application/vnd.rar";
+            case "mp4"   -> "video/mp4";
+            case "mov"   -> "video/quicktime";
+            case "mp3"   -> "audio/mpeg";
+            case "ogg"   -> "audio/ogg";
+            case "woff"  -> "font/woff";
+            case "woff2" -> "font/woff2";
+
+            // extensionOf 返回了一个这里没列的扩展名 —— 那是这两个
+            // 方法分叉了。响亮地报出来,而不是回一个
+            // application/octet-stream 让它看起来正常
+            default -> throw new IllegalStateException("""
+                    ContentSniffer 的扩展名表与 MIME 表不一致:
+                      extensionOf 返回了 "%s",但 mimeForExtension 没有它。
+                      在 extensionOf 里加一个类型时要同时加到这张表里。"""
+                    .formatted(extension));
+        };
     }
 
     /**

@@ -30,6 +30,15 @@ public class JaravelExceptionHandler {
         if (t instanceof io.jaravel.eloquent.ModelNotFoundException) return 404;
         if (t instanceof IllegalArgumentException) return 400;
         if (t instanceof io.jaravel.core.context.OutsideRequestException) return 500;
+
+        // 上传超限 → 413。
+        //
+        // 不是 400:客户端的请求本身是合法的,只是太大 ——
+        // 而 413 带着「多大算太大」的语义,让前端能给出
+        // 「文件不能超过 10 MB」这样的提示
+        if (t instanceof org.springframework.web.multipart.MaxUploadSizeExceededException) {
+            return 413;
+        }
         return 500;
     }
 

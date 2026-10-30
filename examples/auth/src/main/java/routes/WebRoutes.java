@@ -3,6 +3,7 @@ package routes;
 import org.springframework.stereotype.Component;
 
 import app.http.controllers.AuthController;
+import app.http.controllers.AvatarController;
 import app.http.controllers.DashboardController;
 import app.http.controllers.NoteController;
 import io.jaravel.routing.RouteDefinition;
@@ -85,6 +86,14 @@ public class WebRoutes implements RouteDefinition {
                .whereNumber("note").middleware("can:update,note");
             api.delete("/notes/{note}", NoteController::destroy)
                .whereNumber("note").middleware("can:delete,note");
+
+            // ---------- 上传 ----------
+            // 挂在 api 组而不是 web 组：multipart 的 CSRF 令牌要作为
+            // 一个表单字段一起传，而这组测试要验证的是
+            // 文件解析与安全检查，不是 CSRF（那一层已经有测试）
+            api.post("/avatar", AvatarController::store);
+            api.post("/avatar/multi", AvatarController::storeMany);
+            api.post("/avatar/public", AvatarController::storePublic);
         });
     }
 }

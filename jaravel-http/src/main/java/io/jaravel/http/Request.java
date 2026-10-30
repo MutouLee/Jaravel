@@ -90,6 +90,65 @@ public interface Request {
     /** 原始请求体 */
     String rawBody();
 
+    // ---------- 上传的文件 ----------
+
+    /**
+     * 一个 multipart 字段上传的所有文件。
+     *
+     * <p>这是**唯一的抽象方法**,{@link #file}/{@link #files}/{@link #hasFile}
+     * 都是它的 default 封装 —— 一个自己实现 {@code Request} 的类
+     * 只要答这一个问题。
+     *
+     * <p>⚠ 没有文件时返回**空 map,不是 null**。一个不是 multipart 的
+     * 请求(GET、JSON POST)的自然答案是「没有文件」。
+     *
+     * <p>这个方法是抽象的而不是 {@code default Map.of()}:后者会让一个
+     * 忘了解析 part 的适配器**静默地**表现为「没有上传文件」,
+     * 而那个 bug 的症状(表单提交成功但头像没变)与原因之间
+     * 没有任何线索。
+     *
+     * @return 字段名 → 该字段的文件列表
+     */
+    Map<String, List<UploadedFile>> allFiles();
+
+    /**
+     * 取一个上传的文件(docs/03)。
+     *
+     * <pre>{@code
+     * request.file("avatar")
+     *        .map(f -> Storage.putFile("avatars", f))
+     *        .ifPresent(user::avatar);
+     * }</pre>
+     *
+     * <p>同名字段有多个时返回**第一个** —— 要全部就用 {@link #files}。
+     */
+    default Optional<UploadedFile> file(String key) {
+        var list = files(key);
+        return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
+    }
+
+    /** 同名字段的所有文件({@code <input name="photos[]" multiple>}) */
+    default List<UploadedFile> files(String key) {
+        return allFiles().getOrDefault(key, List.of());
+    }
+
+    /**
+     * 这个字段有文件吗。
+     *
+     * <p>⚠ 一个 **0 字节**的文件算「有」—— 浏览器在用户选了一个空文件时
+     * 就会发来这样的 part。要排掉它用
+     * {@code request.file("x").filter(f -> !f.isEmpty())},
+     * 或者让校验规则去管。
+     *
+     * <p>不在这里顺手排掉空文件的理由:{@code hasFile} 应该如实回答
+     * 「请求里有没有这个 part」,而「空文件算不算有效上传」是
+     * 一个业务判断 —— 把它藏在 {@code hasFile} 里会让一个
+     * 「必须上传」的校验以「没上传」的消息拒掉一个确实上传了的请求。
+     */
+    default boolean hasFile(String key) {
+        return !files(key).isEmpty();
+    }
+
     // ---------- 路由 ----------
 
     /** 路由参数,由路由匹配阶段填入 */

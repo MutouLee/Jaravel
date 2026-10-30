@@ -330,10 +330,11 @@ public interface Request {
     boolean expectsJson();  boolean wantsJson();  boolean isAjax();
     boolean accepts(String... contentTypes);
 
-    // 文件
+    // 文件(v0.4 实现)
     Optional<UploadedFile> file(String key);
     List<UploadedFile> files(String key);
     boolean hasFile(String key);
+    Map<String, List<UploadedFile>> allFiles();   // 唯一的抽象方法,上面三个是封装
 
     // Cookie / Session / 用户
     Optional<String> cookie(String name);
@@ -348,6 +349,37 @@ public interface Request {
     HttpServletRequest raw();      // 仅在 servlet 适配下可用
 }
 ```
+
+> **v0.4 实现说明:文件上传**
+>
+> `UploadedFile` 也能直接作为**控制器参数** —— 按字段名绑定:
+>
+> ```java
+> public Object store(UploadedFile avatar, Request request) { ... }
+> ```
+>
+> 没带这个 part 时是 **400**(消息里带上请求实际带了哪些文件字段),
+> 不是 null —— 一个 null 会在方法体第一行变成 NPE 500,
+> 把客户端错误(忘了 `enctype="multipart/form-data"`、字段名拼错)
+> 报成服务端错误。
+>
+> 文件可选时用 `request.file("avatar")`;同名多文件用
+> `request.files("photos")`(`List<UploadedFile>` 参数绑不了 ——
+> 泛型擦除拿不到元素类型)。
+>
+> ⚠ **文件也出现在 `all()` 里**(与 Laravel 一致)。校验的输入就是
+> `all()`,文件不在里面的话 `"avatar", "required|image"` 永远失败。
+>
+> ⚠ **0 字节的文件算「有」** —— 浏览器在用户选了个空文件时就会
+>发来这样的 part。`hasFile` 如实回答「请求里有没有这个 part」,
+> 「空文件算不算有效」交给校验(`file|min:1`)。
+>
+> ⚠ **`UploadedFile` 没有 `store(...)`**(文档里的 docs/11 §3.3 写了它)——
+> 那会让 HTTP 模块依赖存储模块。用
+> `Storage.putFile("avatars", file)`,理由见 docs/11 §3.3。
+>
+> 大小限制在 `config/uploads.yml`,**不是** Spring 的
+> `spring.servlet.multipart.*`(两处都写会报错)。
 
 ### 3.1 FormRequest
 

@@ -6,7 +6,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
-import io.jaravel.storage.disk.ContentSniffer;
+import io.jaravel.support.io.ContentSniffer;
+import io.jaravel.support.io.Upload;
 import io.jaravel.storage.disk.MemoryFilesystem;
 
 /**
@@ -120,6 +121,32 @@ public final class Storage {
     }
 
     // ================= 上传 =================
+
+    /**
+     * 手工造一个 {@link Upload} —— 测试与「不走 HTTP 的上传」用。
+     *
+     * <p>真实的 HTTP 上传走 {@code request.file("avatar")},它返回的
+     * {@code UploadedFile} 实现同一个接口,所以
+     * {@code Storage.putFile("avatars", request.file("avatar").get())}
+     * 直接可用。
+     *
+     * <p>{@code Upload} 这个接口本身在 {@code jaravel-support} ——
+     * 它是 HTTP 层与存储层之间的契约,放在任何一侧都会造成一次
+     * 不该有的依赖(一个只做 JSON API 的应用不该为此拉进存储,
+     * 一个只往 S3 写文件的后台任务也不该拉进 HTTP)。
+     *
+     * <h2>⚠ 与 docs/11 §3.3 的一处偏差:没有 {@code file.store("avatars")}</h2>
+     * <p>文档里写的是 {@code file.store("avatars", "s3")}。
+     * 那需要 {@code UploadedFile} 调到存储层 —— 于是 HTTP 模块要依赖
+     * 存储模块,而那是上面那条分层约束的反面。
+     *
+     * <p>实际写法是 {@code Storage.putFile("avatars", file)} ——
+     * 读起来一样清楚,而且「文件存到哪个磁盘」这件事在
+     * {@code Storage} 这一侧更显眼。
+     */
+    public static Upload upload(byte[] content, String originalName) {
+        return Upload.of(content, originalName);
+    }
 
     /**
      * 存一个上传的文件,**用随机文件名**(docs/11 §3.1 的 {@code putFile})。
@@ -375,46 +402,4 @@ public final class Storage {
         }
     }
 
-    /**
-     * 一个上传的文件 —— 最小接口。
-     *
-     * <h2>⚠ HTTP 层的 {@code UploadedFile} 还没有</h2>
-     * <p>docs/11 §3.3 的 {@code req.file("avatar")} 需要 HTTP 层的
-     * multipart 处理,而**那还没实现**。
-     *
-     * <p>所以这里定义一个最小接口,让存储这一侧先完整 ——
-     * 上传那一层接上时让 {@code UploadedFile} 实现它即可。
-     *
-     * <p>做成接口而不是等上传层:
-     * <ul>
-     *   <li>{@code putFile} 的安全行为(内容嗅探 + 随机名)
-     *       是这一节的核心,它现在就能被完整地测;</li>
-     *   <li>反过来(先做上传层)意味着那些安全检查要等,
-     *       而「先上线功能、安全检查后补」是这类事故的标准剧本。</li>
-     * </ul>
-     */
-    public interface Upload {
-
-        /** 文件内容 */
-        byte[] content();
-
-        /**
-         * 客户端给的原始文件名。
-         *
-         * <p>⚠ **完全不可信** —— 它可能是 {@code ../../etc/passwd}、
-         * 可能带空字节、可能是一个伪装的扩展名。
-         * {@code putFile} 只用它做「嗅探失败时的退路」,
-         * 而且那个退路也过清理。
-         */
-        String originalName();
-
-        /** 用一对值快速构造一个 —— 测试与非 HTTP 来源(比如解压出来的文件)用 */
-        static Upload of(byte[] content, String originalName) {
-            return new Upload() {
-                @Override public byte[] content() { return content; }
-
-                @Override public String originalName() { return originalName; }
-            };
-        }
-    }
 }

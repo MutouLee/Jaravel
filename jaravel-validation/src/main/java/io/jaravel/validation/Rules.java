@@ -282,6 +282,17 @@ final class Rules {
     private static BigDecimal sizeOf(Object value, Rule.Context context) {
         if (value instanceof Number n) return new BigDecimal(n.toString());
 
+        // 文件按 **KB** —— 与 Laravel 一致,所以 max:2048 是「不超过 2 MB」。
+        //
+        // 这个单位看起来随意,但改掉它比留着更糟:所有 Laravel 文档、
+        // 所有从 PHP 抄过来的规则串、所有人的肌肉记忆都是 KB。
+        // 一个按字节解释的 max:2048 会放过一个 2 MB 的文件 ——
+        // 一个**静默放宽 1024 倍**的安全限制。
+        //
+        // 不四舍五入:1 字节的文件向下取整会变成 0 KB,于是
+        // min:1 会拒掉它。用精确的除法,比较在 BigDecimal 上做
+        if (value instanceof io.jaravel.support.io.Upload upload) return kilobytes(upload);
+
         boolean numericField = context.validator() != null
                 && context.validator().isDeclaredNumeric(context.attribute());
         if (numericField) {
@@ -363,10 +374,155 @@ final class Rules {
         }, Map.of("value", otherField));
     }
 
+    /** 见 {@link #sizeOf} 里那段关于单位的说明 */
+    private static BigDecimal kilobytes(io.jaravel.support.io.Upload upload) {
+        return new BigDecimal(upload.size())
+                .divide(new BigDecimal(1024), 6, java.math.RoundingMode.HALF_UP);
+    }
+
     private static BigDecimal comparableSize(Object value, Rule.Context context) {
+        if (value instanceof io.jaravel.support.io.Upload upload) return kilobytes(upload);
+
         BigDecimal d = toDecimal(value);
         if (d != null) return d;
         return Data.sizeIfCountable(value).map(BigDecimal::valueOf).orElse(null);
+    }
+
+    // ================= 文件上传 =================
+
+    /**
+     * 这个字段是一个上传的文件吗(docs/11 §3.3)。
+     *
+     * <p>⚠ 它**不**检查文件非空:一个 0 字节的上传是一次成功的上传,
+     * 要拒掉它用 {@code file|min:1}(单位 KB,见 {@link #sizeOf})。
+     */
+    static Rule fileRule() {
+        return simple("file", c -> c.value() instanceof io.jaravel.support.io.Upload);
+    }
+
+    /**
+     * 这个字段是一张图片吗。
+     *
+     * <p>⚠ **按内容判断,不看扩展名也不看客户端声称的 MIME** ——
+     * 那是这条规则存在的全部意义。一个检查
+     * {@code originalName().endsWith(".png")} 的实现等于没检查。
+     *
+     * <p>⚠ **SVG 不算图片**。理由在
+     * {@code ContentSniffer.isImage} 的注释里:它可以带
+     * {@code <script>}。Laravel 的 {@code image} 规则默认也排除 SVG
+     * (要允许得写 {@code image:allow_svg})。
+     *
+     * <p>这里**不**提供 {@code allow_svg}:放过一个未消毒的 SVG
+     * 是一个存储型 XSS,而 Jaravel 没有 SVG 消毒器 ——
+     * 给一个开关却不给消毒等于给了一把没有保险的枪。
+     * 需要 SVG 的应用自己写规则(它知道那些文件会怎么被渲染)。
+     */
+    static Rule imageRule() {
+        return simple("image", c -> c.value() instanceof io.jaravel.support.io.Upload u
+                && io.jaravel.support.io.ContentSniffer.isImage(u.content()));
+    }
+
+    /**
+     * 扩展名必须是这几个之一 —— {@code mimes:jpg,png,pdf}。
+     *
+     * <p>★ 判断用的是**嗅探出来的**扩展名,不是文件名里的。
+     * 所以一个 PHP 脚本改名成 {@code avatar.png} 过不了
+     * {@code mimes:png}。
+     *
+     * <p>⚠ **嗅探不出来的类型一律拒绝。** 这是一个刻意的取舍:
+     * {@code mimes} 的用途是白名单,而一个「认不出就放过」的白名单
+     * 等于没有白名单(攻击者只要上传一个嗅探器不认识的格式)。
+     *
+     * <p>代价很具体:{@code mimes:txt} / {@code mimes:csv}
+     * **永远不会通过** —— 纯文本没有魔数,嗅探不出来。
+     * 要校验文本类文件用 {@code extensions:txt,csv}
+     * (它看文件名,并且在文档里说清了那是不可信的)。
+     *
+     * <p>zip 系的别名在这里生效:{@code mimes:docx} 对一个真的
+     * docx 会通过,因为 docx 就是 zip
+     * (见 {@code ContentSniffer.equivalent})。
+     */
+    static Rule mimes(List<String> allowed) {
+        if (allowed.isEmpty()) {
+            throw new IllegalArgumentException("""
+                    mimes 需要至少一个扩展名。
+                      写法:mimes:jpg,png,pdf
+                      一个空的白名单会拒掉所有文件,那不会是本意。""");
+        }
+        var wanted = allowed.stream()
+                .map(s -> s.trim().toLowerCase().replaceFirst("^\\.", ""))
+                .collect(java.util.stream.Collectors.toSet());
+
+        return simple("mimes", c -> {
+            if (!(c.value() instanceof io.jaravel.support.io.Upload u)) return false;
+
+            var sniffed = u.sniffedExtension();
+            if (sniffed.isEmpty()) return false;   // 见注释:认不出就拒
+
+            // 直接命中,或者「声称的扩展名与内容属于同一类」——
+            // 后者让 mimes:docx 对一个嗅探成 zip 的 docx 通过
+            return wanted.contains(sniffed.get())
+                    || wanted.stream().anyMatch(w ->
+                            io.jaravel.support.io.ContentSniffer
+                                    .mismatch(w, u.content()).isEmpty());
+        }, Map.of("values", String.join(", ", wanted)));
+    }
+
+    /**
+     * 扩展名必须是这几个之一,**按文件名判断** —— {@code extensions:txt,csv}。
+     *
+     * <p>⚠ 它看的是**客户端给的文件名**,所以它不是一个安全检查。
+     * 一个伪装的文件能过。
+     *
+     * <p>存在的理由:{@code mimes} 对没有魔数的格式(txt、csv、
+     * 以及任何自定义的文本格式)永远不通过,而「只接受 .csv」
+     * 是一个真实且合理的需求。
+     *
+     * <p>**同时用两条才安全**:{@code extensions:csv|max:1024}
+     * 限住名字与大小,内容则由解析那一步去管
+     * (一个 CSV 解析器会拒掉一个二进制文件)。
+     */
+    static Rule extensions(List<String> allowed) {
+        var wanted = allowed.stream()
+                .map(s -> s.trim().toLowerCase().replaceFirst("^\\.", ""))
+                .collect(java.util.stream.Collectors.toSet());
+
+        return simple("extensions", c -> {
+            if (!(c.value() instanceof io.jaravel.support.io.Upload u)) return false;
+
+            String name = u.originalName();
+            int dot = name.lastIndexOf('.');
+            if (dot < 0 || dot == name.length() - 1) return false;
+
+            return wanted.contains(name.substring(dot + 1).toLowerCase());
+        }, Map.of("values", String.join(", ", wanted)));
+    }
+
+    /**
+     * 内容的真实 MIME 类型必须是这几个之一 ——
+     * {@code mimetypes:image/png,image/jpeg}。
+     *
+     * <p>与 {@link #mimes} 的区别只是写法:一个按扩展名写,
+     * 一个按 MIME 写。两者都按内容判断,覆盖范围也一样
+     * (见 {@code ContentSniffer.detect})。
+     *
+     * <p>支持 {@code image/*} 这样的通配前缀 —— Laravel 支持它,
+     * 而没有它就得把所有图片类型列一遍。
+     */
+    static Rule mimetypes(List<String> allowed) {
+        var wanted = allowed.stream().map(s -> s.trim().toLowerCase()).toList();
+
+        return simple("mimetypes", c -> {
+            if (!(c.value() instanceof io.jaravel.support.io.Upload u)) return false;
+
+            var actual = io.jaravel.support.io.ContentSniffer.detect(u.content());
+            if (actual.isEmpty()) return false;   // 同 mimes:认不出就拒
+
+            String mime = actual.get();
+            return wanted.stream().anyMatch(w -> w.endsWith("/*")
+                    ? mime.startsWith(w.substring(0, w.length() - 1))
+                    : mime.equals(w));
+        }, Map.of("values", String.join(", ", wanted)));
     }
 
     // ================= 格式 =================

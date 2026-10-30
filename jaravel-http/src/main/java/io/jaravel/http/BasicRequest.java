@@ -31,6 +31,7 @@ public class BasicRequest implements Request {
     private final Map<String, List<String>> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
     private final Map<String, String> cookies = new LinkedHashMap<>();
     private final Map<String, String> routeParams = new LinkedHashMap<>();
+    private final Map<String, List<UploadedFile>> files = new LinkedHashMap<>();
 
     private String routeName;
     private Object raw;
@@ -85,6 +86,26 @@ public class BasicRequest implements Request {
         return this;
     }
 
+    /**
+     * 加一个上传的文件 —— 由 starter 的 multipart 解析填入,
+     * 测试里也可以直接造。
+     *
+     * <pre>{@code
+     * var request = BasicRequest.of("POST", "/avatar")
+     *         .file(new UploadedFile("avatar", "me.png", "image/png", png));
+     * }</pre>
+     */
+    public BasicRequest file(UploadedFile uploaded) {
+        files.computeIfAbsent(uploaded.fieldName(), k -> new ArrayList<>())
+                .add(uploaded);
+        return this;
+    }
+
+    /** 同上,直接给字节 */
+    public BasicRequest file(String field, String originalName, byte[] content) {
+        return file(new UploadedFile(field, originalName, null, content));
+    }
+
     /** 由路由匹配阶段调用 */
     public BasicRequest routeParam(String name, String value) {
         routeParams.put(name, value);
@@ -132,12 +153,43 @@ public class BasicRequest implements Request {
         return sb.toString();
     }
 
+    /**
+     * 查询串 + 请求体 + **上传的文件**。
+     *
+     * <p>顺序:查询串在前,请求体覆盖同名,文件最后 —— 与 Laravel 一致。
+     *
+     * <h2>★ 为什么文件也在 {@code all()} 里</h2>
+     * <p>因为校验的输入就是 {@code all()}
+     * ({@code FormRequest.bind} / {@code Validator.make(request.all(), ...)})。
+     * 文件不在里面的话 {@code "avatar", "required|image|max:2048"}
+     * **永远失败** —— 规则拿到的是 null。
+     *
+     * <p>这是 Laravel 的行为,但更重要的是它是唯一能让文件校验
+     * 工作的办法:另一条路是给 Validator 加一个「文件」的第二份输入,
+     * 而那会让每一条跨字段规则({@code required_without:avatar})
+     * 都要查两个地方。
+     *
+     * <h2>⚠ 两个后果</h2>
+     * <ul>
+     *   <li>{@code input("avatar")} 会返回 {@code UploadedFile.toString()}
+     *       的结果 —— 一段形如 {@code UploadedFile[avatar=me.png, ...]}
+     *       的描述。取文件要用 {@link #file(String)};</li>
+     *   <li>{@code validated()} 里会出现 {@code UploadedFile} 对象。
+     *       直接把它喂给模型的批量赋值会试图把一个对象写进一列 ——
+     *       正确写法是 {@code Storage.putFile(...)} 拿到路径再赋值。</li>
+     * </ul>
+     */
     @Override
     public Map<String, Object> all() {
-        // 查询串在前,请求体覆盖同名 —— 与 Laravel 一致
         Map<String, Object> out = new LinkedHashMap<>();
         queryParams.forEach((k, v) -> out.put(k, v.size() == 1 ? v.get(0) : v));
         out.putAll(bodyParams);
+
+        // 单个文件放对象本身,多个放列表 —— 与同名表单字段的处理一致。
+        //
+        // 不统一成列表:那会让 "avatar", "image" 这条最常见的规则
+        // 拿到一个 List 而失败,于是每条文件规则都要先解包
+        files.forEach((k, v) -> out.put(k, v.size() == 1 ? v.get(0) : List.copyOf(v)));
         return out;
     }
 
@@ -181,6 +233,13 @@ public class BasicRequest implements Request {
     public <T> Optional<T> routeParam(String name, Class<T> type) {
         String v = routeParams.get(name);
         return v == null ? Optional.empty() : Optional.ofNullable(Cast.to(v, type));
+    }
+
+    @Override
+    public Map<String, List<UploadedFile>> allFiles() {
+        var out = new LinkedHashMap<String, List<UploadedFile>>();
+        files.forEach((k, v) -> out.put(k, List.copyOf(v)));
+        return Map.copyOf(out);
     }
 
     @Override public Map<String, String> routeParams() { return Map.copyOf(routeParams); }

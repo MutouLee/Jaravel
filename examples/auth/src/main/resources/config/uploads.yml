@@ -1,0 +1,13 @@
+# 上传限制(docs/11 §3.3)。
+#
+# ⚠ 这两个值由容器在**读流的过程中**执行 —— 超限直接中断,
+# 不会先把一个 2 GB 的请求读进内存再报错。
+# 所以这是真正的闸门,校验规则里的 max:2048 是第二道
+# (它给出带字段名的 422,而这一道给 413)。
+#
+# ⚠ 不要写在 application.yml 的 spring.servlet.multipart.* 下 ——
+# Jaravel 不读那里,而两处都写会让一处静默失效,
+# 所以 JaravelUploadsAutoConfiguration 会直接报错。
+uploads:
+  max-file-size: 2MB
+  max-request-size: 8MB

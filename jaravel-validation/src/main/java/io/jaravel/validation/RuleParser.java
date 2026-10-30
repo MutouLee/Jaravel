@@ -187,6 +187,13 @@ final class RuleParser {
             case "declined"     -> Rules.declined();
             case "password"     -> Rule.password().min(args.isEmpty() ? 8 : intArg(name, args, 0));
 
+            // --- 文件上传 ---
+            case "file"       -> Rules.fileRule();
+            case "image"      -> Rules.imageRule();
+            case "mimes"      -> Rules.mimes(args);
+            case "mimetypes"  -> Rules.mimetypes(args);
+            case "extensions" -> Rules.extensions(args);
+
             // --- 数据库 ---
             case "unique" -> DatabaseRule.parseUnique(args);
             case "exists" -> DatabaseRule.parseExists(args);
@@ -248,6 +255,9 @@ final class RuleParser {
             case "exists"                  -> "exists:tags,id";
             case "date_format"             -> "date_format:yyyy-MM-dd(java.time 模式,不是 PHP 的 Y-m-d)";
             case "regex"                   -> "regex:/^[a-z]+$/";
+            case "mimes"                   -> "mimes:jpg,png,pdf（按**内容**嗅探，txt/csv 嗅探不出来）";
+            case "mimetypes"               -> "mimetypes:image/png,image/* （同上，按 MIME 写）";
+            case "extensions"              -> "extensions:csv,txt（按**文件名**，不是安全检查）";
             default                        -> rule + ":<参数>";
         };
     }
@@ -268,7 +278,8 @@ final class RuleParser {
             "date", "date_format", "after", "after_or_equal", "before", "before_or_equal",
             "date_equals",
             "confirmed", "same", "different", "in", "not_in", "in_array", "distinct",
-            "accepted", "accepted_if", "declined", "password", "unique", "exists");
+            "accepted", "accepted_if", "declined", "password", "unique", "exists",
+            "file", "image", "mimes", "mimetypes", "extensions");
 
     static List<String> knownRules() {
         return KNOWN_RULES;

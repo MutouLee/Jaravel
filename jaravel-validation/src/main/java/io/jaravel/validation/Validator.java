@@ -205,6 +205,11 @@ public final class Validator {
      * 而不是「不能超过 10 个字符」。
      */
     private String valueTypeOf(Object value, String attribute) {
+        // 文件先判:它比声明的规则更确定(一个 UploadedFile 不可能是别的),
+        // 而消息差别很大 —— max:2048 对文件是「不能超过 2048 KB」,
+        // 落到 string 分支会说成「不能超过 2048 个字符」
+        if (value instanceof io.jaravel.support.io.Upload) return "file";
+
         if (isDeclaredNumeric(attribute)) return "numeric";
         if (isDeclaredArray(attribute)) return "array";
         if (value instanceof Number) return "numeric";

@@ -53,6 +53,7 @@ final class ArgumentBinder {
         record AnyInput(String name, String fallback, boolean required) implements Source {}
         record HeaderValue(String name, String fallback) implements Source {}
         record FromContainer(Class<?> type) implements Source {}
+        record FileParam(String name) implements Source {}
     }
 
     private record Plan(List<Source> sources, List<Class<?>> types, List<String> labels) {}
@@ -114,6 +115,26 @@ final class ArgumentBinder {
             }
             if (io.jaravel.validation.FormRequest.class.isAssignableFrom(type)) {
                 sources.add(new Source.FormRequestType(type));
+                continue;
+            }
+
+            // 上传的文件:public Response store(UploadedFile avatar)
+            //
+            // 必须在 isSimple / FromContainer 之前判断 ——
+            // UploadedFile 不是简单类型,不拦住它就会被当成要注入的服务,
+            // 然后报「容器里没有 UploadedFile 这个 bean」,
+            // 而那个消息与真正的原因(忘了 enctype、字段名拼错)无关
+            if (io.jaravel.http.UploadedFile.class.isAssignableFrom(type)) {
+                if (param == null || !param.isNamePresent()) {
+                    throw new IllegalStateException("""
+                            %s#%s 的%s 是一个 UploadedFile,但编译时没开 -parameters,
+                            拿不到参数名 —— 而文件只能按**字段名**取。
+                              在 pom 里加 <parameters>true</parameters>,
+                              或者改用 request.file("avatar")。"""
+                            .formatted(route.controller().getSimpleName(),
+                                       route.action(), label));
+                }
+                sources.add(new Source.FileParam(param.getName()));
                 continue;
             }
 
@@ -351,6 +372,24 @@ final class ArgumentBinder {
             case Source.BoundModel b -> boundModel(request, b.name(), b.modelType());
 
             case Source.FromContainer c -> container.make(c.type());
+
+            // 没传这个文件 → 400,**不是** null。
+            //
+            // 一个声明了 UploadedFile 参数的控制器一定要用它,
+            // 而一个 null 会在方法体的第一行变成 NPE 500 ——
+            // 那把一个客户端错误(忘了选文件、字段名拼错、
+            // 表单少了 enctype="multipart/form-data")报成了服务端错误。
+            //
+            // 文件可选时参数类型写 Optional<UploadedFile> 不行(泛型擦除),
+            // 所以那种情况用 request.file("avatar")
+            case Source.FileParam f -> request.file(f.name()).orElseThrow(() ->
+                    new io.jaravel.http.HttpException(400, """
+                            请求里没有名为 "%s" 的上传文件。
+                              检查:表单有没有 enctype="multipart/form-data"、
+                              input 的 name 是不是 "%s"。
+                              这个请求带上来的文件字段:%s"""
+                            .formatted(f.name(), f.name(),
+                                       request.allFiles().keySet())));
         };
     }
 

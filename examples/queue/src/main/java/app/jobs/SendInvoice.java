@@ -85,6 +85,15 @@ public class SendInvoice implements ShouldQueue, UniqueJob {
 
         invoice.status = "sent";
         invoice.save();
+
+        // 顺手发一封通知邮件,**入队发送**。
+        //
+        // 注意这里是在一个队列任务里又入队了一封邮件 —— 完全正常:
+        // 邮件的入队是「投递时渲染 + 把渲染结果入队」,它与当前任务
+        // 没有耦合。而同步发的话这个任务的执行时间会被 SMTP 的往返决定,
+        // 于是 retryAfter 要配得更长(否则任务会在还在发邮件时被判失联)。
+        io.jaravel.mail.Mail.to("customer@example.com")
+                .queue(new app.mail.InvoiceSent(invoice));
     }
 
     /**

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.jaravel</groupId>
+    <artifactId>jaravel-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>jaravel-mail</artifactId>
+  <name>Jaravel :: 邮件</name>
+  <description>Mailable、多驱动投递、入队发送、Mail.fake() 断言</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-support</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-core</artifactId>
+    </dependency>
+    <!-- 邮件事件(MessageSending / MessageSent) -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-events</artifactId>
+    </dependency>
+
+    <!--
+      注意这里**没有** jaravel-view 与 jaravel-queue 的依赖。
+
+      模板渲染走 SPI(ViewRenderer)、入队走 SPI(QueueDispatcher),
+      由 starter 在装配时注入 —— 与 jaravel-scheduler 同样的做法。
+
+      理由不只是「解耦」:它让这个模块的单元测试不需要一个模板编译器
+      就能跑。邮件的测试要跑得快、跑得多(地址处理、驱动回退、断言),
+      为此拖进一个 jte 编译器是不值得的。
+    -->
+
+    <!--
+      SMTP 驱动。optional:用 ses/sendgrid/log 的应用不该被迫引入它。
+      真选了 smtp 而它不在 classpath 上时**报错**并给出 pom 片段。
+    -->
+    <dependency>
+      <groupId>org.eclipse.angus</groupId>
+      <artifactId>angus-mail</artifactId>
+      <version>2.0.3</version>
+      <optional>true</optional>
+    </dependency>
+  </dependencies>
+</project>

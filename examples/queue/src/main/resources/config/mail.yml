@@ -1,0 +1,33 @@
+mail:
+  # 默认 log —— 不会真的发邮件,只写日志。
+  #
+  # 这是对的默认值:开发期不该往真实地址发邮件。给自己发几封是无害的,
+  # 但用一份生产数据的副本跑测试时就会给真实用户发邮件 —— 那是一类真实事故。
+  #
+  # 代价是生产环境忘配 MAIL_MAILER 时邮件静默不发,症状是「用户说没收到」
+  # 而日志里一切正常。starter 在生产环境检测到一个不真发的驱动时会大声警告。
+  default: ${MAIL_MAILER:log}
+
+  from:
+    address: ${MAIL_FROM:noreply@example.com}
+    name: ${MAIL_FROM_NAME:Jaravel 队列示例}
+
+  mailers:
+    log:
+      transport: log
+      # 开发模式下默认打正文 —— 密码重置/邮箱验证的链接在本地必须看得到。
+      # 生产环境请保持关闭:邮件正文常含个人信息,而日志通常比数据库
+      # 更容易被读到。
+      body: true
+
+    # 测试用:存内存。它**走完整的渲染流程**,只是不往网络上发 ——
+    # 与 Mail.fake() 的分工见 ArrayTransport 的类注释
+    array:
+      transport: array
+
+    smtp:
+      transport: smtp
+      host: ${MAIL_HOST:localhost}
+      port: ${MAIL_PORT:1025}
+      encryption: ${MAIL_ENCRYPTION:none}
+      timeout: 10s

@@ -61,6 +61,22 @@ class QueueFeatureTest extends FeatureTest {
     @Autowired BatchLedger ledger;
     @Autowired io.jaravel.scheduler.Schedule schedule;
     @Autowired io.jaravel.scheduler.Scheduler scheduler;
+    @Autowired io.jaravel.mail.MailManager mail;
+
+    /**
+     * 测试用的收件箱 —— config/mail.yml 里注册的 array 驱动。
+     *
+     * <p>用 array 驱动而不是 {@code Mail.fake()}:这里要断言**渲染结果**
+     * (最终的 HTML、纯文本版本、发件人),而 fake 在渲染之前就拦下了。
+     * 两者的分工见 {@code ArrayTransport} 的类注释。
+     */
+    private io.jaravel.mail.transport.ArrayTransport mailbox;
+
+    @org.junit.jupiter.api.BeforeEach
+    void useArrayMailer() {
+        mailbox = (io.jaravel.mail.transport.ArrayTransport) mail.mailer("array");
+        mail.defaultMailer("array");
+    }
 
     @BeforeEach
     void resetState() {
@@ -126,6 +142,30 @@ class QueueFeatureTest extends FeatureTest {
             }
         }
         throw new AssertionError("10 秒内没能把队列跑空 —— 任务可能在无限重试");
+    }
+
+    /**
+     * 只跑**一个**任务就停。
+     *
+     * <p>必须有这个版本:{@code drain} 的 worker 在队列空之后会
+     * 「等在跑的任务结束,然后再取一次」—— 于是一个任务**新入队的**
+     * 那个任务会在同一次 drain 里被跑掉。
+     *
+     * <p>那是正确的 worker 行为(一个长驻 worker 本就该这样),
+     * 但它让「A 入队了 B」这件事在测试里看不见。
+     *
+     * <p>写这些测试时我连续两次按错的直觉写了断言
+     * (一次在重试、一次在邮件),所以这个 helper 带着这段说明。
+     */
+    private void drainOne(String queue) {
+        new QueueWorker(queues, failedJobs, invoker,
+                WorkerOptions.onQueues(queue)
+                        .withConcurrency(1)
+                        .withRetryAfter(Duration.ofSeconds(30))
+                        .withSleep(Duration.ofMillis(5))
+                        .withStopWhenEmpty(true)
+                        .withMaxJobs(1))
+                .run();
     }
 
     private Long createInvoice(String orderNo) {
@@ -354,6 +394,110 @@ class QueueFeatureTest extends FeatureTest {
             assertThat(invoice.orderNo)
                     .as("catch 回调要能拿到断在哪一环")
                     .startsWith("broken-at:SendInvoice(invoice=" + id + ")");
+        }
+    }
+
+    // ================= 邮件 =================
+
+    /**
+     * 邮件真的被装配、真的被发出去了。
+     *
+     * <p>覆盖的是接线:starter 建 MailRenderer/MailManager →
+     * 注册驱动 → 装上队列通道 → {@code Mail.to(...).queue(...)}
+     * 投进 jobs 表 → worker 取出来真的投递。
+     */
+    @Nested
+    @DisplayName("邮件")
+    class Mailing {
+
+        @org.junit.jupiter.api.BeforeEach
+        void clearMailbox() {
+            mailbox.clear();
+        }
+
+        @Test
+        @DisplayName("★ 邮件是**入队**发的,不是同步发")
+        void mailIsQueuedNotSentInline() {
+            createInvoice("ORD-M1");
+
+            // 只跑 SendInvoice 这一个任务 —— 看它入队了什么
+            drainOne("mail");
+
+            assertThat(mailbox.count())
+                    .as("入队发送 —— SendInvoice 结束时还没真的投递")
+                    .isZero();
+            assertThat(Queue.size("mail"))
+                    .as("starter 把邮件的队列通道接上了,"
+                            + "SendRenderedMail 进了 mail 队列")
+                    .isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("★ worker 取出来之后真的投递了")
+        void workerDeliversIt() {
+            Long id = createInvoice("ORD-M1b");
+            drain("mail");          // 一次 drain 会把两个任务都跑掉
+
+            assertThat(mailbox.sent()).singleElement().satisfies(m -> {
+                assertThat(m.subject()).isEqualTo("发票 ORD-M1b 已发送");
+                assertThat(m.to()).extracting(io.jaravel.mail.Address::email)
+                        .containsExactly("customer@example.com");
+            });
+            assertThat(Invoice.query().findOrFail(id).status).isEqualTo("sent");
+        }
+
+        @Test
+        @DisplayName("★ 入队时就渲染好了 —— 发票删了邮件照样发得出去")
+        void renderedAtDispatchTime() {
+            createInvoice("ORD-M2");
+            drainOne("mail");       // SendInvoice:渲染 + 入队
+
+            // 把发票删掉 —— 「模型被删了」在「序列化 Mailable」的方案里
+            // 会让这封邮件永远发不出去,而失败原因指向「发票不存在」
+            db.table("invoices").allowUnconditional().delete();
+
+            drain("mail");          // SendRenderedMail 仍然能发
+
+            assertThat(mailbox.sent()).singleElement().satisfies(m -> {
+                assertThat(m.html())
+                        .as("Mailable 从不进 payload,所以没有这类失败")
+                        .contains("ORD-M2")
+                        .contains("250");
+            });
+        }
+
+        @Test
+        @DisplayName("★ 自动生成了纯文本版本")
+        void plainTextIsGenerated() {
+            createInvoice("ORD-M3");
+            drain("mail");
+
+            assertThat(mailbox.sent().get(0).text())
+                    .as("只有 HTML 的 multipart 邮件会加垃圾邮件评分,"
+                            + "而且客户端会用 HTML 开头生成收件箱摘要")
+                    .contains("ORD-M3")
+                    .doesNotContain("<p>");
+        }
+
+        @Test
+        @DisplayName("发件人来自 config/mail.yml 的默认值")
+        void defaultFromComesFromConfig() {
+            createInvoice("ORD-M4");
+            drain("mail");
+
+            assertThat(mailbox.sent().get(0).from().email())
+                    .isEqualTo("noreply@example.com");
+        }
+
+        @Test
+        @DisplayName("tags 与 metadata 一路带到最终消息")
+        void tagsAndMetadataSurvive() {
+            createInvoice("ORD-M5");
+            drain("mail");
+
+            var message = mailbox.sent().get(0);
+            assertThat(message.tags()).contains("invoice", "transactional");
+            assertThat(message.metadata()).containsKey("invoice_id");
         }
     }
 

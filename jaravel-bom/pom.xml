@@ -34,6 +34,7 @@
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-events</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-events-processor</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-scheduler</artifactId><version>${jaravel.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-mail</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-cache</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-session</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-auth</artifactId><version>${jaravel.version}</version></dependency>

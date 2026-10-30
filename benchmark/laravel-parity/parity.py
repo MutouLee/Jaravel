@@ -194,10 +194,89 @@ AUTH_LARAVEL = [
 ]
 
 
+# ---- 功能切片 04:队列 + 邮件 + 通知 + 调度(v0.4 的功能面) ----
+#
+# v0.4 加的 API 表面是四个版本里最大的,而它对 parity 的影响此前
+# 完全没被测量 —— 这个切片就是为了回答「v0.4 的 API 设计保住论点了吗」。
+#
+# 覆盖的能力:投递(立即/延迟/同步)、唯一性任务、重试与 backoff、
+# 失败回调、链式、批量(含 then/finally 与 allowFailures)、
+# 入队邮件、站内通知、计划任务。
+#
+# 四条口径上的决定:
+#
+# 1. **队列的基础设施表两侧都不计入**(Jaravel 的 CreateQueueTables.java /
+#    Laravel 由 `artisan queue:table` 生成的那三个迁移)。
+#    理由:Laravel 侧是命令生成的,开发者一行都不写;Jaravel 的 CLI 是
+#    v0.5,到时候同样会生成。计入它量的是「还没有 artisan」这个
+#    暂时的差距,不是 API 设计。
+#    ⚠ **但今天的 Jaravel 开发者真的要手写那 58 行** ——
+#    这笔账记在 parity-result 的脚注里,不藏起来。
+#
+# 2. **Jaravel 的 config/{queue,mail,schedule}.yml 计入,
+#    Laravel 的 config/*.php 不计入。** 与切片 03 对 auth.yml 的处理
+#    一致:Laravel 的那几个配置随框架发布且默认值直接可用,
+#    这个应用一行都不用改。这是 Laravel 的真实优势,排除它等于藏起来。
+#
+# 3. **两侧的替身都不计入**:InvoiceGateway(下游支付网关)与
+#    BatchLedger(批次回调的观察点)。它们是测试用的桩,
+#    两边会写得一模一样,计入只是给分母注水。
+#
+# 4. **Laravel 侧的 Batch 回调用闭包,Jaravel 侧用任务类。**
+#    这一条**对 Jaravel 不利**,而它是真实的语言差异:Java 的 lambda
+#    跨不过队列的序列化边界(见 PendingChain 的类注释),所以
+#    Jaravel 的 then/finally/catch 必须是一个类;Laravel 用
+#    `SerializableClosure` 就地写闭包。
+#    不为了拉平而给 Laravel 也写成类 —— 那会把一个真实的劣势抹掉。
+
+Q4 = "examples/queue/src/main/java/"
+QUEUE_JARAVEL = [
+    ("路由",      Q4 + "routes/WebRoutes.java"),
+    ("队列配置",  "examples/queue/src/main/resources/config/queue.yml"),
+    ("邮件配置",  "examples/queue/src/main/resources/config/mail.yml"),
+    ("调度配置",  "examples/queue/src/main/resources/config/schedule.yml"),
+    ("模型",      Q4 + "app/models/Invoice.java"),
+    ("模型",      Q4 + "app/models/Customer.java"),
+    ("控制器",    Q4 + "app/http/controllers/InvoiceController.java"),
+    ("任务",      Q4 + "app/jobs/SendInvoice.java"),
+    ("任务",      Q4 + "app/jobs/GenerateStatement.java"),
+    ("任务",      Q4 + "app/jobs/MarkInvoiceReady.java"),
+    ("任务",      Q4 + "app/jobs/ArchiveInvoice.java"),
+    ("任务",      Q4 + "app/jobs/NotifyChainBroken.java"),
+    ("任务",      Q4 + "app/jobs/StatementsDone.java"),
+    ("邮件",      Q4 + "app/mail/InvoiceSent.java"),
+    ("通知",      Q4 + "app/notifications/InvoiceReady.java"),
+    ("调度",      Q4 + "app/ConsoleKernel.java"),
+    ("迁移",      Q4 + "database/migrations/m2026_10_31_090000/"
+                  "CreateCustomerAndNotificationTables.java"),
+]
+
+L4 = "benchmark/laravel-parity/04-queue/laravel/"
+QUEUE_LARAVEL = [
+    ("路由",      L4 + "routes/api.php"),
+    ("模型",      L4 + "app/Models/Invoice.php"),
+    ("模型",      L4 + "app/Models/Customer.php"),
+    ("控制器",    L4 + "app/Http/Controllers/InvoiceController.php"),
+    ("任务",      L4 + "app/Jobs/SendInvoice.php"),
+    ("任务",      L4 + "app/Jobs/GenerateStatement.php"),
+    ("任务",      L4 + "app/Jobs/MarkInvoiceReady.php"),
+    ("任务",      L4 + "app/Jobs/ArchiveInvoice.php"),
+    ("任务",      L4 + "app/Jobs/NotifyChainBroken.php"),
+    ("任务",      L4 + "app/Jobs/StatementsDone.php"),
+    ("任务",      L4 + "app/Jobs/NightlyReminder.php"),
+    ("邮件",      L4 + "app/Mail/InvoiceSent.php"),
+    ("通知",      L4 + "app/Notifications/InvoiceReady.php"),
+    ("调度",      L4 + "app/Console/Kernel.php"),
+    ("迁移",      L4 + "database/migrations/"
+                  "2026_10_31_090000_create_customer_and_notification_tables.php"),
+]
+
+
 SLICES = [
     ("01:Todo CRUD", JARAVEL, LARAVEL),
     ("02:Blog(关联/校验/迁移)", BLOG_JARAVEL, BLOG_LARAVEL),
     ("03:认证(guard/Policy/重置/验证)", AUTH_JARAVEL, AUTH_LARAVEL),
+    ("04:队列/邮件/通知/调度", QUEUE_JARAVEL, QUEUE_LARAVEL),
 ]
 
 

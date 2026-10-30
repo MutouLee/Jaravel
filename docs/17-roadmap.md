@@ -292,6 +292,56 @@ v0.1~v0.4 里**具体可查**的声明(点名的驱动、点名的类、点名�
 | 01:Todo CRUD | 1.054 | 通过 |
 | 02:Blog(关联/校验/迁移) | 1.033 | 通过 |
 | 03:认证(guard/Policy/重置/验证) | **1.291** | 通过(余量只有 0.009) |
+| 04:队列/邮件/通知/调度 **(v0.4 新增)** | 1.142 | 通过 |
+
+**新增切片 04,专为回答「v0.4 的 API 设计保住论点了吗」。**
+v0.4 加的 API 表面是四个版本里最大的,而它对 parity 的影响此前
+完全没被测量过。覆盖:投递(立即/延迟/同步)、唯一性任务、重试与
+backoff、失败回调、链式、批量(含 `then`/`finally`/`allowFailures`)、
+入队邮件、站内通知、计划任务。Laravel 参照实现在
+`benchmark/laravel-parity/04-queue/laravel/`。
+
+结论是 **1.142 —— 保住了**,而且明细说明代价在哪:
+
+| 维度 | Jaravel | Laravel | 说明 |
+|---|---|---|---|
+| 控制器 | 103 | 100 | **基本持平** —— 投递 API 的表达力没有损失 |
+| 六个任务类 | 149 | 167 | **Jaravel 更短**(`StatementsDone` 15 vs 24) |
+| 邮件 + 通知 | 55 | 57 | 持平 |
+| 模型 | 47 | 16 | Java 的字段声明是 O(n) —— 已知的结构性成本 |
+| 调度 | 47 | 29 | Jaravel 更长(见下) |
+| 配置 | 41 | **0** | Laravel 的 `config/*.php` 随框架发布且默认值可用 |
+
+两点值得单说:
+
+- **任务类上 Jaravel 反而更短。** 这个结果出乎预期 —— Java 的
+  `implements ShouldQueue` + 一个 `handle` 方法比 Laravel 的
+  `use Queueable` + 构造器里 `onQueue(...)` 更省,而 Jaravel 的
+  `@Override public String queue() { return "mail"; }` 是一行。
+- **配置那 41 行是最大的单项差距**,而它与 API 设计无关:
+  Laravel 的 `config/queue.php` / `mail.php` 随框架发布。
+  去掉配置后比值是 **1.048**。
+
+口径上四条决定都写在 `parity.py` 的切片 04 注释里,其中两条
+**刻意选了对 Jaravel 不利的那一侧**(Jaravel 的配置计入 /
+Laravel 的不计入;批次回调 Laravel 用闭包、Jaravel 必须用任务类 ——
+后者是 Java 的 lambda 跨不过序列化边界的真实代价)。
+
+> ⚠ **一笔被排除但真实存在的账:** 队列的三张基础设施表
+> (`jobs` / `failed_jobs` / `job_batches`)在 Laravel 侧由
+> `artisan queue:table` 生成,开发者一行不写;Jaravel 的 CLI 是 v0.5,
+> 所以 `examples/queue` **手写了 58 行**。
+> 切片把两侧都排除了(计入它量的是「还没有 artisan」这个暂时差距,
+> 不是 API 设计),但今天的用户真的要写那 58 行 ——
+> 算进去的话切片 04 是 **1.275**,仍然通过但余量很薄。
+> 这是 v0.5 的 `make:*` / `queue:table` 那条线要还的债。
+
+> ⚠ **parity 量的是代码量,不是能力。** 一处具体的例子:
+> Jaravel 的 `Queue.dispatch(...)` 在被唯一性约束去重时返回 null,
+> 所以接口能把 `"deduplicated"` 告诉调用方;Laravel 的 `dispatch()`
+> 永远返回 `PendingDispatch`,去重是静默的,调用方无从得知。
+> 那是 Jaravel 的一个真实优势,而比值因此**对 Jaravel 不利**
+> (它多写了那行判断)。
 
 v0.4 的上传演示把三条 `/avatar` 路由加进了
 `examples/auth/.../WebRoutes.java` —— 而那个文件是**切片 03 的被测

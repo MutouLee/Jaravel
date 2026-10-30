@@ -624,6 +624,54 @@ public class ConsoleKernel extends Kernel {
 }
 ```
 
+> **v0.4 实现说明与四处偏差**
+>
+> 全部频率方法都落到**一个 cron 表达式**上(`dailyAt("03:00")` → `0 3 * * *`)。
+> 好处是「下次什么时候跑」只有一套实现,而 `schedule:list` 能把每个任务的
+> cron 原样显示出来 —— 于是「我以为它每天跑」这类误解能在列表里当场发现。
+>
+> cron 解析是自己写的五段式(85 个测试)。不引库的理由:库的扩展语法
+> (Quartz 的 `L`/`W`/`#`、六段/七段式)会悄悄被用上,然后 Jaravel 的
+> 频率方法与那些语法之间出现行为差异,而文档里说的是「五段式」。
+>
+> **① 约束不是 cron,是叠加在 cron 之上的谓词。** `between("08:30","22:15")`
+> 没法用 cron 表达。可见的后果:`schedule:list` 显示的下次运行时间
+> **是乐观估计**(约束要到那一刻才判),所以列表里对有约束的任务
+> 会标出来 —— 不标的话一个 `weekdays()` 的任务会显示一个周六的时间。
+>
+> **② `s.call(...)` 必须给名字。** Laravel 的 `s.call(closure)` 不要。
+> Jaravel 要,因为锁的 key 与日志都得用它,而 Java lambda 的名字是
+> `Kernel$$Lambda$17` —— 那个数字**会随代码改动而变**。后果很具体:
+> `withoutOverlapping` 的锁 key 跟着变,于是一次发布之后它挡不住
+> 上一轮还在跑的那个实例。
+>
+> **③ `withoutOverlapping` 的 TTL 是必填的**(没有无参版本)。
+> 没有 TTL 的锁在持锁进程崩掉后会**永久**挡住这个任务,
+> 而症状是「这个任务不知道从什么时候起不跑了」。
+> 启动时还会检查「TTL 比运行周期还短」—— 那意味着锁在下一轮开始前
+> 就过期了,`withoutOverlapping` 形同虚设。
+>
+> **④ `runInBackground()` 的语义与 Laravel 不同。** Laravel 是「fork 一个
+> 新进程」,Jaravel 是「在一个虚拟线程里跑」。差异:Jaravel 的后台任务
+> 与应用共享进程(占的内存算在应用头上),且在应用停机时会被打断。
+>
+> **时区默认是 JVM 时区,不是 UTC。** 业务说的「每天 03:00 做日终结算」
+> 指的是本地时间,默认 UTC 会让那个任务在生产环境悄悄改时刻。
+> 但 JVM 时区本身会随部署环境变,所以加了 schedule 级的
+> `s.timezone(...)` 让显式声明变容易 —— 写这个模块的测试时作者
+> 立刻踩到了这件事(一组 `between` 断言全部失败),
+> 而一个让作者当场踩到的默认值,用户也会踩到。
+>
+> **对齐到分钟边界而不是「每 60 秒醒一次」。** 固定间隔会累积漂移,
+> 几小时后落在上一分钟的第 59 秒上 —— 那时一个 `dailyAt("03:00")`
+> 的任务会跑两遍或一遍不跑,取决于漂移方向。
+>
+> **`s.command(...)` 尚不可用** —— 它需要 `jaravel-console`,而 CLI 在 v0.5。
+> 调它会报一条说明这一点的错,而不是静默什么都不做。
+> 同样,`schedule:list` / `schedule:run` / `schedule:test` 这几条命令
+> 的**能力**都已实现(`Scheduler.list` / `runDue` / `runNow` /
+> `clearMutexes`),只是还没有 CLI 入口。
+
 ### 3.2 频率方法全集
 
 `everyMinute` `everyTwoMinutes` `everyFiveMinutes` `everyTenMinutes` `everyFifteenMinutes` `everyThirtyMinutes` `hourly` `hourlyAt(17)` `everyTwoHours` `daily` `dailyAt("13:00")` `twiceDaily(1,13)` `weekly` `weeklyOn(1,"08:00")` `monthly` `monthlyOn(4,"15:00")` `twiceMonthly(1,16)` `lastDayOfMonth` `quarterly` `yearly` `cron("* * * * *")`
@@ -659,6 +707,27 @@ jaravel schedule:clear-mutexes
 `onOneServer()` 用 `Cache.lock()`(见 [09](09-cache-session.md) §1.3)实现:多个应用实例同时到点,只有抢到锁的执行。
 
 **重要警示**(文档必须写明):此机制依赖共享缓存(Redis),使用 `caffeine`/`file` 驱动时 `onOneServer()` **无效**。配置校验在启动时检测这个组合并报错,而不是静默失效。
+
+> **v0.4 已实现这条校验**(`SchedulerConfigCheck`,8 个测试)。
+>
+> 它**直接让启动失败**,不是打一条警告 —— 警告会被忽略,启动日志里
+> 本来就有很多行。`onOneServer()` 是这个框架里最容易静默失效的 API:
+>
+> - 单实例开发环境下它「看起来正常」—— 本来就只有一个实例;
+> - 多实例下失效的症状是「任务跑了两遍」,而那对很多任务无害
+>   (清缓存跑两遍没事),于是它会潜伏到遇上一个**不幂等**的任务为止;
+> - 那时的现象是「客户收到两封一样的对账邮件」,而从那个现象到
+>   「缓存驱动是 caffeine」之间有很长的距离。
+>
+> 允许的出路有三条,写在错误消息里:换 redis/database 驱动、
+> 在 `config/schedule.yml` 里**显式声明** `instances: 1`
+> (那是一个会在扩容时再次撞上这个检查的声明)、
+> 或去掉 `onOneServer()`(只在确认幂等时)。
+>
+> 另一个相关的决定:**没装锁存储时 `onOneServer()` 放行而不是拒绝执行。**
+> 单实例部署里它是个无害的声明,拒绝执行会让任务完全不跑 ——
+> 那比「多实例下跑两遍」更糟,而且单实例是更常见的情形。
+> 危险的组合由上面那条启动校验拦下,所以放行是安全的。
 
 ---
 

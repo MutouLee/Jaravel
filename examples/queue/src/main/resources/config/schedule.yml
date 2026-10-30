@@ -1,0 +1,25 @@
+schedule:
+  enabled: true
+
+  # 默认：应用内置调度器，**无需外部 cron**。
+  # Laravel 必须在 crontab 里加 `* * * * * php artisan schedule:run`，
+  # 因为 PHP 没有常驻进程。
+  #
+  # 改成 false 是「外部触发」模式（Kubernetes CronJob 调
+  # jaravel schedule:run）—— 适合「调度不能依赖应用实例是否存活」的场景。
+  in-process: true
+
+  # ↑ 实例数。**0 = 未声明**。
+  #
+  # 声明 1 才允许「onOneServer() + 本地缓存」这个组合 ——
+  # 否则启动校验会直接失败。那条校验存在的理由见
+  # SchedulerConfigCheck 的类注释：onOneServer 是这个框架里
+  # 最容易静默失效的 API。
+  #
+  # 这个示例没有任务用 onOneServer，所以这里不必声明。
+  instances: 0
+
+  # 所有任务的默认时区。不设的话是 JVM 时区 ——
+  # 而那会随部署环境变（本地 UTC+8、容器里 UTC）。
+  # ConsoleKernel 里也调了 s.timezone(...)，那一行覆盖这里。
+  timezone: Asia/Shanghai

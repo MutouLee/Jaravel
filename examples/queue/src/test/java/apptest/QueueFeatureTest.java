@@ -59,6 +59,8 @@ class QueueFeatureTest extends FeatureTest {
     @Autowired JobInvoker invoker;
     @Autowired InvoiceGateway gateway;
     @Autowired BatchLedger ledger;
+    @Autowired io.jaravel.scheduler.Schedule schedule;
+    @Autowired io.jaravel.scheduler.Scheduler scheduler;
 
     @BeforeEach
     void resetState() {
@@ -352,6 +354,144 @@ class QueueFeatureTest extends FeatureTest {
             assertThat(invoice.orderNo)
                     .as("catch 回调要能拿到断在哪一环")
                     .startsWith("broken-at:SendInvoice(invoice=" + id + ")");
+        }
+    }
+
+    // ================= 调度 =================
+
+    /**
+     * 计划任务真的被登记、真的能跑。
+     *
+     * <p>这一组覆盖的是调度的**接线**:starter 收集
+     * {@code ScheduleDefinition} → 建 Schedule → 建 Scheduler →
+     * 进程内启动。缺任何一段,{@code ConsoleKernel} 都会
+     * 「存在但从不运行」。
+     *
+     * <p>**不等真实时钟** —— 一个 everyFiveMinutes 的任务要等五分钟,
+     * 那种测试没人会跑。这里直接调 {@code runDue(时刻)} 与
+     * {@code runNow(名字)},把「到点判定」与「真的执行」分开验证。
+     */
+    @Nested
+    @DisplayName("计划任务")
+    class Scheduling {
+
+        @org.junit.jupiter.api.BeforeEach
+        void resetRuns() {
+            app.ConsoleKernel.reset();
+        }
+
+        @Test
+        @DisplayName("★ ConsoleKernel 里登记的任务真的被 starter 收集了")
+        void tasksAreRegistered() {
+            assertThat(schedule.tasks())
+                    .as("starter 要把 ScheduleDefinition 收上来 —— "
+                            + "漏了这一段任务会「存在但从不运行」")
+                    .hasSize(3);
+
+            assertThat(schedule.tasks().stream().map(
+                    io.jaravel.scheduler.ScheduledTask::label))
+                    .contains("标记过期发票", "每日提醒", "手动触发");
+        }
+
+        @Test
+        @DisplayName("★ schedule.yml 的时区被应用了")
+        void timezoneComesFromConfig() {
+            assertThat(schedule.tasks().get(0).zone().getId())
+                    .isEqualTo("Asia/Shanghai");
+        }
+
+        @Test
+        @DisplayName("★ s.job 登记的任务名字带 (queued) —— 提醒「成功只表示投递成功」")
+        void queuedTasksAreMarked() {
+            var queued = schedule.tasks().stream()
+                    .filter(t -> t.action().name().contains("(queued)"))
+                    .toList();
+
+            assertThat(queued).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("★ 到点时真的执行 —— 并且改了数据库")
+        void dueTaskRunsAndTouchesTheDatabase() {
+            createInvoice("ORD-S1");
+            db.table("jobs").allowUnconditional().delete();
+
+            // 周五 10:00(上海)—— everyFiveMinutes + between 08:00-22:00 + weekdays
+            var friday = java.time.ZonedDateTime.parse("2026-10-30T10:00:00+08:00");
+            var executed = scheduler.runDue(friday);
+
+            assertThat(executed.stream().map(
+                    io.jaravel.scheduler.ScheduledTask::label))
+                    .containsExactly("标记过期发票");
+
+            assertThat(app.ConsoleKernel.runs())
+                    .as("断言任务的**结果**而不是日志 —— "
+                            + "日志分不清「跑了两次」与「一次打了两条」")
+                    .containsExactly("mark-stale:1");
+
+            assertThat(Invoice.query().where(Invoice_.status, "stale").count())
+                    .isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("★ 约束挡住时不执行(周六)")
+        void weekendIsSkipped() {
+            var saturday = java.time.ZonedDateTime.parse("2026-10-31T10:00:00+08:00");
+
+            assertThat(scheduler.runDue(saturday)).isEmpty();
+            assertThat(app.ConsoleKernel.runs()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("★ 约束挡住时不执行(工作日但在时间窗之外)")
+        void outsideWindowIsSkipped() {
+            var friday = java.time.ZonedDateTime.parse("2026-10-30T23:00:00+08:00");
+
+            assertThat(scheduler.runDue(friday)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("★ s.job 的任务到点时**投进队列**,不在调度线程里跑")
+        void scheduledJobIsQueued() {
+            db.table("jobs").allowUnconditional().delete();
+
+            var threeAm = java.time.ZonedDateTime.parse("2026-10-30T03:00:00+08:00");
+            scheduler.runDue(threeAm);
+
+            assertThat(app.ConsoleKernel.runs())
+                    .as("它该在 worker 里跑,不在这里")
+                    .isEmpty();
+            assertThat(Queue.size("mail"))
+                    .as("s.job 只保证入队")
+                    .isEqualTo(1);
+
+            drain("mail");
+            assertThat(app.ConsoleKernel.runs()).containsExactly("nightly-reminder");
+        }
+
+        @Test
+        @DisplayName("★ runNow 绕过 cron 与约束")
+        void runNowBypassesEverything() {
+            assertThat(scheduler.runNow("手动触发")).isPresent();
+
+            assertThat(app.ConsoleKernel.runs())
+                    .as("这个任务是 yearly + when(false) —— 正常路径永远不会跑")
+                    .containsExactly("manual");
+        }
+
+        @Test
+        @DisplayName("schedule:list 的信息完整")
+        void listIsUsable() {
+            var entries = scheduler.list(java.time.ZonedDateTime.now());
+
+            assertThat(entries).hasSize(3);
+            assertThat(entries.get(0).cron()).isEqualTo("*/5 * * * *");
+            assertThat(entries.get(0).timezone()).isEqualTo("Asia/Shanghai");
+            assertThat(entries.get(0).nextRunIsOptimistic())
+                    .as("它有约束,所以按 cron 算的下次运行时间是乐观估计")
+                    .isTrue();
+            assertThat(entries.get(0).constraints())
+                    .contains("仅 08:00–22:00", "仅工作日");
         }
     }
 

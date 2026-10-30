@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.jaravel</groupId>
+    <artifactId>jaravel-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>jaravel-scheduler</artifactId>
+  <name>Jaravel :: 任务调度</name>
+  <description>应用内置调度器（无需外部 cron）、频率 DSL、多实例去重</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-support</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-core</artifactId>
+    </dependency>
+    <!--
+      调度事件（ScheduledTaskStarting / Finished / Skipped）。
+      依赖方向是 `各模块 → events`，见 jaravel-events/pom.xml 里的注释。
+    -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-events</artifactId>
+    </dependency>
+
+    <!--
+      注意：这里**没有** jaravel-queue 与 jaravel-cache 的依赖。
+
+      s.job(X.class) 要投队列、onOneServer() 要分布式锁，
+      两者都用 SPI 接口表达（JobDispatcher / TaskLocks），
+      由 starter 在装配时注入。
+
+      理由：一个只用 s.call(...) 的应用不应被迫引入队列与缓存；
+      而且这让调度器的单测不需要任何外部依赖就能跑。
+    -->
+  </dependencies>
+</project>

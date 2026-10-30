@@ -44,6 +44,41 @@ public final class Observers {
      */
     @SuppressWarnings("unchecked")
     public static <M> boolean fire(ModelEvent event, M model) {
+        if (!fireObservers(event, model)) return false;
+
+        return fireOnBus(event, model);
+    }
+
+    /**
+     * 把事件转给**事件总线**(docs/10 §2.5 的 ModelEvents)。
+     *
+     * <p>两条路径的分工见 {@link ModelEvents} 的类注释 ——
+     * 简短版:Observer 是「某个模型的领域规则」,总线是「横切关注」。
+     *
+     * <p>**先跑 Observer 再上总线**。理由:Observer 是模型专属的,
+     * 它否决时的原因通常是领域规则(「已发货的订单不能改」),
+     * 而那时这次写入**不会发生** —— 再去通知一个审计监听器
+     * 「某个订单正要被更新」是在报告一件没发生的事。
+     *
+     * <p>热路径:RETRIEVED 每读一行一次。所以先问
+     * {@code Event.listening(...)},没人监听时连 record 都不构造。
+     */
+    private static boolean fireOnBus(ModelEvent event, Object model) {
+        Class<?> busType = ModelEvents.typeOf(event);
+        if (!io.jaravel.events.Event.listening(busType)) return true;
+
+        boolean proceed = io.jaravel.events.Event.bus()
+                .dispatch(ModelEvents.wrap(event, model));
+
+        // 不可中止的事件忽略总线的返回值 —— 一个 Created 监听器返回
+        // false 不该把「已经插进库里」这件事回滚掉(它也回滚不了)。
+        // 不做这个区分的话,一个写成 boolean 的 Created 监听器
+        // 会让 save() 返回 false,而数据其实已经写进去了
+        return !event.isAbortable() || proceed;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <M> boolean fireObservers(ModelEvent event, M model) {
         List<Observer<?>> list = REGISTRY.get(model.getClass());
         if (list == null || list.isEmpty()) return true;
 

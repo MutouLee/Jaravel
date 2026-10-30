@@ -17,6 +17,11 @@
       <groupId>io.jaravel</groupId>
       <artifactId>jaravel-database</artifactId>
     </dependency>
+    <!-- 模型生命周期事件的总线形态(ModelEvents) -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-events</artifactId>
+    </dependency>
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>

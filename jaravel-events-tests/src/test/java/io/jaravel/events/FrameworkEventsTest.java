@@ -73,6 +73,7 @@ class FrameworkEventsTest {
         jdbc = DriverManager.getConnection("jdbc:sqlite::memory:");
         try (Statement st = jdbc.createStatement()) {
             st.execute("create table widgets (id integer primary key, name text)");
+            st.execute("create table gadgets (id integer primary key, label text)");
             st.execute("""
                     create table jobs (
                         id integer primary key autoincrement,
@@ -96,6 +97,7 @@ class FrameworkEventsTest {
         var container = new SimpleContainer();
         container.instance(io.jaravel.database.Connection.class, db);
         Application.setContainer(container);
+        io.jaravel.eloquent.event.Observers.clear();
 
         bus = EventBus.standalone();
         Event.use(bus);
@@ -360,6 +362,152 @@ class FrameworkEventsTest {
                             + "事件要如实反映实际发生的操作")
                     .hasSize(1);
             assertThat(received(CacheEvents.KeyWritten.class)).isEmpty();
+        }
+    }
+
+    // ================= 模型 =================
+
+    @Nested
+    @DisplayName("模型事件")
+    class ModelLifecycle {
+
+        @Test
+        @DisplayName("★ 真的 save 一个模型 → Creating/Saving/Created/Saved")
+        void insertLifecycle() {
+            collect(io.jaravel.eloquent.event.ModelEvents.Creating.class);
+            collect(io.jaravel.eloquent.event.ModelEvents.Saving.class);
+            collect(io.jaravel.eloquent.event.ModelEvents.Created.class);
+            collect(io.jaravel.eloquent.event.ModelEvents.Saved.class);
+
+            var widget = new Widget();
+            widget.name = "螺丝";
+            widget.save();
+
+            assertThat(RECEIVED.stream().map(e -> e.getClass().getSimpleName()).toList())
+                    .as("顺序与 Observer 一致:Creating → Saving → 写库 → Created → Saved")
+                    .containsExactly("Creating", "Saving", "Created", "Saved");
+
+            assertThat(((io.jaravel.eloquent.event.ModelEvents.OfModel) RECEIVED.get(0))
+                    .modelType())
+                    .isEqualTo(Widget.class);
+        }
+
+        @Test
+        @DisplayName("★ 更新走 Updating/Updated,不走 Creating")
+        void updateLifecycle() {
+            var widget = new Widget();
+            widget.name = "螺丝";
+            widget.save();
+
+            collect(io.jaravel.eloquent.event.ModelEvents.Updating.class);
+            collect(io.jaravel.eloquent.event.ModelEvents.Updated.class);
+            collect(io.jaravel.eloquent.event.ModelEvents.Creating.class);
+
+            widget.name = "螺母";
+            widget.save();
+
+            assertThat(RECEIVED.stream().map(e -> e.getClass().getSimpleName()).toList())
+                    .containsExactly("Updating", "Updated");
+        }
+
+        @Test
+        @DisplayName("★ 从库里读出来 → Retrieved")
+        void retrievedFires() {
+            var widget = new Widget();
+            widget.name = "螺丝";
+            widget.save();
+
+            collect(io.jaravel.eloquent.event.ModelEvents.Retrieved.class);
+
+            Widget.query().get();
+
+            assertThat(received(io.jaravel.eloquent.event.ModelEvents.Retrieved.class))
+                    .as("每读出一行一次 —— 这是最热的那个事件")
+                    .hasSize(1);
+        }
+
+        @Test
+        @DisplayName("★ 没人监听时不构造事件(Retrieved 是热路径)")
+        void retrievedIsGated() {
+            var widget = new Widget();
+            widget.name = "螺丝";
+            widget.save();
+
+            assertThat(Event.listening(
+                    io.jaravel.eloquent.event.ModelEvents.Retrieved.class)).isFalse();
+
+            Widget.query().get();       // 不该抛任何东西
+
+            assertThat(RECEIVED).isEmpty();
+        }
+
+        @Test
+        @DisplayName("★ 可中止的事件返回 false 真的取消写入")
+        void abortableEventCancelsTheWrite() {
+            bus.listenAbortable(io.jaravel.eloquent.event.ModelEvents.Creating.class, 0,
+                    e -> false);                 // 「只读模式」
+
+            var widget = new Widget();
+            widget.name = "螺丝";
+
+            assertThat(widget.save())
+                    .as("save() 要如实返回「没写」")
+                    .isFalse();
+            assertThat(Widget.query().count())
+                    .as("用途:一个全局的只读开关挡掉所有写入")
+                    .isZero();
+        }
+
+        @Test
+        @DisplayName("★ 不可中止的事件返回 false 被忽略 —— 数据已经写进去了")
+        void nonAbortableEventCannotCancel() {
+            bus.listenAbortable(io.jaravel.eloquent.event.ModelEvents.Created.class, 0,
+                    e -> false);
+
+            var widget = new Widget();
+            widget.name = "螺丝";
+
+            assertThat(widget.save())
+                    .as("不做这个区分的话,一个写成 boolean 的 Created 监听器"
+                            + "会让 save() 返回 false,而数据其实已经写进去了")
+                    .isTrue();
+            assertThat(Widget.query().count()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("★ 删除 → Deleting/Deleted")
+        void deleteLifecycle() {
+            var widget = new Widget();
+            widget.name = "螺丝";
+            widget.save();
+
+            collect(io.jaravel.eloquent.event.ModelEvents.Deleting.class);
+            collect(io.jaravel.eloquent.event.ModelEvents.Deleted.class);
+
+            widget.delete();
+
+            assertThat(RECEIVED.stream().map(e -> e.getClass().getSimpleName()).toList())
+                    .containsExactly("Deleting", "Deleted");
+        }
+
+        @Test
+        @DisplayName("★ 横切监听器一次拿到所有模型的写入")
+        void crossCuttingListener() {
+            var audited = new ArrayList<String>();
+            bus.listen(io.jaravel.eloquent.event.ModelEvents.Saved.class,
+                    e -> audited.add(e.modelType().getSimpleName()));
+
+            var widget = new Widget();
+            widget.name = "螺丝";
+            widget.save();
+
+            var gadget = new Gadget();
+            gadget.label = "扳手";
+            gadget.save();
+
+            assertThat(audited)
+                    .as("这正是总线存在的理由 —— Observer 要为每个模型注册一次")
+                    .containsExactly("Widget", "Gadget");
         }
     }
 

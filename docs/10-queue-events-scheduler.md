@@ -521,6 +521,8 @@ Event.listen("order.*", (name, payload) -> ...);
 > | 缓存 | `CacheEvents.{Hit,Missed,KeyWritten,KeyForgotten}` |
 > | 认证 | `AuthEvents.{Login,Logout,Failed,Lockout,Verified,PasswordReset}` |
 > | 队列 | `QueueEvents.{JobQueued,JobProcessing,JobProcessed,JobFailed,JobRetryRequested}` |
+> | 模型 | `ModelEvents.{Retrieved,Creating,Created,Updating,Updated,Saving,Saved,Deleting,Deleted,Restored}` |
+> | 调度 | `ScheduleEvents.{TaskStarting,TaskFinished,TaskSkipped}` |
 >
 > `AuthEvents.Registered` **由应用自己发**,框架不发它 —— Jaravel 没有
 > 内置的注册控制器(要收哪些字段、要不要邀请码,框架无从决定)。
@@ -529,11 +531,37 @@ Event.listen("order.*", (name, payload) -> ...);
 > Laravel 的这个事件也是由 `laravel/ui` 脚手架的控制器发的,
 > 本质上是同一个分工。`examples/auth` 里有它的实际用法与断言。
 >
+> **模型事件有两条路径,分工值得想清楚**:
+>
+> | | `Observer<User>` | 总线事件 |
+> |---|---|---|
+> | 拿到的类型 | `User`(强类型) | `Object` |
+> | 关心的模型 | **一个** | **全部** |
+> | 注册 | `Observers.register(User.class, …)` | `@Listener`,自动装 |
+> | 适合 | 某个模型的领域规则 | 横切关注:审计、缓存失效、指标 |
+>
+> 所以 `ModelEvents` 里的 `model` 是 `Object` **不是缺陷**:
+> 一个「审计所有写入」的监听器本来就不关心具体类型,而关心具体类型的
+> 场景有 `Observer`(强类型、零反射)。按这个项目自己的标准,
+> 「在监听器里做 instanceof」通常是把编译器能查的东西挪到运行时 ——
+> 这里恰好是例外,因为横切关注的**本质**就是不区分类型。
+>
+> `Creating`/`Updating`/`Saving`/`Deleting` 在总线上**也可中止**
+> (`boolean handle` 返回 false 取消写入),用途是「只读模式挡掉所有写入」
+> 这类全局开关。这件事敢做是因为 APT 为 `void handle` 生成了
+> `return true` —— 「忘了 return true 导致写入被静默取消」在这里不可能发生。
+> 不可中止的那几个忽略总线返回值:一个 `Created` 监听器返回 false
+> 不该让 `save()` 返回 false,因为数据已经写进去了。
+>
+> `Retrieved` 是**最热的那个**(每读出一行一次),所以它和
+> `QueryExecuted`/`CacheHit` 一样先问 `Event.listening(...)`。
+> 即便如此,监听它仍要小心:一个在 `Retrieved` 里查库的监听器
+> 会把一次查询变成 N+1。
+>
 > **尚未接线**:
 > 应用生命周期(`Booting`/`Booted`/`Terminating`)、
 > 请求(`RequestHandled`/`RouteMatched`)、
-> 模型(`ModelRetrieved`/`Creating`/`Created`/…)、
-> 邮件/通知/调度(那几个模块本身还没实现)。
+> 邮件/通知(那两个模块本身还没实现)。
 >
 > **`examples/auth` 里有一个真实的监听器**(`app.listeners.AuthAudit`)
 > 与对它的断言。它覆盖的是**三段接线**:APT 生成绑定 →

@@ -73,6 +73,8 @@ public class ModelProcessor extends AbstractProcessor {
         for (Element element : round.getElementsAnnotatedWith(modelAnn)) {
             if (!(element instanceof TypeElement type)) continue;
 
+            if (!rejectNested(type)) continue;
+
             ModelInfo info;
             try {
                 info = analyzer.analyze(type);
@@ -152,6 +154,38 @@ public class ModelProcessor extends AbstractProcessor {
     private static String describe(RuntimeException e) {
         var top = e.getStackTrace().length > 0 ? e.getStackTrace()[0].toString() : "?";
         return e.getClass().getSimpleName() + ": " + e.getMessage() + " @ " + top;
+    }
+
+    /**
+     * 嵌套的 {@code @Model} 直接报错。
+     *
+     * <p>生成的基类按**简单名**引用模型({@code class WidgetBase { Widget self() }}),
+     * 而嵌套类的简单名在生成文件所在的包里解析不到 —— 于是生成的是
+     * **无法编译的代码**,javac 的报错指向 {@code target/generated-sources}
+     * 里的某个文件,与真正的原因(模型是嵌套类)之间没有任何线索。
+     *
+     * <p>这是写模型事件的测试时当场撞上的:把测试模型写成嵌套类,
+     * 得到六条指向生成文件的「找不到符号」。
+     *
+     * <p>不去支持嵌套模型而是报错:模型在真实应用里一律是顶层类
+     * (一个模型对应一张表,它不属于任何别的类),
+     * 为一个没人用的写法改掉整套生成逻辑不值得。
+     * 但**报错必须说清**,而原先连错误都不是它自己报的。
+     *
+     * @return 可以继续处理吗
+     */
+    private boolean rejectNested(TypeElement type) {
+        if (!type.getNestingKind().isNested()) return true;
+
+        error(type, """
+                @Model 不能标在嵌套类上(%s)。
+                  生成的基类按简单名引用模型,而嵌套类的简单名在生成文件
+                  所在的包里解析不到 —— 结果是生成一份无法编译的代码,
+                  而那个报错会指向 target/generated-sources 里的文件。
+                  把这个模型挪到一个顶层类(一个模型对应一张表,
+                  它不属于任何别的类)。"""
+                .formatted(type.getQualifiedName()));
+        return false;
     }
 
     private void error(Element where, String message) {

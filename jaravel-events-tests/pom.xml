@@ -37,10 +37,25 @@
       <!-- provided:只在编译期生成代码,不进运行时 -->
       <scope>provided</scope>
     </dependency>
-    <!-- 队列化监听器的判定要能看到 ShouldQueue -->
+    <!-- 队列化监听器的判定要能看到 ShouldQueue;另外要验证队列事件真的发出来 -->
     <dependency>
       <groupId>io.jaravel</groupId>
       <artifactId>jaravel-queue</artifactId>
+    </dependency>
+    <!-- 验证框架事件真的从各模块的调用点发出来 -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-database</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-cache</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.xerial</groupId>
+      <artifactId>sqlite-jdbc</artifactId>
+      <version>${sqlite.version}</version>
+      <scope>test</scope>
     </dependency>
   </dependencies>
 

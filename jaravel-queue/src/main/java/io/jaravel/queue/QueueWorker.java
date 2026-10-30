@@ -261,6 +261,12 @@ public final class QueueWorker {
      */
     private void process(QueuedJob envelope) {
         listeners.forEach(l -> l.onStart(envelope));
+        io.jaravel.events.Event.tryDispatchIfListening(
+                io.jaravel.queue.events.QueueEvents.JobProcessing.class,
+                () -> new io.jaravel.queue.events.QueueEvents.JobProcessing(
+                        connectionName, envelope));
+
+        long startedAt = System.nanoTime();
 
         ShouldQueue job;
         try {
@@ -307,6 +313,11 @@ public final class QueueWorker {
             store.delete(envelope);
             succeeded.incrementAndGet();
             listeners.forEach(l -> l.onSuccess(envelope));
+            io.jaravel.events.Event.tryDispatchIfListening(
+                    io.jaravel.queue.events.QueueEvents.JobProcessed.class,
+                    () -> new io.jaravel.queue.events.QueueEvents.JobProcessed(
+                            connectionName, envelope,
+                            Duration.ofNanos(System.nanoTime() - startedAt)));
 
             // 删除**之后**才推进链与批。顺序是必须的:反过来的话
             // worker 崩在「推下一环」与「删当前环」之间,会让当前环
@@ -589,6 +600,14 @@ public final class QueueWorker {
             store.release(failed, delay);
             released.incrementAndGet();
             listeners.forEach(l -> l.onRetry(failed, cause, delay));
+
+            // 中途重试发的是 JobRetryRequested,**不是** JobFailed ——
+            // 混在一起的话一个「失败告警」监听器会在每次重试都响,
+            // 于是一个最终成功的任务也会触发两条告警
+            io.jaravel.events.Event.tryDispatchIfListening(
+                    io.jaravel.queue.events.QueueEvents.JobRetryRequested.class,
+                    () -> new io.jaravel.queue.events.QueueEvents.JobRetryRequested(
+                            connectionName, failed, cause, delay));
             return;
         }
 
@@ -813,6 +832,13 @@ public final class QueueWorker {
         }
         failed.incrementAndGet();
         listeners.forEach(l -> l.onFailed(envelope, cause));
+
+        // 归档**之后**才发 —— 一个「去 failed_jobs 查详情」的监听器
+        // 需要那条记录已经在了
+        io.jaravel.events.Event.tryDispatchIfListening(
+                io.jaravel.queue.events.QueueEvents.JobFailed.class,
+                () -> new io.jaravel.queue.events.QueueEvents.JobFailed(
+                        connectionName, envelope, cause));
     }
 
     /**

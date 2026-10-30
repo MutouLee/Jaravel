@@ -22,6 +22,11 @@
       <groupId>io.jaravel</groupId>
       <artifactId>jaravel-core</artifactId>
     </dependency>
+    <!-- 框架事件(Login / Logout / Failed / Lockout / Registered / …) -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-events</artifactId>
+    </dependency>
     <dependency>
       <groupId>io.jaravel</groupId>
       <artifactId>jaravel-http</artifactId>

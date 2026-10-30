@@ -17,6 +17,15 @@
       <groupId>io.jaravel</groupId>
       <artifactId>jaravel-core</artifactId>
     </dependency>
+    <!--
+      框架事件(QueryExecuted / 事务生命周期)。
+      依赖方向是 `各模块 → events`:总线自己不依赖任何 Jaravel 模块,
+      否则就成环了。见 jaravel-events/pom.xml 里的注释。
+    -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-events</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.xerial</groupId>
       <artifactId>sqlite-jdbc</artifactId>

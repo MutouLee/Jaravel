@@ -211,6 +211,44 @@ public final class EventBus {
         return !condition || dispatch(event);
     }
 
+    /**
+     * 这个事件类型有人听吗。
+     *
+     * <p>存在的理由是**热路径**:框架事件里有几个是每次操作都发一遍的
+     * ({@code QueryExecuted} 每条 SQL 一次、{@code CacheHit} 每次读一次)。
+     * 为「可能没人听」的事件构造一个 record、拼一个 SQL 字符串、
+     * 算一次耗时,在一个跑 2000 QPS 的接口上是真实的开销。
+     *
+     * <p>fake 模式下恒为 true —— 那时所有分发都要被记下来,
+     * 而「没人监听所以不记」会让 {@code assertDispatched} 失败,
+     * 且失败原因与被测代码毫无关系。
+     *
+     * <p>有通配监听时也恒为 true:通配监听的用途就是「什么都听」。
+     */
+    public boolean hasListeners(Class<?> eventType) {
+        if (fake != null) return true;
+        if (!wildcards.isEmpty()) return true;
+        return !listenersFor(eventType).isEmpty();
+    }
+
+    /**
+     * 有人听才构造并分发。
+     *
+     * <pre>{@code
+     * bus.dispatchIfListening(QueryExecuted.class,
+     *         () -> new QueryExecuted(sql, bindings, micros));
+     * }</pre>
+     *
+     * <p>{@code Supplier} 不是为了优雅,是为了**不构造那个对象** ——
+     * 见 {@link #hasListeners}。写成 {@code dispatchIf(hasListeners(T), new T(...))}
+     * 是没用的:参数在调用前就求值了。
+     */
+    public boolean dispatchIfListening(Class<?> eventType,
+                                       java.util.function.Supplier<Object> factory) {
+        if (!hasListeners(eventType)) return true;
+        return dispatch(factory.get());
+    }
+
     public boolean dispatchUnless(boolean condition, Object event) {
         return condition || dispatch(event);
     }

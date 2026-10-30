@@ -22,6 +22,11 @@
       <groupId>io.jaravel</groupId>
       <artifactId>jaravel-core</artifactId>
     </dependency>
+    <!-- 框架事件(JobQueued / Processing / Processed / Failed / RetryRequested) -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-events</artifactId>
+    </dependency>
     <!--
       database 驱动需要它。不设 optional:队列的零依赖默认驱动就是
       database(config/queue.yml 的 default),把它做成可选会让

@@ -22,6 +22,11 @@
       <groupId>io.jaravel</groupId>
       <artifactId>jaravel-core</artifactId>
     </dependency>
+    <!-- 框架事件(CacheHit / Missed / KeyWritten / KeyForgotten) -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-events</artifactId>
+    </dependency>
 
     <!-- 进程内驱动的默认实现 -->
     <dependency>

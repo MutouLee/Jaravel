@@ -511,12 +511,41 @@ Event.listen("order.*", (name, payload) -> ...);
 > `Event.fake()` 下连队列化监听器也不投,否则它的主要用途
 > (测试里别真的发邮件)就失效了。
 >
-> **§2.5 的内置框架事件尚未接线。** 总线、`@Listener`、队列化监听器、
-> `fake()` 都已完成并有 35 个测试,但那张表里的 40 多个框架事件
-> (`QueryExecuted`、`Login`、`CacheHit` …)还没有在各模块里发出来。
-> 它们要逐个接到对应模块的真实调用点上,而每一个都是一处接线 ——
-> 按 v0.3/v0.4 的经验,那是最容易「声明了却不发出」的地方,
-> 所以留作独立的一块来做,并且要有端到端的验证。
+> **§2.5 的框架事件:已接线的与未接线的**
+>
+> 已接到真实调用点并有端到端测试断言「它真的发出来了」:
+>
+> | 模块 | 事件 |
+> |---|---|
+> | 数据库 | `QueryExecuted`、`TransactionEvents.{Beginning,Committed,RolledBack}` |
+> | 缓存 | `CacheEvents.{Hit,Missed,KeyWritten,KeyForgotten}` |
+> | 认证 | `AuthEvents.{Login,Logout,Failed}` |
+> | 队列 | `QueueEvents.{JobQueued,JobProcessing,JobProcessed,JobFailed,JobRetryRequested}` |
+>
+> **尚未接线**(类已定义但调用点还没接,或类还没写):
+> `AuthEvents.{Lockout,Registered,Verified,PasswordReset}`(类已定义)、
+> 应用生命周期(`Booting`/`Booted`/`Terminating`)、
+> 请求(`RequestHandled`/`RouteMatched`)、
+> 模型(`ModelRetrieved`/`Creating`/`Created`/…)、
+> 邮件/通知/调度(那几个模块本身还没实现)。
+>
+> 这张表是刻意分开写的:**「事件类存在」与「它真的被发出来」是两件事**,
+> 而前者看起来和后者一模一样 —— 一个 record 定义得再漂亮,没人调
+> `Event.dispatch` 就永远不会触发,而没有任何测试会变红。
+> 所以每个已接线的事件都对应一条走真实路径的测试(真的跑一条 SQL、
+> 真的读一次缓存、真的让一个任务失败)。
+>
+> **热路径的处理**:`QueryExecuted` 每条 SQL 一次、`CacheHit` 每次读一次。
+> 这些调用点先问 `Event.listening(...)`,没人监听时**连 record 都不构造**,
+> 也不去复制 bindings、不走调用栈找 caller。
+> 不这样做的话「事件系统」会变成一个大家默认关掉的东西。
+>
+> **一个安全约束**:`AuthEvents.Failed` **不含密码**。
+> Laravel 的对应事件带着完整的 credentials 数组,于是任何一个
+> 把事件写进日志的监听器都会把明文密码写进日志文件 ——
+> 而日志通常比数据库更容易被读到(集中式日志、第三方 APM、
+> 工单附件)。Jaravel 的 `Failed` 只带标识与**键名**。
+> 把密码排除在类型之外,比写一条「请不要记录它」的注释可靠得多。
 
 ### 2.4 为什么不直接用 Spring 的 `ApplicationEventPublisher`
 

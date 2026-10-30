@@ -154,16 +154,27 @@ public class JdbcConnection implements Connection {
             }
             transactional.set(conn);
             depth.set(1);
+            emitBeginning(1);
             try {
                 T result = body.get();
                 conn.commit();
+
+                // 事件在 commit **之后**、afterCommit 回调**之前**发。
+                //
+                // 之前发的话监听器看到的是「还没落库」的状态;
+                // 回调之后发的话,一个 afterCommit 回调里抛异常会让
+                // Committed 永远不发出 —— 而那个事件通常正是审计用的,
+                // 「审计漏了一条」比「回调失败」更难发现
+                emitCommitted(1);
                 runAfterCommitHooks();
                 return result;
             } catch (RuntimeException | Error e) {
                 rollbackQuietly(conn, e);
+                emitRolledBack(1, e);
                 throw e;
             } catch (Throwable t) {
                 rollbackQuietly(conn, t);
+                emitRolledBack(1, t);
                 throw new RuntimeException(t);
             } finally {
                 transactional.remove();
@@ -184,18 +195,49 @@ public class JdbcConnection implements Connection {
         } catch (SQLException e) {
             throw new RuntimeException("创建保存点失败:" + e.getMessage(), e);
         }
+        emitBeginning(level);
         try {
             T result = body.get();
             conn.releaseSavepoint(savepoint);
+
+            // ⚠ level > 1 的 Committed 表示「保存点释放了」,数据**还没落库**。
+            // 监听器要「真的提交了」就判 isOutermost()。
+            // 框架不替它过滤 —— 过滤掉就没法做「内层回滚了但外层继续」的审计
+            emitCommitted(level);
             return result;
         } catch (SQLException e) {
             throw new RuntimeException(e);
         } catch (RuntimeException | Error e) {
             try { conn.rollback(savepoint); } catch (SQLException ignored) {}
+            emitRolledBack(level, e);
             throw e;
         } finally {
             depth.set(level - 1);
         }
+    }
+
+    // ================= 事务事件 =================
+    //
+    // 三个小方法而不是在调用点直接写 Event.tryDispatch:
+    // 事务那段代码的分支已经够多了(最外层/嵌套 × 成功/失败 × SQLException),
+    // 在里面再塞五行事件构造会让「事务语义」这件事更难读。
+
+    private void emitBeginning(int level) {
+        io.jaravel.events.Event.tryDispatchIfListening(
+                io.jaravel.database.events.TransactionEvents.Beginning.class,
+                () -> new io.jaravel.database.events.TransactionEvents.Beginning(level));
+    }
+
+    private void emitCommitted(int level) {
+        io.jaravel.events.Event.tryDispatchIfListening(
+                io.jaravel.database.events.TransactionEvents.Committed.class,
+                () -> new io.jaravel.database.events.TransactionEvents.Committed(level));
+    }
+
+    private void emitRolledBack(int level, Throwable cause) {
+        io.jaravel.events.Event.tryDispatchIfListening(
+                io.jaravel.database.events.TransactionEvents.RolledBack.class,
+                () -> new io.jaravel.database.events.TransactionEvents.RolledBack(level, cause));
     }
 
     /**
@@ -343,12 +385,31 @@ public class JdbcConnection implements Connection {
                     .toFormatter();
 
     private void record(String sql, List<Object> bindings, long startNanos) {
-        if (!logging) return;
-        long micros = (System.nanoTime() - startNanos) / 1000;
+        boolean listening = io.jaravel.events.Event.listening(
+                io.jaravel.database.events.QueryExecuted.class);
+
+        // ★ 查询日志与 QueryExecuted 事件是**两件事**,各有各的开关。
+        //
+        // 两者都关着时这里要尽早返回 —— 这是每条 SQL 都会走到的路径,
+        // 为没人要的数据算一次耗时、复制一次 bindings、走一遍调用栈
+        // (callerHint 要遍历栈帧)在高 QPS 下是真实的开销。
+        if (!logging && !listening) return;
+
+        long nanos = System.nanoTime() - startNanos;
+
         // 不能用 List.copyOf —— 它拒绝 null 元素,而 `set x = null` 是完全正常的绑定。
         // 开着查询日志时,第一次写 NULL 就会 NPE。
         var snapshot = java.util.Collections.unmodifiableList(new java.util.ArrayList<>(bindings));
-        log.add(new QueryLog(sql, snapshot, micros, callerHint()));
+        String caller = callerHint();
+
+        if (logging) {
+            log.add(new QueryLog(sql, snapshot, nanos / 1000, caller));
+        }
+        if (listening) {
+            io.jaravel.events.Event.tryDispatch(
+                    new io.jaravel.database.events.QueryExecuted(
+                            sql, snapshot, java.time.Duration.ofNanos(nanos), caller));
+        }
     }
 
     /**

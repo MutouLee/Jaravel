@@ -147,15 +147,31 @@ public class SessionGuard implements StatefulGuard {
             if (provider instanceof AbstractUserProvider base) {
                 base.burnTimeOnMissingUser(credentials);
             }
+            emitFailed(credentials, false);
             return false;
         }
         if (!provider.validateCredentials(user.get(), credentials)) {
+            emitFailed(credentials, true);
             return false;
         }
 
         provider.rehashPasswordIfRequired(user.get(), credentials);
         login(user.get(), remember);
         return true;
+    }
+
+    /**
+     * 发登录失败事件。
+     *
+     * <p>⚠ 传进去的是 credentials,但 {@code Failed.from} **只取标识与键名**,
+     * 不带任何值 —— 否则一个把事件写进日志的监听器会把明文密码
+     * 写进日志文件。见 {@link io.jaravel.auth.events.AuthEvents} 的类注释。
+     */
+    private void emitFailed(Map<String, Object> credentials, boolean userExists) {
+        io.jaravel.events.Event.tryDispatchIfListening(
+                io.jaravel.auth.events.AuthEvents.Failed.class,
+                () -> io.jaravel.auth.events.AuthEvents.Failed.from(
+                        name(), credentials, userExists));
     }
 
     @Override
@@ -200,6 +216,14 @@ public class SessionGuard implements StatefulGuard {
             issueRememberCookie(user);
         }
         setUser(user);
+
+        // 事件在**全部状态就绪之后**发。
+        //
+        // 提前发的话监听器里的 Auth.user() 会拿到 null ——
+        // 而「在登录事件里读当前用户」是这个监听器最自然的写法,
+        // 拿到 null 看起来像认证坏了
+        io.jaravel.events.Event.tryDispatch(
+                new io.jaravel.auth.events.AuthEvents.Login(name(), user, remember));
     }
 
     @Override
@@ -233,6 +257,13 @@ public class SessionGuard implements StatefulGuard {
         cachedUser = null;
         resolved = true;
         viaRemember = false;
+
+        // user 可能是空的 —— 一个已过期的会话点「退出」是合法的。
+        // 那时 Logout.user() 为 null,而不是跳过这个事件:
+        // 跳过的话一个「统计登出次数」的监听器会少算,
+        // 而少算的那些恰恰是「会话过期」这个值得关注的情形
+        io.jaravel.events.Event.tryDispatch(
+                new io.jaravel.auth.events.AuthEvents.Logout(name(), user.orElse(null)));
     }
 
     /**

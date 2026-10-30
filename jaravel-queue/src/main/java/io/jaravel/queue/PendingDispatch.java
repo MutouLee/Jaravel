@@ -208,12 +208,27 @@ public final class PendingDispatch {
             return null;
         }
 
+        // JobQueued 在**真的入队之后**发,所以 afterCommit 下它也要
+        // 推迟到提交后 —— 否则一个「统计入队量」的监听器会把
+        // 回滚掉的投递算进去,而那个偏差只在有回滚时出现,
+        // 对不上账的时候很难想到这里
         if (shouldWaitForCommit(store)) {
-            currentConnection().orElseThrow().afterCommit(() -> store.push(envelope));
+            currentConnection().orElseThrow().afterCommit(() -> {
+                store.push(envelope);
+                emitQueued(store, envelope);
+            });
         } else {
             store.push(envelope);
+            emitQueued(store, envelope);
         }
         return uuid;
+    }
+
+    private void emitQueued(QueueStore store, QueuedJob envelope) {
+        io.jaravel.events.Event.tryDispatchIfListening(
+                io.jaravel.queue.events.QueueEvents.JobQueued.class,
+                () -> new io.jaravel.queue.events.QueueEvents.JobQueued(
+                        connectionName != null ? connectionName : store.name(), envelope));
     }
 
     /**

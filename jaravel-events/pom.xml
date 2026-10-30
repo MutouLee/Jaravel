@@ -14,38 +14,17 @@
   <name>Jaravel :: 事件</name>
   <description>事件总线、@Listener、队列化监听器、Event.fake()</description>
 
+  <!--
+    ★ 这个模块**不依赖任何 Jaravel 模块**(连 core 都不依赖)。
+    这不是巧合,是必要条件:框架事件要由各个模块自己发出
+    (数据库发 QueryExecuted、缓存发 CacheHit、认证发 Login),
+    所以依赖方向必须是 `各模块 → events`。
+
+    反过来的话就成环了。总线需要外部能力时一律用 SPI 接口表达
+    (TransactionHook、QueuedListenerDispatcher),由 starter 在装配时注入 ——
+    那也是为什么那两个接口在 EventBus 内部而不是 import 过来。
+  -->
   <dependencies>
-    <dependency>
-      <groupId>io.jaravel</groupId>
-      <artifactId>jaravel-support</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>io.jaravel</groupId>
-      <artifactId>jaravel-core</artifactId>
-    </dependency>
-
-    <!--
-      事务后分发({@code dispatchAfterCommit})要知道「现在在不在事务里」。
-      optional:一个无库应用照样能用事件 —— 那时 afterCommit 退化成
-      立即分发,并在 debug 模式下提醒一次。
-    -->
-    <dependency>
-      <groupId>io.jaravel</groupId>
-      <artifactId>jaravel-database</artifactId>
-      <optional>true</optional>
-    </dependency>
-
-    <!--
-      队列化监听器({@code @Listener implements ShouldQueue})。
-      optional:不用异步监听器的应用不该被迫引入队列。
-      真遇到一个队列化监听器而队列不在 classpath 上时**报错** ——
-      静默同步执行会让「我以为它是异步的」变成一个性能谜题。
-    -->
-    <dependency>
-      <groupId>io.jaravel</groupId>
-      <artifactId>jaravel-queue</artifactId>
-      <optional>true</optional>
-    </dependency>
   </dependencies>
 
 </project>

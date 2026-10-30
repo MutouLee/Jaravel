@@ -39,11 +39,37 @@ public class Repository {
     // ================= 读 =================
 
     public Optional<Object> get(String key) {
-        return store.get(prefixed(key));
+        var value = store.get(prefixed(key));
+        emitHitOrMiss(key, value.isPresent());
+        return value;
     }
 
     public <T> Optional<T> get(String key, Class<T> type) {
-        return store.get(prefixed(key)).map(v -> coerce(key, v, type));
+        var raw = store.get(prefixed(key));
+        emitHitOrMiss(key, raw.isPresent());
+        return raw.map(v -> coerce(key, v, type));
+    }
+
+    /**
+     * 发命中/未命中。
+     *
+     * <p>**key 不带前缀** —— 见 {@link io.jaravel.cache.events.CacheEvents}
+     * 的类注释:前缀随环境变,带上它会让同一个指标在 dev 与 prod
+     * 下名字不同。
+     *
+     * <p>这是整个框架最热的一条路径(每次缓存读一次),所以先问
+     * 有没有人听,没人听时连 record 都不构造。
+     */
+    private void emitHitOrMiss(String key, boolean hit) {
+        if (hit) {
+            io.jaravel.events.Event.tryDispatchIfListening(
+                    io.jaravel.cache.events.CacheEvents.Hit.class,
+                    () -> new io.jaravel.cache.events.CacheEvents.Hit(key));
+        } else {
+            io.jaravel.events.Event.tryDispatchIfListening(
+                    io.jaravel.cache.events.CacheEvents.Missed.class,
+                    () -> new io.jaravel.cache.events.CacheEvents.Missed(key));
+        }
     }
 
     public <T> T get(String key, Class<T> type, T fallback) {
@@ -75,13 +101,28 @@ public class Repository {
             // 负 TTL 等于「立刻过期」。写进去再让它马上失效是无意义的往返,
             // 而且有些驱动会把负 TTL 当成永久 —— 那是最糟的误解。
             store.forget(prefixed(key));
+            emitForgotten(key);
             return;
         }
         store.put(prefixed(key), value, ttl);
+        emitWritten(key, ttl);
     }
 
     public void put(String key, Object value) {
         store.put(prefixed(key), value, null);
+        emitWritten(key, null);
+    }
+
+    private void emitWritten(String key, Duration ttl) {
+        io.jaravel.events.Event.tryDispatchIfListening(
+                io.jaravel.cache.events.CacheEvents.KeyWritten.class,
+                () -> new io.jaravel.cache.events.CacheEvents.KeyWritten(key, ttl));
+    }
+
+    private void emitForgotten(String key) {
+        io.jaravel.events.Event.tryDispatchIfListening(
+                io.jaravel.cache.events.CacheEvents.KeyForgotten.class,
+                () -> new io.jaravel.cache.events.CacheEvents.KeyForgotten(key));
     }
 
     public void forever(String key, Object value) {
@@ -143,6 +184,7 @@ public class Repository {
 
     public void forget(String key) {
         store.forget(prefixed(key));
+        emitForgotten(key);
     }
 
     public void deleteMultiple(List<String> keys) {

@@ -57,6 +57,55 @@ public final class Event {
         return bus().dispatchIf(condition, event);
     }
 
+    // ================= 框架内部用 =================
+
+    /**
+     * 总线没装配时**什么都不做**地分发。
+     *
+     * <p>**只给框架自己用**,不是给应用代码的。
+     *
+     * <p>存在的理由:框架事件由各模块在真实调用点发出
+     * ({@code QueryExecuted} 在 JdbcConnection 里、{@code CacheHit} 在
+     * Repository 里)。而那些模块有自己的单元测试,那些测试不该
+     * 为了跑一条 SQL 先装一个事件总线 —— 否则「加一个框架事件」
+     * 会连带改掉几十个无关测试的 setUp。
+     *
+     * <p>代价必须说清:总线真的忘了装时,所有框架事件会**静默消失**。
+     * 这正是这个项目反复在修的那类问题。压住它的办法不是在这里报错
+     * (那会让模块单测跑不起来),而是:
+     * <ul>
+     *   <li>starter 里 {@code EventBus} 是无条件注册的 bean ——
+     *       它不可能「忘了装」;</li>
+     *   <li>每个框架事件都有一条端到端测试断言它真的从那个
+     *       调用点发出来了。这是 v0.3/v0.4 的经验:
+     *       「类存在」和「它真的被发出来」是两件事。</li>
+     * </ul>
+     */
+    public static void tryDispatch(Object event) {
+        EventBus current = bus;
+        if (current == null) return;
+        current.dispatch(event);
+    }
+
+    /**
+     * 有人听才构造并分发;总线没装配时什么都不做。
+     *
+     * <p>框架里**每次操作都发一遍**的那几个事件走这条路径 ——
+     * 见 {@link EventBus#dispatchIfListening}。
+     */
+    public static void tryDispatchIfListening(Class<?> eventType,
+                                              java.util.function.Supplier<Object> factory) {
+        EventBus current = bus;
+        if (current == null) return;
+        current.dispatchIfListening(eventType, factory);
+    }
+
+    /** 总线装了没。框架里用来跳过「准备事件数据」的那段开销 */
+    public static boolean listening(Class<?> eventType) {
+        EventBus current = bus;
+        return current != null && current.hasListeners(eventType);
+    }
+
     public static boolean dispatchUnless(boolean condition, Object event) {
         return bus().dispatchUnless(condition, event);
     }

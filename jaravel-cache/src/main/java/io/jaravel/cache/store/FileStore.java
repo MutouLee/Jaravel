@@ -118,6 +118,28 @@ public class FileStore implements CacheStore {
      * 「同机多进程防重复」,不适合跨机器。
      */
     @Override
+    /**
+     * ⚠ **多进程下这个 add 不是严格原子的。**
+     *
+     * <p>{@code synchronized} 只管同一个 JVM。跨进程时窗口在这里:
+     * {@link #get} 发现条目过期会把文件删掉,而那个 delete 是无条件的。
+     * 于是两个进程可能:A 读到过期 → B 读到过期 → A 删 → A 建(持有)
+     * → **B 删掉 A 刚建的** → B 建(也持有)。
+     *
+     * <p>{@code DatabaseStore} 没有这个问题:它的插入靠主键冲突裁决,
+     * 而清理过期行带了 {@code expires_at} 条件
+     * (见那边的 {@code deleteIfExpired})。文件系统给不出等价的
+     * 「条件删除」原语,所以这个窗口关不掉。
+     *
+     * <p>**实际影响有限**:{@code file} 已经在
+     * {@code SchedulerConfigCheck.NON_SHARED_DRIVERS} 里,所以
+     * {@code onOneServer} + file + 多实例的组合在**启动时就被拒绝**。
+     * 剩下的暴露面是「把 file 驱动放在共享卷上直接用
+     * {@code Cache.lock(...)}」—— 要跨实例互斥请用 database 驱动。
+     *
+     * <p>这条写在这里而不是悄悄修:一个「看起来修好了」的版本
+     * 会让人以为 file 驱动能做分布式锁。
+     */
     public synchronized boolean add(String key, Object value, Duration ttl) {
         // 已存在但已过期的,视为不存在
         if (get(key).isPresent()) return false;

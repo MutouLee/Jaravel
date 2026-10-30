@@ -135,6 +135,21 @@ public class JaravelSchedulerAutoConfiguration {
         CacheManager manager = caches.getIfAvailable();
         if (manager == null) return Scheduler.TaskLocks.NONE;
 
+        return cacheTaskLocks(manager);
+    }
+
+    /**
+     * 把一个 {@code CacheManager} 包成调度锁。
+     *
+     * <p>包可见而不是私有:v0.4 验收第 3 条(「3 个实例下
+     * {@code onOneServer} 只执行一次」)要验证的就是**这段**代码,
+     * 而它原先只能通过起一个完整的 Spring 上下文才能到达。
+     *
+     * <p>一个在测试里重写一遍的锁适配器证明不了这条验收 ——
+     * 真正会出问题的是「这里怎么用缓存锁」,而那恰恰是
+     * 重写版本会绕过的部分。
+     */
+    static Scheduler.TaskLocks cacheTaskLocks(CacheManager manager) {
         var cache = manager.store();
         return new Scheduler.TaskLocks() {
             @Override

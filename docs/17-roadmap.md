@@ -210,8 +210,20 @@ L3 的 < 2s 重启是兜底保证」。
 ### 验收
 
 1. 「下单 → 异步发票 → 邮件 + 站内通知」流程打通;
-2. `--concurrency=200` 下 worker 内存增长 < 100MB(验证虚拟线程优势);
-3. 调度器在 3 个实例下 `onOneServer()` 任务只执行一次;
+2. `--concurrency=200` 下 worker 内存增长 < 100MB(验证虚拟线程优势)——
+   **已实测:并发 200 + 400 个阻塞任务,堆增长 2.5 MB**
+   (`WorkerConcurrencyBudgetTest`)。
+   ⚠ 量的是 **Java 堆**,不是 RSS —— 平台线程的成本主要在栈,而栈不在堆里。
+   所以这一条证明的是「worker 自己不会把堆吃掉」,
+   **不是**「虚拟线程比平台线程省内存」的对照实验(那需要 OS 级的 RSS
+   测量,在单元测试里做不可靠)。这个限定必须跟着这个数字一起说。
+   ⚠ `--concurrency=200` 的**命令行开关**不存在(CLI 是 v0.5),
+   当前只能按编程方式 `WorkerOptions.withConcurrency(200)`;
+3. 调度器在 3 个实例下 `onOneServer()` 任务只执行一次 ——
+   **补测时发现原先不成立,已修**(两个缺陷:锁 key 不含调度时刻 +
+   跑完就释放;以及 `DatabaseStore.add` 清理过期行的竞态)。
+   见 docs/10 §3.4。验证:`SchedulerMultiInstanceTest` +
+   `DatabaseLockRaceTest`;
 4. 上传安全项(内容嗅探、路径穿越、随机命名)全部有测试 ——
    **并且有一条真实的 multipart HTTP 路径走过它们**
    (`examples/auth` 的 `UploadFlowTest`,13 条)。

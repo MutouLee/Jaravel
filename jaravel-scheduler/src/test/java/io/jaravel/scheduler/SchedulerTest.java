@@ -535,9 +535,28 @@ class SchedulerTest {
                             .contains("另一个实例"));
         }
 
+        /**
+         * ★ {@code onOneServer} 的锁**按分钟分 key,而且跑完不释放**。
+         *
+         * <p>这条测试原先断言的是反过来的事(「结束后释放」)——
+         * 而那正是 v0.4 验收第 3 条不成立的原因:
+         *
+         * <pre>
+         *   A 拿锁 → 跑 → 释放
+         *   B 拿锁(空的)→ 跑 → 释放
+         *   C 拿锁(空的)→ 跑
+         * </pre>
+         *
+         * <p>释放之后那一分钟就被重新开放了,于是三个实例各跑一遍。
+         * 旧实现只防住了**并发**,而 {@code onOneServer} 要防的是
+         * 「一个调度窗口里只有一个实例跑」。
+         *
+         * <p>端到端的验证在 starter 的 {@code SchedulerMultiInstanceTest}
+         * (3 个实例 + 一个真的共享存储)。
+         */
         @Test
-        @DisplayName("★ 抢到锁时执行,并在结束后释放")
-        void lockIsReleasedAfterRunning() {
+        @DisplayName("★ 锁按分钟分 key,跑完不释放 —— 下一分钟换新 key 所以照样跑")
+        void lockIsPerMinuteAndNotReleased() {
             var held = ConcurrentHashMap.<String>newKeySet();
 
             var s = schedule();
@@ -559,10 +578,63 @@ class SchedulerTest {
             scheduler.runDue(at("2026-10-30T10:00"));
             scheduler.runDue(at("2026-10-30T10:01"));
 
-            assertThat(log).hasSize(2);
+            assertThat(log)
+                    .as("下一分钟是一个新 key,所以「每分钟」的任务照样每分钟跑")
+                    .hasSize(2);
+
             assertThat(held)
-                    .as("不释放的话这个任务会被挡到 TTL 过期为止")
-                    .isEmpty();
+                    .as("两把锁都留着 —— 释放就等于把那一分钟重新开放给别的实例。"
+                            + "它们靠 TTL 自然消失")
+                    .hasSize(2);
+            assertThat(held)
+                    .allSatisfy(key -> assertThat(key)
+                            .as("key 里要带调度时刻,否则下一分钟会被上一分钟的锁挡住")
+                            .startsWith("jaravel:schedule:独占:"));
+        }
+
+        @Test
+        @DisplayName("★ 同一分钟里第二次调用拿不到锁")
+        void sameMinuteIsBlocked() {
+            var held = ConcurrentHashMap.<String>newKeySet();
+            var skipped = new java.util.concurrent.atomic.AtomicInteger();
+
+            var s = schedule();
+            s.call("独占", () -> log.add("ran")).everyMinute().onOneServer();
+
+            Scheduler.TaskLocks locks = new Scheduler.TaskLocks() {
+                @Override
+                public Handle acquire(String key, Duration ttl) {
+                    if (!held.add(key)) return null;
+                    return () -> held.remove(key);
+                }
+
+                @Override
+                public void forceRelease(String key) {
+                    held.remove(key);
+                }
+            };
+
+            // 两个**独立的** Scheduler 共享一份锁存储 —— 模拟两个实例。
+            // 同一个 Scheduler 不行:它有 lastRunMinute 的本地去重,
+            // 于是第二次调用在还没问到锁之前就被挡下了,
+            // 那样测的是本地去重而不是锁
+            var a = new Scheduler(s).locks(locks);
+            var b = new Scheduler(s).locks(locks)
+                    .addListener(new Scheduler.Listener() {
+                        @Override
+                        public void onSkipped(ScheduledTask task, String reason) {
+                            skipped.incrementAndGet();
+                        }
+                    });
+
+            var minute = at("2026-10-30T10:00");
+            a.runDue(minute);
+            b.runDue(minute);
+
+            assertThat(log)
+                    .as("★ 这是验收第 3 条的核心:同一分钟只跑一次")
+                    .containsExactly("ran");
+            assertThat(skipped.get()).isEqualTo(1);
         }
 
         @Test

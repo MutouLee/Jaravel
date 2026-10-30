@@ -211,26 +211,17 @@ public final class Scheduler {
         }
 
         // 多实例去重
-        TaskLocks.Handle handle = null;
-        if (task.runsOnOneServer()) {
-            handle = locks.acquire(task.mutexKey(), overlapTtlOrDefault(task));
-            if (handle == null) {
-                inFlight.remove(task.action().name());
-                skip(task, "另一个实例抢到了锁(onOneServer)");
-                return false;
-            }
+        if (task.runsOnOneServer()
+                && locks.acquire(oneServerKey(task, now), ONE_SERVER_TTL) == null) {
+            inFlight.remove(task.action().name());
+            skip(task, "另一个实例抢到了锁(onOneServer)");
+            return false;
         }
 
-        var lockHandle = handle;
         Runnable body = () -> {
             try {
                 execute(task, now);
             } finally {
-                // 顺序:先放锁再清本地标记。反过来的话本地标记已清、
-                // 锁还在,此时同进程的下一轮会进到 acquire 然后被自己挡住,
-                // 而那次跳过的理由会显示成「另一个实例抢到了锁」——
-                // 一个误导性的诊断
-                if (lockHandle != null) lockHandle.release();
                 inFlight.remove(task.action().name());
             }
         };
@@ -244,14 +235,55 @@ public final class Scheduler {
     }
 
     /**
-     * 多实例锁的 TTL。
+     * {@code onOneServer} 的锁 TTL。
      *
-     * <p>没配 {@code withoutOverlapping} 时用一个**保守的默认值**而不是
-     * 永久锁:持锁实例崩掉时,永久锁会让这个任务在所有实例上
-     * 永远不再运行 —— 那是最糟的失败模式。
+     * <p>固定一小时,**不跟 {@code withoutOverlapping} 的 TTL**。
+     *
+     * <p>因为 key 里带了那一分钟({@link #oneServerKey}),TTL 只决定
+     * 那个 key 在存储里留多久 —— 它不影响下一分钟能不能跑。
+     * 所以这个值只需要「比一个调度窗口长得多」。
+     *
+     * <p>⚠ 不能用 {@code withoutOverlapping} 的 TTL:那个值可能只有
+     * 30 秒,而三个实例不一定在同一秒醒来。一个 30 秒就过期的锁
+     * 会让第 41 秒才醒的实例又跑一遍 —— 同一分钟内跑了两次。
      */
-    private Duration overlapTtlOrDefault(ScheduledTask task) {
-        return task.overlapTtl() != null ? task.overlapTtl() : Duration.ofMinutes(5);
+    private static final Duration ONE_SERVER_TTL = Duration.ofHours(1);
+
+    /**
+     * {@code onOneServer} 的锁 key —— **带上那一分钟**。
+     *
+     * <h2>★ 为什么必须带分钟,以及为什么这把锁不释放</h2>
+     * <p>原先的实现用 {@code task.mutexKey()}(只有任务名)并在任务
+     * 跑完后 {@code release()}。那让 {@code onOneServer} 只能防住
+     * **并发**执行,而它要防的是「一个调度窗口里只有一个实例跑」:
+     *
+     * <pre>
+     *   A 拿锁 → 跑 → 释放
+     *   B 拿锁(空的)→ 跑 → 释放
+     *   C 拿锁(空的)→ 跑
+     * </pre>
+     *
+     * <p>于是三个实例各跑一遍 —— {@code onOneServer} 完全无效。
+     * 任务越快越明显:一个 5 毫秒的任务几乎一定会被三个实例都跑到。
+     * 这是 v0.4 验收第 3 条原先不成立的原因。
+     *
+     * <p>正确的语义(与 Laravel 一致)是:
+     * <ul>
+     *   <li>key 里带上**这一次的调度时刻** —— 于是同一分钟内
+     *       只有第一个实例拿得到;</li>
+     *   <li>跑完**不释放** —— 释放就等于把这一分钟重新开放了。
+     *       锁靠 TTL 自然消失。</li>
+     * </ul>
+     *
+     * <p>下一分钟是一个**新的 key**,所以「每分钟」的任务照样每分钟跑。
+     *
+     * <p>⚠ 代价:抢到锁的实例在真正执行前崩掉的话,这一分钟就丢了
+     * (别的实例已经被挡住)。那是「只在一台机器上跑」的固有代价 ——
+     * 要不丢就得有一个「跑完才算」的确认机制,而那需要两阶段提交。
+     * 下一分钟会正常跑。
+     */
+    private static String oneServerKey(ScheduledTask task, ZonedDateTime now) {
+        return task.mutexKey() + ":" + minuteKey(now);
     }
 
     private void execute(ScheduledTask task, ZonedDateTime now) {
@@ -433,11 +465,27 @@ public final class Scheduler {
         return java.util.Optional.empty();
     }
 
-    /** 清掉所有互斥锁({@code schedule:clear-mutexes})—— 进程崩溃后的补救 */
+    /**
+     * 清掉所有互斥锁({@code schedule:clear-mutexes})—— 进程崩溃后的补救。
+     *
+     * <p>⚠ **它清不掉 {@code onOneServer} 的锁,而那是对的。**
+     *
+     * <p>那些锁的 key 里带着具体的分钟({@link #oneServerKey}),
+     * 所以「清掉」没有意义:下一分钟本来就是一个新 key,
+     * 而清掉当前这一分钟的只会让另一个实例把这一分钟再跑一遍 ——
+     * 正是 {@code onOneServer} 要防的事。
+     *
+     * <p>这里仍然对 {@code preventsOverlap} 的任务调
+     * {@code forceRelease}:{@code withoutOverlapping} 的语义是
+     * 「上一轮还在跑就跳过」,而一个崩掉的进程留下的锁确实该被清掉。
+     * (当前实现的 overlap 判定是**进程内**的 {@code inFlight},
+     * 所以这一步在今天是多余的 —— 留着是为了锁存储里可能有
+     * 历史遗留的 key,而多调一次 forceRelease 无害。)
+     */
     public void clearMutexes() {
         inFlight.clear();
         for (ScheduledTask task : schedule.tasks()) {
-            if (task.preventsOverlap() || task.runsOnOneServer()) {
+            if (task.preventsOverlap()) {
                 locks.forceRelease(task.mutexKey());
             }
         }
@@ -496,6 +544,25 @@ public final class Scheduler {
 
         void forceRelease(String key);
 
+        /**
+         * 锁句柄。
+         *
+         * <p>⚠ **{@code onOneServer} 这条路径刻意不调 {@code release()}。**
+         *
+         * <p>不是漏了。锁的 key 里带着这一次的调度时刻,
+         * 而释放它等于把这一分钟重新开放给别的实例 ——
+         * 于是三个实例会依次拿到锁、各跑一遍。
+         * 那正是 v0.4 验收第 3 条原先不成立的原因
+         * (见 {@code Scheduler.oneServerKey} 的说明)。
+         *
+         * <p>所以这个方法今天**没有调用方**。保留它是因为
+         * 「跨实例的 withoutOverlapping」需要它(那种锁必须在任务
+         * 结束时释放,因为它的语义是「上一轮还在跑」而不是
+         * 「这一轮归谁」)。
+         *
+         * <p>如果你在读这段是因为「发现了一个没释放的锁」——
+         * 请先读上面两段再动手。
+         */
         interface Handle {
             void release();
         }

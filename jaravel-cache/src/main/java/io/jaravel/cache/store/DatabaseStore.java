@@ -25,6 +25,9 @@ import io.jaravel.database.Connection;
  */
 public class DatabaseStore implements CacheStore {
 
+    /** 列名写两次就会打错一次 */
+    private static final String EXPIRES_AT = "expires_at";
+
     private final Connection connection;
     private final String table;
 
@@ -85,7 +88,7 @@ public class DatabaseStore implements CacheStore {
         if (existing.isPresent()) {
             long expiresAt = asLong(existing.get().get("expires_at"));
             if (expiresAt > 0 && System.currentTimeMillis() >= expiresAt) {
-                connection.table(table).where("key", key).delete();
+                deleteIfExpired(key);
             } else {
                 return false;
             }
@@ -102,6 +105,50 @@ public class DatabaseStore implements CacheStore {
             if (isUniqueViolation(e)) return false;
             throw e;
         }
+    }
+
+    /**
+     * 清掉一行**已过期**的锁。
+     *
+     * <h2>★ 这条 delete 必须带过期条件,不能只按 key 删</h2>
+     * <p>只按 key 删会让两个实例同时拿到锁 —— 这是一个真实的竞态,
+     * 而它恰好在定时任务最常见的状态下发生(上一次的锁已过期):
+     *
+     * <pre>
+     *   1. A select → 看到一行已过期
+     *   2. B select → 也看到那一行已过期
+     *   3. A delete → 删掉过期行
+     *   4. A insert → 成功,**A 持有锁**
+     *   5. B delete → 按 key 删,**把 A 刚插入的有效行删了**
+     *   6. B insert → 成功,**B 也持有锁**
+     * </pre>
+     *
+     * <p>于是 {@code onOneServer} 的任务跑了两遍 —— 对账、扣费、发邮件
+     * 这类任务跑两遍是真实的事故。
+     *
+     * <p>带上条件之后,第 5 步删不到任何行(A 的行 {@code expires_at}
+     * 在未来),第 6 步撞主键冲突返回 false。正确。
+     *
+     * <p>{@code expires_at > 0} 一定要有:0 表示**永不过期**,
+     * 而 {@code 0 <= now} 恒成立 —— 漏掉它会把永久锁删掉。
+     *
+     * <h2>为什么是 protected</h2>
+     * <p>它是一个**测试接缝**。上面那个竞态的窗口是「B 的 select 在
+     * A 的 insert 之前、B 的 delete 在 A 的 insert 之后」,
+     * 而靠起线程压测能不能撞上它取决于调度 ——
+     * 一个有时撞不上的测试证明不了修复。
+     *
+     * <p>把这一步开成可覆写的,测试就能在 B 的 delete **之前**
+     * 插入 A 的完整 {@code add},确定性地重放那个交错
+     * (见 {@code DatabaseLockRaceTest})。
+     */
+    protected void deleteIfExpired(String key) {
+        connection.table(table)
+                .where("key", key)
+                .where(EXPIRES_AT, io.jaravel.database.query.QueryState.Op.GT, 0)
+                .where(EXPIRES_AT, io.jaravel.database.query.QueryState.Op.LTE,
+                       System.currentTimeMillis())
+                .delete();
     }
 
     /**

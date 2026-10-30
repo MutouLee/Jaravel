@@ -442,6 +442,8 @@ public final class TestResponse {
             case io.jaravel.http.Response.Body.Text t -> "文本/HTML";
             case io.jaravel.http.Response.Body.Json j -> "JSON";
             case io.jaravel.http.Response.Body.ViewRef v -> "视图 " + v.name();
+            case io.jaravel.http.Response.Body.Bytes b ->
+                    "二进制(%d 字节)".formatted(b.content().length);
         };
     }
 

@@ -204,6 +204,7 @@ L3 的 < 2s 重启是兜底保证」。
 | 通知:多渠道 + database/mail/slack + Notifiable | 1 |
 | 存储:Filesystem + local/s3 + 上传安全 | 1.5 |
 | multipart 上传:`UploadedFile` + `request.file(...)` + 五条文件校验规则 + `config/uploads.yml` | 0.5 |
+| 二进制响应:`Response.download/inline/bytes` + 框架自注册的临时 URL 路由 | 0.5 |
 | `Http` 客户端门面 | ~~0.5~~ **已在 0.4 完成** —— docs/14 §4.3 说的是 v0.4,与这一行矛盾;按 §4.3 做了,理由见那里 |
 
 ### 验收

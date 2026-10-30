@@ -148,8 +148,11 @@ public class JaravelStorageAutoConfiguration {
      *
      * <p>{@code Content-Disposition: inline} 而不是 attachment:
      * 临时 URL 的典型用途是「在页面里显示一张私有图片」。
-     * 要下载的话用 {@code Storage.download(...)}(那一侧
-     * 需要 HTTP 层的响应构造,与上传一样还没接 —— 见下)。
+     * 要下载的话应用自己用
+     * {@code Response.download(content, "报表.pdf")} ——
+     * 没有 {@code Storage.download(...)},因为那会让存储模块依赖
+     * HTTP 模块(与 {@code UploadedFile} 没有 {@code store(...)}
+     * 是同一条约束的两面)。
      */
     @Bean
     public StorageTemporaryUrlRoute jaravelStorageTemporaryUrlRoute(
@@ -158,28 +161,26 @@ public class JaravelStorageAutoConfiguration {
     }
 
     /**
+     * 框架自带的那条路由。
+     *
+     * <p>它是一个普通的 {@code RouteDefinition} bean —— 路由层本来就把
+     * 所有 {@code RouteDefinition} bean 收集起来按 {@code order()} 注册,
+     * 所以框架不需要一个特殊的入口。
+     *
+     * <p>注册顺序与「应用可以接管它」见 {@link FrameworkRoutes} 的说明。
+     */
+    @Bean
+    public FrameworkRoutes jaravelStorageRoutes() {
+        return r -> r.get(TEMPORARY_URL_PATH, StorageTemporaryUrlRoute::serve)
+                .name("storage.temporary");
+    }
+
+    /**
      * 临时 URL 的处理器。
      *
-     * <p>⚠ **它还没有被注册成一个路由。**
-     *
-     * <p>注册它需要在 {@code RouteDefinition} 那一层加一条框架自带的路由,
-     * 而当前的路由注册是「应用提供 {@code RouteDefinition} bean」——
-     * 框架自己没有一个加路由的入口。
-     *
-     * <p>那是一处真实的缺口(框架级路由:存储的临时 URL、
-     * 将来的 health check、metrics 端点都需要它),
-     * 但它属于路由层而不是存储层。
-     *
-     * <p>所以这个类现在是一个**可直接调用的处理器** ——
-     * 应用可以自己在 routes 里挂上它:
-     *
-     * <pre>{@code
-     * r.get("/storage/temporary", StorageTemporaryUrlRoute::handle);
-     * }</pre>
-     *
-     * <p>写成这样而不是等路由层:临时 URL 的**签名校验**是这一节的
-     * 安全核心,它现在就能被完整地测,而「先上线功能、
-     * 安全检查后补」是这类事故的标准剧本。
+     * <p>它既是路由的目标({@link #serve}),也留了一个
+     * 不经过 HTTP 的入口({@link #handle})——
+     * 后者让签名校验能被单元测试直接测。
      */
     public static class StorageTemporaryUrlRoute {
 
@@ -222,6 +223,77 @@ public class JaravelStorageAutoConfiguration {
             return disk.get(path).orElseThrow(() ->
                     new Filesystem.FileNotFoundException(
                             "临时 URL 指向的文件不存在:" + path));
+        }
+
+        /**
+         * 路由入口:{@code GET /storage/temporary?path=...&expires=...&signature=...}
+         *
+         * <h2>★ 签名校验用的是「配置里的前缀 + 请求的原始查询串」,
+         * 不是请求的完整 URL</h2>
+         *
+         * <p>这是一个刻意的决定,理由与代价都要说清。
+         *
+         * <p>签名覆盖的 base 是 {@code app.url + /storage/temporary} ——
+         * 签 URL 的时候只有配置,没有请求。而**请求到达时的 host 常常
+         * 不等于 app.url**:
+         * <ul>
+         *   <li>测试跑在随机端口上;</li>
+         *   <li>反向代理改写了 Host;</li>
+         *   <li>同一个应用挂在多个域名下。</li>
+         * </ul>
+         *
+         * <p>按请求的完整 URL 校验的话,以上每一种情况都会得到
+         * 「签名无效」—— 而那个消息与真正的原因(host 对不上)
+         * 之间没有任何线索。这正是本项目反复遇到的那类缺陷。
+         *
+         * <p>**代价**:一个为 a.example.com 签的链接在 b.example.com 上
+         * 也有效。那不是一个有意义的削弱 —— 签名密钥是**应用级**的
+         * (`app.key`),两个域名跑的是同一个应用、同一个密钥、
+         * 同一个磁盘。真正的边界是「path 被签进了签名」,而那一条没变。
+         *
+         * <p>⚠ 原始查询串必须**整个**参与校验(见
+         * {@code Request.queryString()} 的说明)—— 只按已知参数重建的话,
+         * 追加一个 {@code &tampered=1} 会被静默丢弃,签名照样通过。
+         */
+        public Object serve(io.jaravel.http.Request request) {
+            String query = request.queryString();
+            String url = config.string("app.url", "") + TEMPORARY_URL_PATH
+                    + (query.isEmpty() ? "" : "?" + query);
+
+            String path = request.query("path").orElseThrow(() ->
+                    new io.jaravel.http.HttpException(400, """
+                            临时 URL 缺少 path 参数。
+                              正确的链接由 Storage.temporaryUrl(...) 生成。"""));
+            String diskName = request.query("disk").orElse(null);
+
+            byte[] content;
+            try {
+                content = handle(url, path, diskName);
+            } catch (SecurityException e) {
+                // 403 而不是 404:签名不对是一个**授权**失败。
+                //
+                // 不用 404 掩盖它:那会让一个「链接过期了」的用户
+                // 以为文件被删了,而这是临时 URL 最常见的正常情况
+                throw new io.jaravel.http.HttpException(403, e.getMessage());
+            }
+
+            // inline 而不是 attachment:临时 URL 的典型用途是
+            // 「在页面里显示一张私有图片」。要下载的话应用自己用
+            // Response.download(content, "报表.pdf")
+            return io.jaravel.http.Response.inline(content,
+                    fileNameOf(path), mimeTypeOf(path, diskName))
+                    // 私有文件不该被任何中间层缓存住 ——
+                    // 链接是限时的,而一个被 CDN 缓存的响应
+                    // 会在链接过期之后继续可用
+                    .header("Cache-Control", "private, no-store")
+                    // 即便 Content-Type 说它是图片,也不让浏览器
+                    // 去嗅探 —— 这是存储型 XSS 的最后一道闸
+                    .header("X-Content-Type-Options", "nosniff");
+        }
+
+        private static String fileNameOf(String path) {
+            int slash = path.lastIndexOf('/');
+            return slash < 0 ? path : path.substring(slash + 1);
         }
 
         /** 给这个路由用的 MIME 类型 */

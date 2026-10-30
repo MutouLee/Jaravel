@@ -187,17 +187,79 @@ class UploadFlowTest {
         }
 
         @Test
-        @DisplayName("签名的临时 URL 能换回文件内容")
+        @DisplayName("★ 签名的临时 URL 真的能换回文件内容 —— 不只是形状对")
         void temporaryUrlWorks() {
             var api = apiClientFor("up5");
 
             String json = api.upload("/api/avatar", "avatar", "me.png",
                     "image/png", PNG).getBody();
+            String signed = jsonString(json, "temporary_url");
 
-            assertThat(jsonString(json, "temporary_url"))
+            assertThat(signed)
                     .as("私有磁盘上的文件没有公开 URL,只有签名的限时链接")
                     .contains("/storage/temporary")
                     .contains("signature=");
+
+            // ★ 真的去取一次。
+            //
+            // 之前这条测试只断言 URL 的**形状** —— 而那证明不了
+            // 那条路由存在。框架自己注册路由是这一版才有的,
+            // 在那之前这个 URL 指向一个 404:
+            // 一个「生成了链接但点不开」的功能,
+            // 而一个只看字符串的测试完全看不见这件事
+            var fetched = fetchSigned(signed);
+
+            assertThat(fetched.getStatusCode().is2xxSuccessful())
+                    .as("签名 URL 应该能取到文件,实际 %s", fetched.getStatusCode())
+                    .isTrue();
+            assertThat(fetched.getBody())
+                    .as("★ 二进制要原样回来 —— 一次 byte[]→String→byte[] 的往返"
+                            + "会把所有非法 UTF-8 字节换成 U+FFFD,于是 PNG 坏掉")
+                    .isEqualTo(PNG);
+            assertThat(fetched.getHeaders().getFirst("Content-Type"))
+                    .isEqualTo("image/png");
+            assertThat(fetched.getHeaders().getFirst("Content-Disposition"))
+                    .startsWith("inline;");
+            assertThat(fetched.getHeaders().getFirst("X-Content-Type-Options"))
+                    .as("即便 Content-Type 说它是图片也不让浏览器嗅探")
+                    .isEqualTo("nosniff");
+        }
+
+        @Test
+        @DisplayName("★ 动过的签名 URL → 403,而不是把文件给出去")
+        void tamperedTemporaryUrlIsRejected() {
+            var api = apiClientFor("up7");
+
+            String signed = jsonString(api.upload("/api/avatar", "avatar",
+                    "me.png", "image/png", PNG).getBody(), "temporary_url");
+
+            // 追加一个参数:签名覆盖的是「base + 全部查询参数」,
+            // 所以多一个参数签名就不对了。
+            //
+            // 这一条同时验证了校验用的是**原始查询串** ——
+            // 一个只按已知参数重建 URL 的实现会把 tampered 静默丢掉,
+            // 于是签名照样通过,而这道边界就没了
+            var tampered = fetchSigned(signed + "&tampered=1");
+            assertThat(tampered.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+            // 换一个 path:这才是这道边界真正要防的
+            String other = signed.replace("path=avatars", "path=..%2Fetc%2Fpasswd");
+            assertThat(fetchSigned(other).getStatusCode())
+                    .as("改 path 必须让签名失效 —— 否则这个路由"
+                            + "等于一个任意文件读取漏洞")
+                    .isEqualTo(HttpStatus.FORBIDDEN);
+        }
+
+        @Test
+        @DisplayName("没签名就直接访问那条路由 → 403")
+        void unsignedAccessIsRejected() {
+            var response = rest.exchange(
+                    java.net.URI.create("http://localhost:" + port
+                            + "/storage/temporary?path=avatars/x.png"),
+                    HttpMethod.GET, new HttpEntity<>(new HttpHeaders()),
+                    String.class);
+
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         }
 
         @Test
@@ -334,6 +396,35 @@ class UploadFlowTest {
     }
 
     // ================= 辅助 =================
+
+    /**
+     * 取一个签名 URL。
+     *
+     * <p>⚠ 要把 URL 里的 **host 换成测试的随机端口** —— 签名是按
+     * {@code app.url}(配置里的 localhost:8002)签的,而服务跑在随机端口上。
+     *
+     * <p>这正好验证了那条路由**不按请求的完整 URL 校验签名**:
+     * 按完整 URL 校验的话,这里每一次都会「签名无效」——
+     * 而真实部署里反向代理改写 Host 是同一个问题。
+     * 理由写在 {@code StorageTemporaryUrlRoute.serve} 的注释里。
+     */
+    private ResponseEntity<byte[]> fetchSigned(String signedUrl) {
+        int pathStart = signedUrl.indexOf('/', signedUrl.indexOf("://") + 3);
+        String local = "http://localhost:" + port + signedUrl.substring(pathStart);
+
+        // ★ 必须传 URI 而不是 String。
+        //
+        // RestTemplate 把 String 当成 **URI 模板**并再编码一次 ——
+        // 于是签名 URL 里的 path=avatars%2F1%2Fx.png 变成
+        // path=avatars%252F1%252Fx.png,服务端解码出来是
+        // "avatars%2F1%2Fx.png" 而不是 "avatars/1/x.png",签名对不上。
+        //
+        // 第一次写成 String 时得到的是 403 —— 而那个失败看起来
+        // 完全像「框架的签名校验坏了」。记在这里是因为
+        // 这个坑会在任何用 RestTemplate 测签名 URL 的地方重现
+        return rest.exchange(java.net.URI.create(local), HttpMethod.GET,
+                new HttpEntity<>(new HttpHeaders()), byte[].class);
+    }
 
     /** 从一段 JSON 里抠一个字符串字段 —— 不引 Jackson,断言更直白 */
     private static String jsonString(String json, String field) {

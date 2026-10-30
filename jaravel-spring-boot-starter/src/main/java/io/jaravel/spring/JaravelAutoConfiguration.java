@@ -210,8 +210,16 @@ public class JaravelAutoConfiguration {
         sorted.sort(Comparator.comparingInt(RouteDefinition::order)
                               .thenComparing(d -> d.getClass().getName()));
 
-        if (sorted.isEmpty()) {
-            System.err.println("[jaravel] 警告:没有找到任何 RouteDefinition 实现。"
+        // 「一条都没有」的判断要**排掉框架自带的那些**
+        // (存储的临时 URL 路由就是一个 RouteDefinition bean)。
+        //
+        // 不排的话这个警告永远不会再触发 —— 而它要提示的情况
+        // (忘了给 WebRoutes 加 @Component)依然会发生,
+        // 只是症状变成了「所有路由都 404」
+        boolean onlyFrameworkRoutes = sorted.stream()
+                .allMatch(FrameworkRoutes.class::isInstance);
+        if (onlyFrameworkRoutes) {
+            System.err.println("[jaravel] 警告:没有找到任何应用的 RouteDefinition 实现。"
                     + "新建一个 routes/WebRoutes.java 并加上 @Component。");
         }
         for (RouteDefinition d : sorted) d.define(router);

@@ -36,6 +36,15 @@ public class BasicRequest implements Request {
     private String routeName;
     private Object raw;
 
+    /**
+     * 原始查询串 —— 签名校验要它,见 {@link Request#queryString()}。
+     *
+     * <p>不从 {@code queryParams} 重建:重建会丢掉原始的
+     * 百分号编码与参数顺序,而且重建出来的东西
+     * 看起来像原文 —— 那比没有更危险。
+     */
+    private String rawQueryString = "";
+
     // ---------- 构造 ----------
 
     public static BasicRequest of(String method, String path) {
@@ -114,6 +123,7 @@ public class BasicRequest implements Request {
 
     public void parseQueryString(String qs) {
         if (qs == null || qs.isBlank()) return;
+        this.rawQueryString = qs;
         for (String pair : qs.split("&")) {
             if (pair.isEmpty()) continue;
             int eq = pair.indexOf('=');
@@ -206,6 +216,11 @@ public class BasicRequest implements Request {
         Object v = all().get(key);
         if (v == null) return Optional.empty();
         return Optional.ofNullable(Cast.to(v, type));
+    }
+
+    @Override
+    public String queryString() {
+        return rawQueryString;
     }
 
     @Override

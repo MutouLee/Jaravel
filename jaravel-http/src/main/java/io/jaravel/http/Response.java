@@ -20,6 +20,14 @@ public class Response {
         record ViewRef(String name, Map<String, Object> data) implements Body {}
         /** 待序列化的对象,由 starter 的 JSON 层处理 */
         record Json(Object value) implements Body {}
+        /**
+         * 已就绪的字节 —— 下载、图片、PDF。
+         *
+         * <p>它与 {@link Text} 分开而不是「把字节当 UTF-8 字符串装进 Text」:
+         * 后者会让任何不是合法 UTF-8 的字节(也就是所有二进制文件)
+         * 在往返中被替换成 U+FFFD,于是下载下来的 PNG 坏掉。
+         */
+        record Bytes(byte[] content) implements Body {}
         /** 空 */
         record None() implements Body {}
     }
@@ -59,6 +67,125 @@ public class Response {
         var r = new Response();
         r.status = 204;
         return r;
+    }
+
+    // ---------- 二进制 / 下载 ----------
+
+    /** 裸字节,调用方自己设 Content-Type */
+    public static Response bytes(byte[] content) {
+        var r = new Response();
+        r.body = new Body.Bytes(content == null ? new byte[0] : content);
+        r.contentType = "application/octet-stream";
+        return r;
+    }
+
+    /**
+     * 作为**下载**返回(docs/03 的 {@code Response.download})。
+     *
+     * <pre>{@code
+     * byte[] pdf = Storage.get("invoices/1.pdf").orElseThrow();
+     * return Response.download(pdf, "发票.pdf");
+     * }</pre>
+     *
+     * <p>⚠ 为什么不是 {@code Storage.download("invoices/1.pdf", "发票.pdf")}
+     * (docs/11 §3.1 里写的那个):那需要存储模块依赖 HTTP 模块,
+     * 而一个只往 S3 写文件的后台任务不该为此拉进 HTTP。
+     * 与 {@code UploadedFile} 没有 {@code store(...)} 是同一条约束的两面。
+     */
+    public static Response download(byte[] content, String fileName) {
+        return download(content, fileName, "application/octet-stream");
+    }
+
+    public static Response download(byte[] content, String fileName,
+                                    String contentType) {
+        return bytes(content)
+                .contentType(contentType)
+                .header("Content-Disposition", disposition("attachment", fileName));
+    }
+
+    /**
+     * 作为**内联内容**返回 —— 浏览器直接显示而不是弹下载框。
+     *
+     * <p>典型用途:在页面里显示一张私有图片。
+     */
+    public static Response inline(byte[] content, String fileName,
+                                  String contentType) {
+        return bytes(content)
+                .contentType(contentType)
+                .header("Content-Disposition", disposition("inline", fileName));
+    }
+
+    /**
+     * 构造 {@code Content-Disposition} 头。
+     *
+     * <p>★ **这是一道安全边界**,做的事按顺序是:
+     *
+     * <ol>
+     *   <li>只取路径的最后一段 —— 一个 {@code ../../etc/passwd} 的文件名
+     *       本身不会读到别的文件(内容已经在手上了),但它会出现在
+     *       用户的下载目录里;</li>
+     *   <li>去掉 CR / LF / NUL —— 文件名常常来自用户(上传时的原始名、
+     *       或一个带用户名的导出文件)。一个带 {@code \r\n} 的名字
+     *       能**注入任意响应头**,包括 {@code Set-Cookie};</li>
+     *   <li>去掉引号与反斜杠 —— 它们能提前关闭 {@code filename="..."}
+     *       从而注入 disposition 的其它参数;</li>
+     *   <li>ASCII 的那份做 {@code filename=},再附一份
+     *       RFC 5987 的 {@code filename*=UTF-8''...}。</li>
+     * </ol>
+     *
+     * <p>为什么要两份:{@code filename=} 只能可靠地带 ASCII,
+     * 而 {@code filename*=} 老浏览器不认。只给前者的话中文文件名
+     * 会变成乱码或被截断;只给后者的话老客户端拿到的是
+     * 一个没有名字的下载。
+     */
+    private static String disposition(String type, String fileName) {
+        String safe = sanitizeFileName(fileName);
+
+        // 非 ASCII 字符换成 _ 作为兜底的那一份。
+        //
+        // 不是删掉:一个全中文的文件名会变成空串,而
+        // filename="" 在部分客户端上会让下载失败
+        var ascii = new StringBuilder();
+        for (char ch : safe.toCharArray()) {
+            ascii.append(ch < 0x80 ? ch : '_');
+        }
+
+        String encoded = java.net.URLEncoder.encode(safe,
+                        java.nio.charset.StandardCharsets.UTF_8)
+                // URLEncoder 是给表单用的:空格编成 +,而 RFC 5987
+                // 要求 %20。不换的话一个带空格的文件名会出现一堆加号
+                .replace("+", "%20");
+
+        return "%s; filename=\"%s\"; filename*=UTF-8''%s"
+                .formatted(type, ascii, encoded);
+    }
+
+    /**
+     * 文件名消毒 —— 见 {@link #disposition} 的说明。
+     *
+     * <p>与 {@code PathGuard.sanitizeFileName} 不同:那一个是为**存储路径**
+     * 准备的(还要管 Windows 保留名、255 字节截断),这一个只管
+     * 「放进一个响应头里安全吗」。两处的威胁模型不一样,
+     * 合成一个会让其中一方带上不需要的限制 —— 而且
+     * {@code jaravel-http} 不依赖存储模块。
+     */
+    private static String sanitizeFileName(String fileName) {
+        if (fileName == null || fileName.isBlank()) return "download";
+
+        // 只取最后一段:/ 与 \ 都切
+        String base = fileName;
+        int slash = Math.max(base.lastIndexOf('/'), base.lastIndexOf('\\'));
+        if (slash >= 0) base = base.substring(slash + 1);
+
+        var out = new StringBuilder();
+        for (char ch : base.toCharArray()) {
+            // 控制字符(含 CR/LF/NUL)、引号、反斜杠一律丢弃
+            if (ch < 0x20 || ch == 0x7F || ch == '"' || ch == '\\') continue;
+            out.append(ch);
+        }
+
+        String cleaned = out.toString().trim();
+        return cleaned.isEmpty() ? "download" : cleaned;
     }
 
     public static Response of(Body body, int status) {

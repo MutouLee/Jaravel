@@ -555,9 +555,31 @@ Storage.setVisibility("a.png", "public");
 String v = Storage.getVisibility("a.png");
 
 // 响应(控制器直接返回)
-return Storage.download("invoices/1.pdf", "发票.pdf");
-return Storage.response("avatars/1.png");      // 内联显示
+byte[] pdf = Storage.get("invoices/1.pdf").orElseThrow();
+return Response.download(pdf, "发票.pdf");
+return Response.inline(pdf, "report.pdf", "application/pdf");   // 内联显示
 ```
+
+> **⚠ 与上面示例的偏差:没有 `Storage.download(...)` / `Storage.response(...)`**
+>
+> 它们要返回一个 `Response`,也就是存储模块要依赖 HTTP 模块 ——
+> 而一个只往 S3 写文件的后台任务不该为此拉进 HTTP。
+> 这与 `UploadedFile` 没有 `store(...)` 是同一条约束的两面。
+>
+> 所以构造响应的那一半在 HTTP 侧:`Response.download(bytes, fileName)`、
+> `Response.inline(bytes, fileName, mime)`、`Response.bytes(bytes)`。
+>
+> ⚠ **`Content-Disposition` 是一道安全边界**(文件名常常来自用户):
+> 只取路径最后一段、去掉 CR/LF(否则是**响应头注入**,能注入
+> `Set-Cookie`)、去掉引号与反斜杠(否则能提前关掉 `filename="..."`
+> 注入别的参数)、ASCII 兜底一份 + RFC 5987 的 `filename*` 一份。
+>
+> ⚠ **二进制正文不经过 `String`。** `Response.Body` 多了一个
+> `Bytes` 变体 —— 把字节当 UTF-8 装进 `Text` 会让所有非法 UTF-8
+> 字节变成 U+FFFD,于是下载下来的 PNG 坏掉。
+> 同理,二进制响应会**清掉字符编码**再设 Content-Type,
+> 否则 Spring 的 `CharacterEncodingFilter` 会让一张 PNG 的类型
+> 变成 `image/png;charset=UTF-8`。
 
 > **v0.4 实现说明**
 >
@@ -578,8 +600,33 @@ return Storage.response("avatars/1.png");      // 内联显示
 > 把文件流出去。差异必须说清:下载**流过应用**(带宽与线程都算在
 > 应用头上)、应用挂了链接就失效 —— 但它真的能用。
 >
-> 签名覆盖了**整个 URL(含 path 查询参数)**,所以改路径签名就失效 ——
+> 签名覆盖了**base + 全部查询参数(含 path)**,所以改路径签名就失效 ——
 > 那是这道边界成立的关键。不校验的话这个路由等于一个任意文件读取漏洞。
+>
+> **那条路由由框架自己注册**(`FrameworkRoutes` bean,
+> 路径 `/storage/temporary`,路由名 `storage.temporary`)——
+> 应用不需要手动挂它。`order()` 取 `Integer.MAX_VALUE` 让它排在应用
+> 路由之后,所以一个想自己接管它(比如加一层额外授权)的应用
+> 只要声明同一条路径即可。
+>
+> ⚠ **校验用的是「配置里的 `app.url` + 请求的原始查询串」,
+> 不是请求的完整 URL。** 签 URL 时只有配置、没有请求,而请求到达时的
+> host 常常不等于 `app.url`(测试跑随机端口、反向代理改写 Host、
+> 一个应用挂多个域名)。按完整 URL 校验的话以上每一种都会得到
+> 「签名无效」,而那个消息与真正的原因之间没有线索。
+> 代价是「为 a.example.com 签的链接在 b.example.com 上也有效」——
+> 那不是有意义的削弱:签名密钥是应用级的(`app.key`),
+> 两个域名跑的是同一个应用、同一个磁盘。
+>
+> ⚠ 校验必须用**原始**查询串(`Request.queryString()`)。
+> 只按已知参数重建 URL 的话,追加一个 `&tampered=1` 会被静默丢弃,
+> 签名照样通过 —— 整道边界就没了。
+>
+> 签名不对 / 过期 → **403**,不是 404:那是一个授权失败,
+> 而 404 会让一个「链接过期了」的用户以为文件被删了。
+> 响应还带 `Cache-Control: private, no-store`(链接是限时的,
+> 一个被 CDN 缓存的响应会在链接过期后继续可用)与
+> `X-Content-Type-Options: nosniff`。
 >
 > **`temporaryUploadUrl` 在 local 上报错**,而不是返回一个指向应用的
 > 上传端点。这个 API 的价值在于「大文件不流过应用」,

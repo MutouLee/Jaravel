@@ -56,6 +56,20 @@ public interface Request {
 
     Optional<String> query(String key);
 
+    /**
+     * **原始**查询串,不含 {@code ?}。没有查询串时是空串。
+     *
+     * <p>存在的理由只有一个:**签名校验**。
+     *
+     * <p>一个签名覆盖的是「base + 全部查询参数」,所以校验时必须能看到
+     * **全部**参数 —— 包括调用方不认识的那些。只按已知参数重建 URL 的话,
+     * 攻击者追加一个 {@code &tampered=1} 会被静默丢弃,
+     * 于是签名照样通过 —— 那让整道边界失效。
+     *
+     * <p>日常取值请用 {@link #query(String)} / {@link #input(String)}。
+     */
+    String queryString();
+
     default String query(String key, String def) {
         return query(key).orElse(def);
     }

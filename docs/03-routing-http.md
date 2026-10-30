@@ -489,9 +489,11 @@ Redirect.away("https://external.com");
 Redirect.to("/dashboard").with("status", "Profile updated!");   // flash session
 
 // 文件
-Response.download(path, "report.pdf");
-Response.file(path);
-Response.stream(out -> { /* 流式写出,适合大导出 */ });
+Response.download(bytes, "report.pdf");                 // v0.4:收字节,不是路径
+Response.download(bytes, "report.pdf", "application/pdf");
+Response.inline(bytes, "chart.png", "image/png");       // 浏览器直接显示
+Response.bytes(bytes);                                  // 裸字节,自己设类型
+Response.stream(out -> { /* 流式写出,适合大导出 */ });   // ⚠ v0.4 未实现
 
 // 其他
 Response.text("ok");
@@ -499,6 +501,34 @@ Response.redirectResponse(301, "/new");
 Response.abort(404);                 // 抛 HttpException,交给 ExceptionHandler
 Response.abortIf(cond, 403, "No permission");
 ```
+
+> **v0.4 实现说明:二进制响应**
+>
+> **收字节而不是路径。** `Response.download(path, ...)` 要读文件,
+> 也就是 HTTP 模块要依赖存储模块 —— 而那是
+> `UploadedFile` 没有 `store(...)` 的同一条约束
+> (见 docs/11 §3.1)。写法是:
+>
+> ```java
+> byte[] pdf = Storage.get("invoices/1.pdf").orElseThrow();
+> return Response.download(pdf, "发票.pdf");
+> ```
+>
+> ⚠ **`Content-Disposition` 是一道安全边界** —— 文件名常常来自用户
+> (上传时的原始名、带用户名的导出)。所以:只取路径最后一段、
+> 去掉 CR/LF(否则是**响应头注入**,能注入 `Set-Cookie`)、
+> 去掉引号与反斜杠(否则能提前关掉 `filename="..."` 注入别的参数)、
+> 非 ASCII 的名字给**两份**(ASCII 兜底 + RFC 5987 的 `filename*`,
+> 因为前者带不了中文、后者老浏览器不认)。
+>
+> ⚠ **`Response.stream(...)` 未实现。** 它要把 `OutputStream` 暴露给
+> 控制器,而当前的管线是「控制器返回一个值 → 适配层写出」——
+> 两步分开是刻意的(渲染可能抛异常,必须发生在异常处理区域之内)。
+> 流式写出会让异常发生在**响应已经开始写之后**,那时既改不了状态码
+> 也发不出错误页。做它需要先定义「流到一半失败」的行为。
+>
+> 大导出目前的做法是分页 + 多次请求,或者后台任务生成文件 +
+> 签名的临时 URL(docs/11 §3.1)。
 
 ### 4.1 返回值归一化
 

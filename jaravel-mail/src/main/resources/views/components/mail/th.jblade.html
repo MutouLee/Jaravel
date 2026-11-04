@@ -1,0 +1,3 @@
+{{-- 表头单元格。见 <x-mail::table> 的注释:样式必须跟着单元格走。 --}}
+@props(String align = "left")
+<th style="padding:8px 12px;border-bottom:2px solid #e5e7eb;text-align:{{ align }};font-size:13px;font-weight:600;color:#6b7280;">{{ slot }}</th>

@@ -143,37 +143,80 @@ mail:
 
 ```html
 @params(Order order, String tracking)
-<x-mail::message>
-# 订单已发货
+<x-mail::message title="订单已发货">
+  <h1 style="margin:0 0 16px;font-size:22px;color:#1f2937;">订单已发货</h1>
+  <p>你的订单 <strong>#{{ order.number }}</strong> 已经发出。</p>
 
-你的订单 **#{{ order.number }}** 已经发出。
+  <x-mail::button :url="tracking">查看物流</x-mail::button>
 
-<x-mail::button :url="tracking">
-查看物流
-</x-mail::button>
+  <x-mail::table>
+    <tr><x-mail::th>商品</x-mail::th><x-mail::th align="right">数量</x-mail::th></tr>
+    @foreach (order.items() as item)
+    <tr><x-mail::td>{{ item.name }}</x-mail::td><x-mail::td align="right">{{ item.qty }}</x-mail::td></tr>
+    @endforeach
+  </x-mail::table>
 
-<x-mail::table>
-| 商品 | 数量 |
-|------|-----|
-@foreach (order.items() as item)
-| {{ item.name }} | {{ item.qty }} |
-@endforeach
-</x-mail::table>
+  <x-mail::panel>预计 3 个工作日内送达。</x-mail::panel>
 
-<x-mail::panel>
-预计 3 个工作日内送达。
-</x-mail::panel>
+  <p>谢谢,<br>{{ config.name }}</p>
 
-谢谢,<br>{{ config('app.name') }}
+  <x-slot:header>{{ config.name }}</x-slot>
+  <x-slot:subcopy>按钮点不开?把这个地址粘到浏览器里:{{ tracking }}</x-slot>
+  <x-slot:footer>© 2026 {{ config.name }}</x-slot>
 </x-mail::message>
 ```
 
-内置组件自带 inline CSS(邮件客户端不支持外部样式表),支持主题定制(`jaravel vendor:publish --tag=mail-theme`)。
+内置组件自带 inline CSS(邮件客户端不支持外部样式表)。
 
-> **v0.4 未实现这一节。** `<x-mail::message>` 这套组件需要 jblade 的
-> **组件支持**,而视图层还没有它(没有 `<x-...>` 的解析)。
+> ### v0.4 实现状态:这套组件可用(9 个测试)
 >
-> 替代物是 `Mailable.simple()`:一个**不需要模板**的构建器
+> | 组件 | 用途 |
+> |---|---|
+> | `<x-mail::message>` | 整封邮件的布局。具名 slot:`header` / `subcopy` / `footer`,不传就不渲染 |
+> | `<x-mail::button>` | 按钮。`:url` 必填,`color` 可选(`primary` / `success` / `danger`,或直接写色值) |
+> | `<x-mail::panel>` | 强调块(灰底 + 左边界) |
+> | `<x-mail::table>` + `<x-mail::th>` / `<x-mail::td>` | 表格 |
+>
+> 模板是 `jaravel-mail` 的资源(`views/components/mail/`),
+> 开发模式靠 jblade 的 **classpath 回落**解析到,生产模式本来就在
+> classpath 的 `views/` 下。应用在自己的
+> `views/components/mail/panel.jblade.html` 放一份同名模板就能覆盖 ——
+> 零命令的 `vendor:publish`。
+>
+> #### ★ 两处与上面示例不同的设计,都是被约束逼出来的
+>
+> **1. 表格的单元格也是组件,不是 Markdown 语法。**
+> 原先的例子是 `| 商品 | 数量 |`。那需要一个 Markdown 解析器,
+> 而 ADR 明确不引入(docs/18:统一模板引擎)。
+> 退一步「只包一层外壳、里面让作者写 `<td>`」也不行:邮件的样式必须
+> **内联在每个元素上**,而外壳够不到作者写的 `<td>` ——
+> 渲染出来会是个没边框、没内边距的裸表格,比没有这个组件更坏
+> (它看起来像是提供了样式)。
+> 所以单元格由 `<x-mail::th>` / `<x-mail::td>` 渲染。
+> 代价是比 Markdown 啰嗦,换来的是「它在 Outlook 里长得对」。
+> `<tr>` 仍然是作者自己写的 —— 它不带样式,没有包装的必要。
+>
+> **2. 正文是 HTML 而不是 Markdown。** 同一个理由:`# 标题`、`**粗体**`
+> 都需要解析器。标题这类元素要带内联样式,所以示例里直接写
+> `<h1 style="…">`。
+>
+> #### 颜色在 Java 里(`MailTheme`)
+>
+> 按钮的背景色同时写在外层 `<td>` 和里面的 `<a>` 上 ——
+> `<a>` 的 padding 在 Outlook 里不可靠,两层都写的话谁被剥掉另一个还在。
+> 色值因此会在模板里出现两次,写成一个 Java 常量是一处定义,
+> 而且 `jaravel-mail` 的测试不需要模板编译器就能覆盖它。
+>
+> ⚠ 认不出的颜色名**回落到 primary 而不是报错** ——
+> 与框架别处「不认识就响亮报错」相反,理由是场合:渲染发生在发信的时候,
+> 常常在一个队列任务里。为一个颜色名的拼写错误让一封密码重置邮件发不出去,
+> 比按钮颜色不对要糟得多,而颜色错了在预览里一眼就能看见。
+>
+> **主题定制(`jaravel vendor:publish --tag=mail-theme`)未实现** ——
+> `vendor:publish` 属于 v0.5 的 Artisan。在那之前,覆盖同名模板
+> 就是它的手动版本。
+>
+> 另一条路是 `Mailable.simple()`:一个**不需要模板**的构建器
 > (`subject` / `line` / `action`),用一段手写的、带内联样式的 HTML
 > 布局渲染。它刻意很保守 —— 用 `<table>` 做布局(Outlook 的渲染引擎
 > 是 Word,对 div + CSS 的支持极不可靠)、不用现代 CSS、
@@ -185,6 +228,10 @@ mail:
 >
 > 「够用」的标准:一封通知邮件在 Gmail / Outlook / Apple Mail 里
 > 都能正常显示。要完全控制外观就写自己的模板(`Content.view(...)`)。
+>
+> 它的样式与上面这套组件**刻意一致**(同一组色值,见 `MailTheme`)——
+> 同一个应用里两条路径发出的邮件长得不一样,是个没人会去修
+> 但一直刺眼的问题。
 
 > **v0.4 的驱动实现情况**
 >

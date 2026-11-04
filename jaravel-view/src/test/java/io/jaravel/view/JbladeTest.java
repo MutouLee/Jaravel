@@ -65,6 +65,90 @@ class JbladeTest {
         }
 
         @Test
+        @DisplayName("★ 注释里的组件标签与指令不被翻译(注释里最常写的就是用法示例)")
+        void commentsAreNotTranslated(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of("t", """
+                    {{-- 用法:<x-card>正文</x-card>,循环用 @foreach (xs as x) --}}
+                    <p>正常</p>
+                    """));
+            assertThat(e.render("t", Map.of()))
+                    .as("""
+                            转成 jte 的 <%-- --%> 而把正文留在行里的话,
+                            后面的组件/指令翻译照样看得见它 —— 报错会指着
+                            一个作者认为自己注释掉了的标签。""")
+                    .contains("<p>正常</p>")
+                    .doesNotContain("用法").doesNotContain("x-card");
+        }
+
+        @Test
+        @DisplayName("★ 跨行的注释块整段消失(注释里常常写 HTML 用法示例)")
+        void multiLineComments(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of("t", """
+                    <p>前</p>
+                    {{--
+                      用法:
+                      <x-card><td>不该被 jte 看见</td></x-card>
+                    --}}
+                    <p>后</p>
+                    """));
+            String out = e.render("t", Map.of());
+            assertThat(out)
+                    .as("""
+                            逐行的注释正则匹配不上跨行的块。漏掉的后果不是
+                            「注释没生效」那么温和:注释里的 HTML 会让 jte 报
+                            「Unclosed tag」,指着一个作者认为自己注释掉了的标签。""")
+                    .contains("<p>前</p>", "<p>后</p>")
+                    .doesNotContain("用法").doesNotContain("不该被");
+        }
+
+        @Test
+        @DisplayName("★ 只有注释的行连换行都不发 —— 顶上的注释块不该把 <!DOCTYPE> 推下去")
+        void commentOnlyLinesEmitNothing(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of("t", """
+                    {{--
+                      这个组件怎么用:
+                      <x-card>…</x-card>
+                    --}}
+                    <!DOCTYPE html>
+                    <html><body>正文</body></html>
+                    """));
+            assertThat(e.render("t", Map.of()))
+                    .as("""
+                        DOCTYPE 不是第一个字节会让一些客户端进怪异模式 ——
+                        框架自带的邮件组件每个都带一段讲用法的注释,
+                        那是几十行。""")
+                    .startsWith("<!DOCTYPE html>");
+        }
+
+        @Test
+        @DisplayName("跨行注释的前后同一行上的内容保留")
+        void multiLineCommentKeepsSurroundingText(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of("t", """
+                    <p>甲</p>{{-- 开始
+                    中间
+                    结束 --}}<p>乙</p>
+                    """));
+            String out = e.render("t", Map.of());
+            assertThat(out).contains("<p>甲</p>").contains("<p>乙</p>")
+                           .doesNotContain("中间");
+        }
+
+        @Test
+        @DisplayName("跨行注释不打乱行号映射")
+        void multiLineCommentKeepsLineNumbers(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of("t", """
+                    @params(io.jaravel.view.TestPost post)
+                    {{--
+                      注释
+                    --}}
+                    <p>{{ post.titel }}</p>
+                    """));
+            assertThatThrownBy(() -> e.render("t", Map.of("post", posts().get(0))))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("t.jblade.html:5");
+        }
+
+        @Test
         @DisplayName("@{{ x }} 原样输出,交给前端框架")
         void verbatimEcho(@TempDir Path tmp) {
             var e = engine(tmp, Map.of("t", "<span>@{{ vue.value }}</span>\n"));

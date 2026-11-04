@@ -1,0 +1,16 @@
+{{--
+  一段强调的话(docs/11 §1.4)—— 灰底、左侧一道竖线。
+
+  <x-mail::panel>预计 3 个工作日内送达。</x-mail::panel>
+
+  左边界用 border-left 而不是一个单独的格子:Outlook 对相邻单元格的
+  宽度处理不可靠,一道边框是它唯一不会算错的做法。
+--}}
+@props()
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0;background:#f9fafb;border-left:4px solid #d1d5db;border-radius:4px;">
+  <tr>
+    <td style="padding:16px 20px;font-size:14px;line-height:1.7;color:#4b5563;">
+      {{ slot }}
+    </td>
+  </tr>
+</table>

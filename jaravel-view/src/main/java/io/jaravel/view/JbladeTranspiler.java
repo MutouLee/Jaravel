@@ -74,6 +74,8 @@ public final class JbladeTranspiler {
 
     /** @verbatim 块内不做任何转换 */
     private boolean inVerbatim = false;
+    /** 处在一个跨行的 {{-- --}} 注释里 */
+    private boolean inComment = false;
     /** 块结构校验栈 */
     private final Deque<OpenBlock> blocks = new ArrayDeque<>();
 
@@ -187,6 +189,38 @@ public final class JbladeTranspiler {
             }
             if (line.trim().equals("@verbatim")) { inVerbatim = true; emit("", sourceLine); continue; }
 
+            // ---- 跨行注释 ----
+            //
+            // ★ 单行的 {{-- … --}} 由 translateEchos 前面的 COMMENT 正则处理,
+            // 但那是**逐行**的 —— 跨几行的注释块在任何一行上都匹配不上,
+            // 于是整段注释正文会被当成普通文本流给 jte。
+            //
+            // 后果不是「注释没生效」那么温和:注释里要是写了 HTML
+            // (给同事看的用法示例,这是注释最常见的内容),jte 会报一句
+            // 「Unclosed tag <td>」—— 指着一个模板作者认为自己注释掉了的标签。
+            // 而没有 HTML 的那些,会直接把注释印在页面上。
+            //
+            // 这里用一个状态位吞掉中间的行。吞掉的行**仍然 emit 一个空行**,
+            // 为的是行号映射不动 —— 注释后面的内容出错时还要指对位置。
+            // ★ 只有注释的行**连换行都不发**:否则模板顶上那段
+            // 讲用法的注释块会在 <!DOCTYPE html> 前留下几十个空行 ——
+            // 而 DOCTYPE 不是第一个字节会让一些客户端进怪异模式
+            // (布局继承那边为同一件事专门有一条测试)。
+            if (inComment) {
+                int end = line.indexOf("--}}");
+                if (end < 0) continue;
+                inComment = false;
+                line = line.substring(end + 4);           // 闭合之后的部分照常处理
+                if (line.isBlank()) continue;
+            }
+            int commentStart = unclosedCommentAt(line);
+            if (commentStart >= 0) {
+                inComment = true;
+                String before = line.substring(0, commentStart);   // 开头之前的部分照常处理
+                if (before.isBlank()) continue;
+                line = before;
+            }
+            if (!line.isBlank() && COMMENT.matcher(line).replaceAll("").isBlank()) continue;
 
             lineHadDirective = false;
             String translated = translateLine(line, sourceLine);
@@ -247,6 +281,23 @@ public final class JbladeTranspiler {
                 + "\n  在 " + templateName + " 第 " + b.line() + " 行打开,到文件结束仍未闭合");
     }
 
+    /**
+     * 本行有没有一个**没闭合**的 {@code {{--}} —— 返回它的位置,没有则 -1。
+     *
+     * <p>成对的那些留给逐行的 COMMENT 正则(它们在同一行里闭合了)。
+     * 这里找的是跨到下一行去的那个。
+     */
+    private static int unclosedCommentAt(String line) {
+        int cursor = 0;
+        while (true) {
+            int open = line.indexOf("{{--", cursor);
+            if (open < 0) return -1;
+            int close = line.indexOf("--}}", open + 4);
+            if (close < 0) return open;
+            cursor = close + 4;
+        }
+    }
+
     // ================= 行翻译 =================
 
     /** 返回 null 表示该行不产出 jte 内容(如 @params 已提取到头部) */
@@ -260,11 +311,18 @@ public final class JbladeTranspiler {
         if (trimmed.startsWith("@import"))  { collectImport(trimmed); return null; }
         if (trimmed.startsWith("@extends")) { collectExtends(trimmed, sourceLine); return null; }
 
-        // 注释先去掉,避免其中的 @ 与 {{ 被当作指令
-        // 注意:replaceAll(Function) 的返回值**整体**会按 replacement 语法解析($、\ 有特殊含义),
-        // 因此必须对整个结果调用 quoteReplacement,而不是只包其中一部分。
-        String work = COMMENT.matcher(line)
-                .replaceAll(m -> Matcher.quoteReplacement("<%--" + m.group(1) + "--%>"));
+        // ★ 注释**连内容一起丢掉**,不是转成 jte 的 <%-- --%>。
+        //
+        // 转成 jte 注释的话,注释正文仍然留在这一行里,后面的
+        // translateComponents / translateDirectives 照样会看见它 ——
+        // 于是注释里一句给同事看的用法示例(「<x-mail::table> 这样用」)
+        // 会被当成一个真的组件开标签,报「<x-mail::table> 没有闭合」;
+        // 注释里的 @foreach 会压进块栈,报「到文件结束仍未闭合」。
+        // 两者都指着模板作者认为自己注释掉了的东西。
+        //
+        // 代价是生成的 jte 源码里看不到原注释。那只在读生成码时有一点用,
+        // 换一个「注释里不能写什么」的隐形规则不值得。
+        String work = COMMENT.matcher(line).replaceAll("");
 
         // 组件在**指令之前**翻译。
         //

@@ -1,0 +1,77 @@
+{{--
+  内置邮件布局(docs/11 §1.4)。
+
+  <x-mail::message>
+    <h1>订单已发货</h1>
+    <p>你的订单 #1024 已经发出。</p>
+    <x-mail::button :url="tracking">查看物流</x-mail::button>
+    <x-slot:subcopy>按钮点不开?把这个地址粘到浏览器里。</x-slot>
+  </x-mail::message>
+
+  ★ 为什么是 table 套 table、style 写在每个元素上
+  邮件客户端不支持外部样式表,大部分也不支持 <style> 块(Gmail 会剥掉)。
+  唯一可靠的办法是每个元素自带 style 属性。
+  布局用 <table> 而不是 div:Outlook 的渲染引擎是 Word,
+  它对 div + CSS 的支持极不可靠。
+
+  这套样式与 Mailable.simple() 的内置布局**刻意一致** ——
+  同一个应用里两条路径发出的邮件长得不一样,是个没人会去修但一直刺眼的问题。
+
+  ⚠ 这里不能用 @extends:布局继承是 jblade 的 section/yield 机制,
+  而组件走的是参数传递。两者在同一个模板里混用会让「内容到底从哪来」
+  变得不可读 —— 组件的 slot 已经够表达这件事。
+--}}
+@props(String title = "")
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ title }}</title>
+</head>
+<body style="margin:0;padding:0;background:#f3f4f6;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f4f6;padding:32px 16px;">
+  <tr>
+    <td align="center">
+
+      @if (hasSlot("header"))
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">
+        <tr><td style="padding:0 0 16px;text-align:center;font-size:18px;font-weight:600;color:#374151;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+          {{ slot("header") }}
+        </td></tr>
+      </table>
+      @endif
+
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#ffffff;border-radius:8px;padding:32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+        <tr>
+          <td style="font-size:15px;line-height:1.7;color:#374151;">
+            {{ slot }}
+          </td>
+        </tr>
+
+        @if (hasSlot("subcopy"))
+        <tr>
+          <td style="padding:24px 0 0;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid #e5e7eb;">
+              <tr><td style="padding:16px 0 0;font-size:13px;line-height:1.6;color:#6b7280;">
+                {{ slot("subcopy") }}
+              </td></tr>
+            </table>
+          </td>
+        </tr>
+        @endif
+      </table>
+
+      @if (hasSlot("footer"))
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">
+        <tr><td style="padding:16px 0 0;text-align:center;font-size:12px;line-height:1.6;color:#9ca3af;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+          {{ slot("footer") }}
+        </td></tr>
+      </table>
+      @endif
+
+    </td>
+  </tr>
+</table>
+</body>
+</html>

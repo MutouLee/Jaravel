@@ -1,0 +1,26 @@
+{{--
+  表格(docs/11 §1.4)。
+
+  <x-mail::table>
+    <tr><x-mail::th>商品</x-mail::th><x-mail::th>数量</x-mail::th></tr>
+    @foreach (order.items() as item)
+    <tr><x-mail::td>{{ item.name }}</x-mail::td><x-mail::td>{{ item.qty }}</x-mail::td></tr>
+    @endforeach
+  </x-mail::table>
+
+  ★ 为什么单元格也是组件,而不是直接写 <td>
+  docs/11 原先的例子是 Markdown 表格语法(| 商品 | 数量 |)。那需要一个
+  Markdown 解析器,而 ADR 明确不引入(docs/18:统一模板引擎)。
+
+  退一步只包一层外壳也不行:邮件里的样式必须**内联在每个元素上**,
+  而外壳够不到调用方写的 <td>。那样渲染出来是一个没有边框、没有内边距的
+  裸表格 —— 比没有这个组件更坏,因为它看起来像是提供了样式。
+
+  所以单元格由 <x-mail::th> / <x-mail::td> 渲染,样式跟着它们走。
+  代价是比 Markdown 啰嗦,换来的是「它在 Outlook 里长得对」。
+  <tr> 还是调用方自己写的 —— 它不带样式,没有包装的必要。
+--}}
+@props()
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0;border-collapse:collapse;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+  {{ slot }}
+</table>

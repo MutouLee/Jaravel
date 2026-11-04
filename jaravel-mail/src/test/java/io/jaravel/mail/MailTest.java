@@ -346,6 +346,44 @@ class MailTest {
 
     // ================= SimpleMailable =================
 
+    /**
+     * 内置邮件组件的调色板。
+     *
+     * <p>组件模板本身在 {@code jaravel-mail} 的资源里,但渲染它们要
+     * {@code jaravel-view} —— 那套测试在 starter 里
+     * ({@code MailComponentsTest}),理由见本模块 pom 里那条
+     * 「邮件的测试不该拖进一个 jte 编译器」。
+     */
+    @Nested
+    @DisplayName("邮件组件的调色板")
+    class Theme {
+
+        @Test
+        @DisplayName("颜色名映射到色值,也接受直接写的色值")
+        void colorNames() {
+            assertThat(MailTheme.buttonBackground("primary")).isEqualTo(MailTheme.PRIMARY);
+            assertThat(MailTheme.buttonBackground("success")).isEqualTo(MailTheme.SUCCESS);
+            assertThat(MailTheme.buttonBackground("danger")).isEqualTo(MailTheme.DANGER);
+            assertThat(MailTheme.buttonBackground("error"))
+                    .as("error 与 danger 同义 —— 两个名字都有人写")
+                    .isEqualTo(MailTheme.DANGER);
+            assertThat(MailTheme.buttonBackground("#0f766e")).isEqualTo("#0f766e");
+        }
+
+        @Test
+        @DisplayName("★ 认不出的颜色名回落到 primary,而不是让这封邮件发不出去")
+        void unknownColorFallsBack() {
+            assertThat(MailTheme.buttonBackground("prmiary"))
+                    .as("""
+                            模板渲染发生在发信的时候,常常在一个队列任务里。
+                            为一个颜色名的拼写错误让一封密码重置邮件发不出去,
+                            比按钮颜色不对要糟得多 —— 而颜色错了在预览里一眼就能看见。""")
+                    .isEqualTo(MailTheme.PRIMARY);
+            assertThat(MailTheme.buttonBackground(null)).isEqualTo(MailTheme.PRIMARY);
+            assertThat(MailTheme.buttonBackground("  ")).isEqualTo(MailTheme.PRIMARY);
+        }
+    }
+
     @Nested
     @DisplayName("Mailable.simple()")
     class Simple {

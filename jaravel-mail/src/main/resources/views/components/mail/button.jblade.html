@@ -1,0 +1,25 @@
+{{--
+  邮件里的按钮(docs/11 §1.4)。
+
+  <x-mail::button :url="tracking">查看物流</x-mail::button>
+  <x-mail::button :url="u" color="danger">撤销</x-mail::button>
+
+  ★ 它是一个有 padding 的 <a>,外面套一层 table
+  <button> 在邮件里**不可点**(没有表单上下文,多数客户端直接剥掉)。
+  而 <a> 的 padding 在 Outlook 里不可靠 —— 所以背景色与圆角也放在外层
+  <td> 上。两层都写一遍:谁被剥掉另一个还在。
+  色值来自 MailTheme(一处定义,那边解释了为什么不在模板里)。
+
+  ⚠ 一封邮件里只放一个按钮。两个同等显眼的按钮会让「我该点哪个」
+  变成一个问题,而邮件里没有地方解释。这个组件拦不住(它只渲染一个),
+  但 Mailable.simple().action() 拦得住,理由记在那里。
+--}}
+@import io.jaravel.mail.MailTheme
+@props(String url, String color = "primary")
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0;">
+  <tr>
+    <td style="border-radius:6px;background:{{ MailTheme.buttonBackground(color) }};">
+      <a href="{{ url }}" style="display:inline-block;padding:12px 24px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:6px;background:{{ MailTheme.buttonBackground(color) }};">{{ slot }}</a>
+    </td>
+  </tr>
+</table>

@@ -11,6 +11,7 @@ import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 
 import io.jaravel.core.Application;
@@ -62,6 +63,7 @@ import io.jaravel.spring.commands.ScheduleClearMutexesCommand;
 import io.jaravel.spring.commands.ScheduleListCommand;
 import io.jaravel.spring.commands.ScheduleRunCommand;
 import io.jaravel.spring.commands.ScheduleTestCommand;
+import io.jaravel.spring.commands.TinkerCommand;
 import io.jaravel.spring.commands.RouteListCommand;
 
 /**
@@ -213,6 +215,8 @@ public class JaravelConsoleAutoConfiguration {
                 .register(ScheduleClearMutexesCommand.class,
                         () -> new ScheduleClearMutexesCommand(scheduler));
 
+        registry.register(TinkerCommand.class, TinkerCommand::new);
+
         // doctor:框架自带的检查项 + 应用自己加的(DoctorCheck bean)
         registry.register(DoctorCommand.class, () -> new DoctorCommand(
                 doctorChecks(beans.getBean(ConfigRepository.class),
@@ -274,6 +278,46 @@ public class JaravelConsoleAutoConfiguration {
                               命令对象带状态(解析出来的参数就写在它的字段上),
                               所以连着跑两条命令时,第二条会看到第一条留下的选项。
                               加 @Scope("prototype")。%n""", type.getName());
+        }
+    }
+
+    /**
+     * {@code -Djaravel.tinker=true} —— 应用启动完就进 REPL。
+     *
+     * <h2>★ 这是今天进 tinker 的唯一入口</h2>
+     * <p>求值要在应用进程里跑,而 REPL 要读键盘 —— 两件事必须在同一个
+     * 进程、同一个终端上。本地命令通道是单向的(读不到客户端的键盘),
+     * 而 CLI 冷启动应用 JVM 的那条路还没实现。
+     * 所以:{@code mvn spring-boot:run -Djaravel.tinker=true}。
+     *
+     * <p>⚠ 它**占着启动线程**不返回,直到用户 {@code :exit} ——
+     * 那正是想要的(这个进程此刻就是一个 REPL),但也意味着
+     * 这个开关绝不该出现在生产配置里。所以只读系统属性、不读配置文件:
+     * 一个写在 application.yml 里的开关会被打包带走,
+     * 而一个 {@code -D} 参数不会。
+     */
+    @Bean
+    @ConditionalOnProperty(name = "jaravel.tinker", havingValue = "true")
+    public TinkerStarter jaravelTinkerStarter(CommandRegistry registry) {
+        return new TinkerStarter(registry);
+    }
+
+    /** 启动后把终端交给 tinker */
+    public static class TinkerStarter {
+
+        private final CommandRegistry registry;
+
+        TinkerStarter(CommandRegistry registry) {
+            this.registry = registry;
+        }
+
+        @PostConstruct
+        void start() {
+            if (Application.isProduction()) {
+                System.err.println("[jaravel] 生产环境下不开 tinker。");
+                return;
+            }
+            registry.run("tinker", List.of(), new io.jaravel.console.ConsoleIo.System());
         }
     }
 

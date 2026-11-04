@@ -2,7 +2,7 @@
 
 `php artisan` 是 Laravel 体验的半壁江山。Java 侧没有等价物(`mvn spring-boot:run` 不是同一个东西)。本模块补齐这块,目标是**让 `jaravel` 命令的手感与 `artisan` 一致**。
 
-> ### v0.5 实现状态:内核 + 15 条 make:*/key + jaravel 命令 + 通道 + doctor(158 个测试)
+> ### v0.5 实现状态:内核 + 15 条 make:*/key + 通道 + doctor + tinker(177 个测试)
 >
 > **已实现(`jaravel-console`)**
 >
@@ -24,9 +24,11 @@
 > | `schedule:list` · `schedule:run` · `schedule:test` · `schedule:clear-mutexes` | §2.4 |
 > | **`doctor`**(7 项检查 + `--fix`) | §2.6 |
 > | `key:generate`(离线) | §2.5 |
+> | **`tinker`**(求值引擎 + REPL;入口见 §5) | §5 |
 >
-> **未实现**:JVM 启动器(通道不存在时的那条回落)、
-> native 二进制、`tinker`、`db:show` / `db:table` / `config:show` /
+> **未实现**:JVM 启动器(通道不存在时的那条回落 —— 也是
+> `jaravel tinker` 还进不去的原因)、
+> native 二进制、`db:show` / `db:table` / `config:show` /
 > `optimize` 这一批、`queue:restart` / `queue:monitor` /
 > `schedule:work`、`analyze:*`、
 > 其余 `make:*`(见下面那条注记)、
@@ -784,6 +786,60 @@ jaravel> :exit
 | 不支持 `var` 之外的类型推断糖 | — | — |
 
 **与 `php artisan tinker` 的差距是真实的**(PHP 的 REPL 天然无编译步骤)。但 `:reload` + dev server 复用能把体验做到「可用且愉快」,这已足够——Java 生态此前根本没有可用的框架 REPL。
+
+> ### v0.5:求值引擎可用,入口只有一个
+>
+> **动手之前先写了探针**,因为整节的价值取决于一件没验证过的事:
+> JShell 的 `LocalExecutionControlProvider` 能不能拿到宿主进程的容器。
+> 结论是**能** —— 片段里的 `ProcessHandle.current().pid()` 与宿主相同、
+> 读到的是容器里那个真对象、而且**片段对静态状态的修改宿主能看见**。
+> 拿不到的话 tinker 只是个 Java 计算器,那时如实降级比硬做更好。
+>
+> 探针还查出四件必须处理的事,每件都在代码注释里:
+>
+> | 发现 | 处理 |
+> |---|---|
+> | **声明语句要补分号**:`int x = 5` 被拒(「进行语法分析时已到达文件结尾」),而 `x * 2` 不用 | 交给 `analyzeCompletion` —— 原生 jshell 也是这么做的 |
+> | **值只以字符串形式回来**,所以 `Post.find(1)` 是 `Post@397fbdb` | 表达式先包进 `TinkerFormatter` 再求值 —— 格式化要发生在还有真对象的那一侧 |
+> | **默认包的类访问不到**(片段活在自己的合成包里) | 只影响「把类写在默认包」的玩具项目 |
+> | **`java.class.path` 不总是全的**:surefire 用只有 manifest 的 booter jar | `TinkerSession` 留一个显式的 classpath 入口 |
+>
+> 还有一处**修不了**的:片段里的 `System.out` 去的是**应用自己的**终端。
+> 本地执行引擎下 `System.out` 就是应用进程那个,JShell 构造器上的
+> `.out(...)` 管不着它。要截住只能全局 `System.setOut`,
+> 而那会把应用其它线程的日志一起截走 —— 在服务进程里不可接受。
+> 后果:**表达式求值**(REPL 的常用形态)完全正常;直接 `println` 的片段,
+> 输出出现在另一个终端上。`:help` 里说了这件事。
+>
+> #### ⚠ 今天进 tinker 只有一条路
+>
+> ```bash
+> mvn spring-boot:run -Djaravel.tinker=true    # IDE 里就在运行配置上加这个 -D
+> ```
+>
+> `jaravel tinker` **还进不去**:求值要在应用进程里跑,而 REPL 要读键盘 ——
+> 本地命令通道是单向的(服务端能往回写,读不到客户端的键盘)。
+> 所以那条路径**直接拒绝并说清出路**,而不是启动一个读不到输入、
+> 看起来挂住了的 REPL(一个挂住的 REPL 会让人去查网络、查数据库,
+> 查不到自己的键盘上)。
+>
+> docs §1 说的「CLI 冷启动一个应用 JVM」那条回落一到位,
+> `jaravel tinker` 就能直接进 —— 那时终端天然属于那个新进程。
+>
+> #### 实现里两处值得记的
+>
+> **先按表达式试一次,被拒了再按原样跑。** 这样做安全的理由是
+> **REJECTED 意味着编译失败、片段根本没执行** —— 所以第一次尝试不会产生
+> 副作用(有一条测试数「跑了几次」来钉住这点)。反过来做不到:
+> 值回来时已经是字符串,真对象留在执行侧。
+>
+> **一行里可能有多段。** `analyzeCompletion` 只认到第一段为止,剩下的在
+> `remaining()` 里 —— 不循环的话 `1+1; 2+2` 的后半句会被**悄悄丢掉**,
+> 而「悄悄」是这里最糟的失败方式:用户以为自己敲的东西跑了。
+>
+> `:reload` **没有实现**,而且如实说了原因:重载应用类要换 ClassLoader
+> 重建容器,而 shell 里已有的变量会引用旧类 —— 它们会全部失效。
+> 这正是下表「JShell 的现实限制」里那一行。
 
 ---
 

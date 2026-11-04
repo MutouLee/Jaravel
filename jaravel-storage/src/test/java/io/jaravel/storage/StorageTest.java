@@ -217,7 +217,7 @@ class StorageTest {
                             + "在内存驱动上通过、在 local 上失败 —— "
                             + "于是那个安全检查的测试实际上什么都没测")
                     .isInstanceOf(PathGuard.UnsafePathException.class);
-            assertThatThrownBy(() -> disk.get("a .txt"))
+            assertThatThrownBy(() -> disk.get("a\u0000.txt"))
                     .isInstanceOf(PathGuard.UnsafePathException.class);
         }
 

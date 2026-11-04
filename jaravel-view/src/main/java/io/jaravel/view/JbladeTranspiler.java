@@ -375,7 +375,7 @@ public final class JbladeTranspiler {
     private String translateEchos(String line) {
         // @{{ x }} 先替换成占位,避免被 ESC_ECHO 吃掉
         // 哨兵用不可能出现在模板里的控制字符,写成转义序列以保持源文件为纯文本
-        final String GUARD = "JBVERBATIM";
+        final String GUARD = "\u0001JBVERBATIM\u0001";
         List<String> guarded = new ArrayList<>();
         Matcher vm = VERBATIM_ECHO.matcher(line);
         StringBuilder sb = new StringBuilder();

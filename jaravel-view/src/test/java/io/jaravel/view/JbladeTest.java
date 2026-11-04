@@ -1,6 +1,7 @@
 package io.jaravel.view;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.file.Path;
@@ -899,7 +900,12 @@ class JbladeTest {
             assertThatThrownBy(() -> JbladeTranspiler.transpile(
                     "<x-card>没有闭合\n", "t"))
                     .isInstanceOf(JbladeException.class)
-                    .hasMessageContaining("component");
+                    .as("""
+                            说的是 HTML 标签而不是 @指令 ——
+                            「@component 没有对应的 @endcomponent」会把人
+                            送去找一个根本不存在的指令。""")
+                    .hasMessageContaining("<x-card>")
+                    .hasMessageContaining("</x-card>");
         }
 
         @Test
@@ -909,19 +915,6 @@ class JbladeTest {
                     "<x-alert :dismissible />\n", "t"))
                     .isInstanceOf(JbladeException.class)
                     .hasMessageContaining("布尔简写");
-        }
-
-        @Test
-        @DisplayName("★ 具名 slot 还没实现 —— 报错而不是输出成 HTML")
-        void namedSlotFailsLoudly() {
-            assertThatThrownBy(() -> JbladeTranspiler.transpile(
-                    "<x-card>\n  <x-slot:footer>底部</x-slot:footer>\n</x-card>\n", "t"))
-                    .as("""
-                            忽略的话 <x-slot:footer> 会被当成普通 HTML 输出 ——
-                            而那正是这次把组件从「静默」改成「响亮」要解决的
-                            问题,不该在一个新功能里重新引入。""")
-                    .isInstanceOf(JbladeException.class)
-                    .hasMessageContaining("具名 slot");
         }
 
         @Test
@@ -956,6 +949,285 @@ class JbladeTest {
             assertThatThrownBy(() -> JbladeTranspiler.transpile("@props\n", "t"))
                     .isInstanceOf(JbladeException.class)
                     .hasMessageContaining("Java 类型");
+        }
+    }
+
+    // ================= 具名 slot =================
+
+    /**
+     * 具名 slot(docs/04 §1.7)。
+     *
+     * <p>实现上的难点与解法见 {@code JbladeTranspiler.ComponentFrame}:
+     * slot 写在 body 里,却要成为那次调用的另一个参数。
+     */
+    @Nested
+    @DisplayName("具名 slot(<x-slot:footer>)")
+    class NamedSlots {
+
+        /** 带两个具名 slot 的卡片组件 */
+        private static final String CARD = """
+                @props(String title = "")
+                <section>
+                  @if (hasSlot("head")) <h1>{{ slot("head") }}</h1> @endif
+                  <main>{{ slot }}</main>
+                  @if (hasSlot("footer")) <footer>{{ slot("footer") }}</footer> @endif
+                </section>
+                """;
+
+        private String render(Map<String, String> templates, Map<String, Object> data, Path tmp) {
+            return JbladeEngine.forMap(templates, tmp.resolve("c"),
+                            JbladeTest.class.getClassLoader())
+                    .render("page", data);
+        }
+
+        @Test
+        @DisplayName("★ 具名 slot 与默认 slot 各就各位")
+        void namedAndDefaultSlots(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.card", CARD,
+                    "page", """
+                            <x-card>
+                              正文
+                              <x-slot:footer>
+                                <a href="/help">帮助</a>
+                              </x-slot:footer>
+                            </x-card>
+                            """), Map.of(), tmp);
+
+            assertThat(out).contains("<main>").contains("正文")
+                           .contains("<footer>").contains("/help");
+            assertThat(out).as("没传的具名 slot 不渲染").doesNotContain("<h1>");
+            assertThat(out)
+                    .as("具名 slot 的内容必须从默认 slot 里**挪走**,不能两边都出现")
+                    .containsOnlyOnce("/help");
+            assertThat(out.indexOf("正文"))
+                    .as("默认 slot 在 <main> 里、footer 在它后面 —— 顺序由组件决定,不由书写顺序决定")
+                    .isLessThan(out.indexOf("/help"));
+        }
+
+        @Test
+        @DisplayName("多个具名 slot + 书写顺序与组件里的使用顺序无关")
+        void multipleNamedSlots(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.card", CARD,
+                    "page", """
+                            <x-card>
+                              <x-slot:footer>底部</x-slot:footer>
+                              正文
+                              <x-slot:head>标题</x-slot:head>
+                            </x-card>
+                            """), Map.of(), tmp);
+
+            assertThat(out).contains("<h1>").contains("标题")
+                           .contains("<footer>").contains("底部")
+                           .contains("正文");
+            assertThat(out.indexOf("标题")).isLessThan(out.indexOf("正文"));
+        }
+
+        @Test
+        @DisplayName("</x-slot> 与 </x-slot:name> 两种闭合都收")
+        void bothClosingForms(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.card", CARD,
+                    "page", """
+                            <x-card>
+                              <x-slot:head>甲</x-slot>
+                              <x-slot:footer>乙</x-slot:footer>
+                            </x-card>
+                            """), Map.of(), tmp);
+
+            assertThat(out).contains("甲").contains("乙");
+        }
+
+        @Test
+        @DisplayName("slot 名原样作键 —— kebab 不转驼峰,否则与 slot(\"sub-copy\") 对不上")
+        void kebabSlotNameKeptAsIs(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.mail", """
+                            @props()
+                            <div>{{ slot }}@if (hasSlot("sub-copy"))<small>{{ slot("sub-copy") }}</small>@endif</div>
+                            """,
+                    "page", """
+                            <x-mail>正文<x-slot:sub-copy>退订</x-slot></x-mail>
+                            """), Map.of(), tmp);
+
+            assertThat(out).contains("<small>").contains("退订");
+        }
+
+        @Test
+        @DisplayName("具名 slot 里可以写指令与输出,且照样转义")
+        void directivesAndEscapingInsideNamedSlot(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.card", CARD,
+                    "page", """
+                            @params(java.util.List<String> items, String evil)
+                            <x-card>
+                              <x-slot:footer>
+                                @foreach (items as it){{ it }};@endforeach
+                                {{ evil }}
+                              </x-slot:footer>
+                              正文
+                            </x-card>
+                            """),
+                    Map.of("items", List.of("甲", "乙"), "evil", "<script>x</script>"), tmp);
+
+            assertThat(out).contains("甲;").contains("乙;")
+                           .contains("&lt;script&gt;").doesNotContain("<script>");
+        }
+
+        @Test
+        @DisplayName("★ 具名 slot 里能嵌组件,内层组件还能有自己的具名 slot")
+        void nestedComponentInsideNamedSlot(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.card", CARD,
+                    "components.badge", """
+                            @props()
+                            <b>{{ slot }}@if (hasSlot("tip"))<i>{{ slot("tip") }}</i>@endif</b>
+                            """,
+                    "page", """
+                            <x-card>
+                              <x-slot:footer>
+                                <x-badge>热<x-slot:tip>说明</x-slot></x-badge>
+                              </x-slot:footer>
+                              正文
+                            </x-card>
+                            """), Map.of(), tmp);
+
+            assertThat(out).contains("<footer>").contains("<b>").contains("热")
+                           .contains("<i>").contains("说明").contains("正文");
+        }
+
+        @Test
+        @DisplayName("组件可以完全不要默认 slot,只给具名的")
+        void onlyNamedSlots(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.card", CARD,
+                    "page", "<x-card><x-slot:head>只有标题</x-slot></x-card>\n"),
+                    Map.of(), tmp);
+
+            assertThat(out).contains("只有标题");
+        }
+
+        @Test
+        @DisplayName("★ 错误定位:具名 slot 里拼错属性名 —— 报对模板、给出建议,行号落在组件调用内")
+        void errorInsideNamedSlotKeepsLineNumber(@TempDir Path tmp) {
+            var thrown = assertThatThrownBy(() -> render(Map.of(
+                    "components.card", CARD,
+                    "page", """
+                            @params(io.jaravel.view.TestPost post)
+                            <x-card>
+                              正文
+                              <x-slot:footer>
+                                {{ post.titel }}
+                              </x-slot:footer>
+                            </x-card>
+                            """), Map.of("post", posts().get(0)), tmp));
+
+            thrown.isInstanceOf(JbladeException.class)
+                  .as("报的是出错的那个模板,不是组件模板")
+                  .hasMessageContaining("page.jblade.html")
+                  .as("相似度建议照样给")
+                  .hasMessageContaining("是否想写 title");
+
+            // ⚠ 行号精确到「哪一行」这件事,在具名 slot 里**做不到**。
+            //
+            // 实测(jte 3.x):我们自己的映射是对的 —— 生成码第 4 行就是
+            // 模板第 5 行,dump 过。失准在 jte 自己的 Java→jte 映射里:
+            // 一次调用带两个 Content 块时,前一个块里的错误被归到调用的收尾处。
+            //   · 默认 slot(单个 Content 块):精确,见 Components 里那几条;
+            //   · 具名 slot:落在组件调用的范围内,靠代码片段给上下文。
+            // 不假装它准 —— 这条断言就是现状的样子。
+            String message = catchThrowableOfType(
+                    () -> render(Map.of(
+                            "components.card", CARD,
+                            "page", """
+                                    @params(io.jaravel.view.TestPost post)
+                                    <x-card>
+                                      正文
+                                      <x-slot:footer>
+                                        {{ post.titel }}
+                                      </x-slot:footer>
+                                    </x-card>
+                                    """), Map.of("post", posts().get(0)), tmp),
+                    JbladeException.class).getMessage();
+
+            int line = Integer.parseInt(message.replaceFirst("(?s)^page\\.jblade\\.html:(\\d+).*", "$1"));
+            assertThat(line)
+                    .as("落在 <x-card> … </x-card> 这几行里(2~7),不是文件开头或末尾")
+                    .isBetween(2, 7);
+        }
+
+        @Test
+        @DisplayName("★ <x-slot:> 写在组件外面 —— 报错并给出正确写法")
+        void slotOutsideComponentFails() {
+            assertThatThrownBy(() -> JbladeTranspiler.transpile(
+                    "<div>\n  <x-slot:footer>底部</x-slot>\n</div>\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("必须写在组件标签内部");
+        }
+
+        @Test
+        @DisplayName("具名 slot 套具名 slot —— 报错并提示漏了 </x-slot>")
+        void nestedNamedSlotFails() {
+            assertThatThrownBy(() -> JbladeTranspiler.transpile(
+                    "<x-card>\n  <x-slot:a>甲\n  <x-slot:b>乙</x-slot>\n</x-card>\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("</x-slot>");
+        }
+
+        @Test
+        @DisplayName("未闭合的具名 slot —— 报错说的是 </x-slot> 而不是某个 @指令")
+        void unclosedNamedSlotFails() {
+            assertThatThrownBy(() -> JbladeTranspiler.transpile(
+                    "<x-card>\n  <x-slot:footer>底部\n</x-card>\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("</x-slot>");
+        }
+
+        @Test
+        @DisplayName("</x-slot> 没有对应的开标签时报错")
+        void strayClosingSlotFails() {
+            assertThatThrownBy(() -> JbladeTranspiler.transpile(
+                    "<x-card>正文</x-slot></x-card>\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("没有对应的 <x-slot:…>");
+        }
+
+        @Test
+        @DisplayName("★ 模型自己的 slot(...) 方法不被改写 —— 只有裸 slot( 才是具名 slot")
+        void modelMethodNamedSlotIsNotRewritten() {
+            String jte = JbladeTranspiler.transpile(
+                    "@props()\n<p>{{ booking.slot(\"am\") }}</p>\n", "t").jteSource();
+
+            assertThat(jte)
+                    .as("""
+                            把它当成具名 slot 的话,错误会指向生成的 Java 代码,
+                            而模板里那一行看着完全正常。""")
+                    .contains("booking.slot(\"am\")")
+                    .doesNotContain("__slot_am");
+        }
+
+        @Test
+        @DisplayName("★ slot 名不是字面量 —— 报错说明为什么不行")
+        void dynamicSlotNameFails() {
+            assertThatThrownBy(() -> JbladeTranspiler.transpile(
+                    "@props(String which = \"a\")\n<p>{{ slot(which) }}</p>\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("必须是字面量");
+        }
+
+        @Test
+        @DisplayName("组件里读了哪个具名 slot,参数就自动声明 —— 不用手写 @props(gg.jte.Content …)")
+        void slotReadsAreDeclaredAutomatically() {
+            String jte = JbladeTranspiler.transpile("""
+                    @props(String title = "")
+                    @if (hasSlot("sub-copy")) {{ slot("sub-copy") }} @endif
+                    """, "t").jteSource();
+
+            assertThat(jte).contains("@param gg.jte.Content __slot_subCopy = null");
+            assertThat(jte)
+                    .as("hasSlot 就是判空 —— 没传的 slot 是 null")
+                    .contains("(__slot_subCopy != null)");
         }
     }
 

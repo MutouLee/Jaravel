@@ -170,7 +170,7 @@ jblade **不发明表达式语言**,直接把表达式原样当作 Java 表达�
 
 ### 1.7 组件
 
-> ### v0.4 实现状态:匿名组件可用(17 个测试),类组件与具名 slot 未实现
+> ### v0.4 实现状态:匿名组件 + 具名 slot 可用(31 个测试),类组件与属性袋未实现
 >
 > 这一节原先**一行都没实现**,而 `<x-post-card />` 会被当成普通 HTML
 > **原样输出** —— 浏览器对未知标签不报错,只是什么都不渲染,
@@ -186,13 +186,47 @@ jblade **不发明表达式语言**,直接把表达式原样当作 Java 表达�
 > | 表达式属性 | `:count="n"` |
 > | 布尔简写 | `dismissible` → `true` |
 > | 默认 slot | body 原地变成 `slot` 参数 |
+> | **具名 slot** | `<x-slot:footer>…</x-slot>`,组件里 `hasSlot("footer")` / `slot("footer")` |
 > | kebab 组件名 | `<x-post-card>` → `components/post-card.jblade.html` |
 > | 命名空间 | `<x-mail::message>` → `components/mail/message.jblade.html` |
-> | 嵌套组件 | 任意深度 |
+> | 嵌套组件 | 任意深度,slot 里也能嵌 |
 >
-> **未实现:类组件、具名 slot(`<x-slot:footer>`)、属性袋
-> (`{{ $attributes }}`)、`@aware`。** 具名 slot 会**报错**
-> 而不是输出成 HTML。
+> **未实现:类组件、属性袋(`{{ $attributes }}`)、`@aware`。**
+>
+> #### 具名 slot:读到就声明
+>
+> 组件**不需要**手写 `@props(gg.jte.Content footer = null)` ——
+> 组件模板里出现 `slot("footer")` 或 `hasSlot("footer")`,转写器就
+> 自动为它声明一个参数。组件模板自己就在转写器眼前,这是本地可见的,
+> 不需要跨模板分析。
+>
+> 调用方的 `<x-slot:footer>` 变成那次调用的一个命名参数:
+>
+> ```
+> <x-alert>正文<x-slot:footer>帮助</x-slot></x-alert>
+>   → @template.components.alert(ctx = ctx, __slot_footer = @`帮助`, slot = @`正文`)
+> ```
+>
+> 于是 `<x-slot:footr>` 打错名字是**响亮的**(jte:没有这个参数),
+> 而不是静默少渲染一块。闭合写 `</x-slot>` 或 `</x-slot:footer>` 都收。
+> slot 名原样作名字(`slot("sub-copy")` 对应 `<x-slot:sub-copy>`),
+> 驼峰只活在生成码里。
+>
+> **⚠ slot 名必须是字面量** —— 它要在编译期变成一个参数名。
+> `slot(which)` 直接报错,而不是等 javac 说「找不到方法 slot(String)」。
+>
+> **⚠ 具名 slot 内的错误行号是近似的。** 转写器自己的映射是准的
+> (实测:生成码那一行确实映回模板那一行),失准在 **jte 自己的
+> Java→jte 映射** —— 一次调用带两个 Content 块时,前一个块里的编译错误
+> 被归到调用的收尾处。所以:
+>
+> | | 行号 |
+> |---|---|
+> | 默认 slot(调用里只有一个 Content 块) | **精确** |
+> | 具名 slot | 落在 `<x-…>` … `</x-…>` 范围内,靠代码片段给上下文 |
+>
+> 换成 `slots = Map.of(...)` 或先提到局部变量都试过,同样不准 ——
+> 这一跳不在我们手里。
 >
 > #### ★ 实现方式:复用 `@template`,不另造一套
 >

@@ -24,12 +24,14 @@ import io.jaravel.console.ConsoleIo;
  * <p>离线与否由 {@code @Command(offline = true)} 声明,默认 false ——
  * 标错方向的代价不对称,理由写在那个注解上。
  *
- * <h2>在线命令目前报错,而不是假装能跑</h2>
+ * <h2>在线命令:先试通道,没有通道就说清为什么跑不了</h2>
  * <p>{@code migrate}、{@code tinker}、{@code queue:work} 要容器。
- * 把它们接起来有两条路(docs/13 §1.2):连到已运行的 dev server 的
- * 本地通道,或者冷启动一个应用 JVM。两条都还没实现。
+ * 应用跑着时它们走**本地命令通道**(docs/13 §1.2)——
+ * 在那个已经热起来的进程里执行,0 启动开销。
  *
- * <p>所以这里给一条**说清状态与出路**的错,而不是:
+ * <p>通道不存在(或者是上一次崩溃残留的 socket 文件)时,
+ * docs/13 说的另一条回落是「冷启动一个应用 JVM」,那一步还没实现。
+ * 所以给一条**说清状态与出路**的错,而不是:
  * <ul>
  *   <li>假装成功(退出码 0 而什么都没做 —— 脚本里它是成功的);</li>
  *   <li>或者尝试在没有容器的进程里跑它,那会得到「数据库尚未装配」
@@ -89,6 +91,11 @@ public final class Jaravel {
             return registry.run(first, rest, io);
         }
         if (ONLINE_COMMANDS.stream().anyMatch(first::startsWith)) {
+            // 先试通道:dev server 开着的话,这条命令就在那个**已经热起来的**
+            // 进程里跑 —— docs/13 §1.2 称它是本模块最重要的 DX 设计
+            var throughChannel = ChannelClient.tryRun(projectRoot, first, rest, io);
+            if (throughChannel.isPresent()) return throughChannel.get();
+
             io.writeError(needsApplication(first) + "\n");
             return 1;
         }
@@ -119,17 +126,24 @@ public final class Jaravel {
         return """
                 "%s" 需要应用上下文,而 jaravel 还没有连上应用的通道。
 
-                  这条命令要容器 / 数据库 / 队列(docs/13 §1 的「在线命令」),
-                  接它有两条路,都还没实现:
-                    · 连到已运行的 dev server 的本地通道(jaravel serve);
-                    · 冷启动一个应用 JVM 执行。
+                  这条命令要容器 / 数据库 / 队列(docs/13 §1 的「在线命令」)。
 
-                  现在能做的:在应用里调 Artisan.call("%s"),
-                  或者在计划任务里 s.command("%s")。
+                  出路:**先把应用跑起来**(IDE 里 run,或 mvn spring-boot:run)。
+                  它会开一个命令通道(%s),
+                  这条命令就会在那个已经热起来的进程里执行。
+                    · 通道只在非 production 环境开 —— 它能执行任意命令;
+                    · 应用明明跑着却看到这条消息的话,先确认是不是
+                      在另一个项目目录里敲的。
+
+                  「冷启动一个 JVM 执行」那条回落路径还没实现。
+                  此外也可以在应用里调 Artisan.call("%s")。
 
                   不在这里硬跑它的理由:这个进程没有容器,
                   硬跑会得到「数据库尚未装配」之类与真正原因无关的报错。""".formatted(
-                command, command, command);
+                command,
+                io.jaravel.console.channel.CommandChannel.DIRECTORY + "/"
+                        + io.jaravel.console.channel.CommandChannel.SOCKET_FILE,
+                command);
     }
 
     /**

@@ -4,14 +4,21 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
+
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 
+import io.jaravel.core.Application;
+import io.jaravel.core.config.ConfigRepository;
+
 import io.jaravel.console.Artisan;
 import io.jaravel.console.CommandRegistry;
 import io.jaravel.console.ConsoleCommand;
+import io.jaravel.console.channel.ChannelServer;
 import io.jaravel.console.generators.GeneratorCommand;
 import io.jaravel.console.generators.MakeConsoleCommand;
 import io.jaravel.console.generators.MakeController;
@@ -139,6 +146,78 @@ public class JaravelConsoleAutoConfiguration {
                               命令对象带状态(解析出来的参数就写在它的字段上),
                               所以连着跑两条命令时,第二条会看到第一条留下的选项。
                               加 @Scope("prototype")。%n""", type.getName());
+        }
+    }
+
+    /**
+     * 本地命令通道(docs/13 §1.2)——「本模块最重要的 DX 设计」。
+     *
+     * <p>应用跑着的时候,{@code jaravel migrate} 会连上这个 socket,
+     * 在**这个已经热起来的进程**里执行,而不是冷启动一个 JVM。
+     *
+     * <h2>★ 只在非 production 环境开</h2>
+     * <p>这个通道按名字执行注册表里的**任何**命令 —— 在开发机上那正是要的,
+     * 在生产环境里是个后门。所以:
+     * <ul>
+     *   <li>{@code app.env=production} 时根本不创建;</li>
+     *   <li>socket 放在**项目目录**下(受项目目录的权限保护),
+     *       而不是 {@code /tmp} 那种全局可写的地方;</li>
+     *   <li>POSIX 上再收紧到 0600。</li>
+     * </ul>
+     *
+     * <p>也可以用 {@code console.channel.enabled=false} 显式关掉。
+     *
+     * <p>开不起来时**只警告不中断启动**:一个开发期的便利设施
+     * 不该让应用起不来(比如项目目录只读、或者文件系统不支持
+     * unix socket)。那时 {@code jaravel migrate} 会回落到它的说明。
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public ChannelHolder jaravelCommandChannel(CommandRegistry registry,
+                                               ConfigRepository config) {
+        return new ChannelHolder(registry, config);
+    }
+
+    /** 通道的生命周期。随上下文关闭而关 —— 否则 socket 文件会留下来 */
+    public static class ChannelHolder implements AutoCloseable {
+
+        private final CommandRegistry registry;
+        private final ConfigRepository config;
+        private ChannelServer server;
+
+        ChannelHolder(CommandRegistry registry, ConfigRepository config) {
+            this.registry = registry;
+            this.config = config;
+        }
+
+        public ChannelServer server() {
+            return server;
+        }
+
+        @PostConstruct
+        void start() {
+            if (!config.bool("console.channel.enabled", true)) return;
+            if (Application.isProduction()) {
+                // 不打日志:生产环境里这是**正常**状态,
+                // 一条「通道未启动」的警告只会训练人忽略警告
+                return;
+            }
+
+            try {
+                server = new ChannelServer(registry, Path.of("").toAbsolutePath()).start();
+                System.err.printf("[jaravel] 命令通道已开:%s%n"
+                        + "          另一个终端里可以直接 jaravel migrate 等命令。%n",
+                        server.socketPath());
+            } catch (Exception e) {
+                System.err.printf("[jaravel] 命令通道没开起来(%s)—— 不影响应用运行,%n"
+                        + "          只是 jaravel 的在线命令要回落到说明。%n", e.getMessage());
+            }
+        }
+
+        @PreDestroy
+        @Override
+        public void close() {
+            if (server != null) server.close();
         }
     }
 

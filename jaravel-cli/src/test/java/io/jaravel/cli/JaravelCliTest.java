@@ -117,9 +117,11 @@ class JaravelCliTest {
                     .isEqualTo(1);
             assertThat(result.err())
                     .contains("需要应用上下文")
-                    .as("说清两条路与现在能做什么")
-                    .contains("jaravel serve")
-                    .contains("Artisan.call");
+                    .as("说清出路:把应用跑起来,它会开通道")
+                    .contains("先把应用跑起来")
+                    .contains(".jaravel/dev.sock")
+                    .as("以及还没实现的那条回落路径")
+                    .contains("冷启动一个 JVM");
         }
 
         @Test

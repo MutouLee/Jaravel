@@ -7,6 +7,11 @@ build/
 *.jar
 *.war
 
+# 本地命令通道与冷启动缓存(.jaravel/):
+# dev.sock 是进程地址,classpath / main-class 是这台机器上的绝对路径 ——
+# 三样都不该跟着仓库走
+.jaravel/
+
 # 验证工程的中间产物
 verification/**/out/
 verification/**/negout/

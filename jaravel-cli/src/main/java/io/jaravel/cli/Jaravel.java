@@ -29,14 +29,14 @@ import io.jaravel.console.ConsoleIo;
  * 应用跑着时它们走**本地命令通道**(docs/13 §1.2)——
  * 在那个已经热起来的进程里执行,0 启动开销。
  *
- * <p>通道不存在(或者是上一次崩溃残留的 socket 文件)时,
- * docs/13 说的另一条回落是「冷启动一个应用 JVM」,那一步还没实现。
- * 所以给一条**说清状态与出路**的错,而不是:
- * <ul>
- *   <li>假装成功(退出码 0 而什么都没做 —— 脚本里它是成功的);</li>
- *   <li>或者尝试在没有容器的进程里跑它,那会得到「数据库尚未装配」
- *       之类与真正原因无关的报错。</li>
- * </ul>
+ * <p>通道不存在(或者是上一次崩溃残留的 socket 文件)时,回落到
+ * **冷启动一个应用 JVM**({@link AppLauncher})—— 慢(要付一次完整启动),
+ * 但 CI 里、部署脚本里、刚 clone 下来的机器上根本没有一个跑着的应用,
+ * 而「请先把应用跑起来」在那些地方是最没用的建议。
+ *
+ * <p>连那条也走不通时(目录里没有 pom.xml)才打说明。不假装成功
+ * (退出码 0 而什么都没做 —— 脚本里它是成功的),也不在这个没有容器的
+ * 进程里硬跑它(那会得到「数据库尚未装配」之类与真正原因无关的报错)。
  */
 public final class Jaravel {
 
@@ -143,6 +143,12 @@ public final class Jaravel {
             var throughChannel = ChannelClient.tryRun(projectRoot, first, rest, io);
             if (throughChannel.isPresent()) return throughChannel.get();
 
+            // 通道没通 —— 冷启动一个应用 JVM(docs/13 §1 的第二条路径)。
+            // 慢(要付一次完整启动),但 CI 与部署脚本里根本没有
+            // 一个跑着的应用,而那正是这条路存在的理由
+            var coldStart = AppLauncher.tryRun(projectRoot, first, rest, io);
+            if (coldStart.isPresent()) return coldStart.get();
+
             io.writeError(needsApplication(first) + "\n");
             return 1;
         }
@@ -187,7 +193,10 @@ public final class Jaravel {
                     · 应用明明跑着却看到这条消息的话,先确认是不是
                       在另一个项目目录里敲的。
 
-                  「冷启动一个 JVM 执行」那条回落路径还没实现。
+                  「冷启动一个 JVM 执行」那条回落也没走通 ——
+                  当前目录下没有 pom.xml,所以不知道要启动什么:
+                    · 要在项目根目录里敲(pom.xml 旁边);
+                    · Gradle 项目暂不支持那条路。
                   此外也可以在应用里调 Artisan.call("%s")。
 
                   不在这里硬跑它的理由:这个进程没有容器,

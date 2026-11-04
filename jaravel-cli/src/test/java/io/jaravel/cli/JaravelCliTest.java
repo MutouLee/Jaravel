@@ -153,7 +153,10 @@ class JaravelCliTest {
                     .as("说清出路:把应用跑起来,它会开通道")
                     .contains("先把应用跑起来")
                     .contains(".jaravel/dev.sock")
-                    .as("以及还没实现的那条回落路径")
+                    .as("""
+                            以及冷启动那条路为什么也没走通 —— 这个临时目录里
+                            没有 pom.xml,所以启动器不知道要启动什么。
+                            (有 pom.xml 的真项目上它会直接起 JVM 把命令跑掉。)""")
                     .contains("冷启动一个 JVM");
         }
 

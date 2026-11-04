@@ -11,8 +11,8 @@ import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Conditional;
 
 import io.jaravel.core.Application;
 import io.jaravel.core.config.ConfigRepository;
@@ -297,9 +297,173 @@ public class JaravelConsoleAutoConfiguration {
      * 而一个 {@code -D} 参数不会。
      */
     @Bean
-    @ConditionalOnProperty(name = "jaravel.tinker", havingValue = "true")
+    @Conditional(OnSystemProperty.Tinker.class)
     public TinkerStarter jaravelTinkerStarter(CommandRegistry registry) {
         return new TinkerStarter(registry);
+    }
+
+    /**
+     * 「只读系统属性」得自己写 —— {@code @ConditionalOnProperty} 做不到。
+     *
+     * <h2>★ 这是对账查出来的一处脱节</h2>
+     * <p>上面那段注释一直写着「只读系统属性、不读配置文件」,理由也是对的
+     * (一个写进 {@code application.yml} 的开关会被打包带走)。但
+     * {@code @ConditionalOnProperty} 读的是整个 {@code Environment},
+     * 里面**包含** application.yml —— 也就是说
+     * {@code jaravel.tinker: true} 写在 yml 里是生效的,
+     * 而那正是注释声称防住了的那件事。
+     *
+     * <p>后果不是理论上的:那个开关会**占着启动线程**不返回。
+     * 一个带着这行 yml 打包上线的应用,表现是「启动卡住、端口不开」,
+     * 而日志里只有一行 banner —— 从那里查到「有人在 yml 里开了 REPL」
+     * 要很久。所以条件必须真的只看 {@code -D}。
+     */
+    public abstract static class OnSystemProperty
+            implements org.springframework.context.annotation.Condition {
+
+        private final String name;
+
+        protected OnSystemProperty(String name) {
+            this.name = name;
+        }
+
+        @Override
+        public boolean matches(org.springframework.context.annotation.ConditionContext context,
+                               org.springframework.core.type.AnnotatedTypeMetadata metadata) {
+            String value = java.lang.System.getProperty(name);
+            return value != null && !value.isBlank() && accepts(value);
+        }
+
+        /** 默认只要「有值」;tinker 要求值是 true */
+        protected boolean accepts(String value) {
+            return true;
+        }
+
+        /** {@code -Djaravel.tinker=true} */
+        public static final class Tinker extends OnSystemProperty {
+            public Tinker() {
+                super("jaravel.tinker");
+            }
+
+            @Override
+            protected boolean accepts(String value) {
+                return value.equals("true");
+            }
+        }
+
+        /** {@code -Djaravel.command="migrate --force"} */
+        public static final class CommandMode extends OnSystemProperty {
+            public CommandMode() {
+                super(COMMAND_PROPERTY);
+            }
+        }
+    }
+
+    /**
+     * {@code -Djaravel.command="migrate --force"} —— 启动完跑这一条命令然后退出。
+     *
+     * <h2>★ docs/13 §1 的第二条路径:冷启动一个应用 JVM</h2>
+     * <p>在线命令({@code migrate} / {@code db:seed} / {@code queue:work})要容器。
+     * 应用跑着时它们走命令通道(0 开销);应用**没跑**时 —— CI 里、
+     * 部署脚本里、刚 clone 下来的机器上 —— 就得真的起一个 JVM。
+     * 这个开关就是那个 JVM 的入口,{@code jaravel-cli} 的启动器拉它。
+     *
+     * <p>手敲也完全可用,而且这是今天唯一不需要启动器的那条路:
+     * <pre>
+     * mvn spring-boot:run -Dspring-boot.run.jvmArguments="-Djaravel.command=migrate"
+     * </pre>
+     *
+     * <h2>为什么没有生产环境护栏</h2>
+     * <p>通道那边有(它能执行任意命令,是个后门),这边**不该有**:
+     * 「在生产机器上 migrate」正是这条路径存在的主要理由之一。
+     * 危险的是具体命令,所以护栏在命令里({@code confirmInProduction} ——
+     * 没有 TTY 时它直接拒绝,除非 {@code --force})。
+     *
+     * <p>同理这里也不检查 {@code app.env}:一个跑在生产环境、
+     * 只读的检视命令({@code about} / {@code migrate:status})
+     * 没有任何理由被挡。
+     */
+    @Bean
+    @Conditional(OnSystemProperty.CommandMode.class)
+    public OneShotCommand jaravelOneShotCommand(
+            CommandRegistry registry,
+            org.springframework.context.ConfigurableApplicationContext context) {
+        return new OneShotCommand(registry, context);
+    }
+
+    /**
+     * 这个系统属性也是「别开通道」的信号 —— 见 {@link ChannelHolder#start}。
+     *
+     * <p>名字定义在 {@code jaravel-console} 里:CLI 那边拼这个属性、
+     * 这边拆它,所以约定只能有一份(理由写在那个常量上)。
+     */
+    public static final String COMMAND_PROPERTY =
+            io.jaravel.console.CommandLine.COMMAND_PROPERTY;
+
+    /**
+     * 跑一条命令,然后把退出码交给 shell。
+     *
+     * <p>{@code ApplicationRunner} 而不是 {@code @PostConstruct}:
+     * 后者在**自己这个 bean** 造好时就跑,那时别的 bean 可能还没好。
+     * 一条 {@code migrate} 要的是「容器完全就绪」。
+     *
+     * <p>{@code LOWEST_PRECEDENCE}:应用自己的 runner 先跑完 ——
+     * 它们是应用启动的一部分,而我们是**启动之后**那件事。
+     */
+    @org.springframework.core.annotation.Order(
+            org.springframework.core.Ordered.LOWEST_PRECEDENCE)
+    public static class OneShotCommand
+            implements org.springframework.boot.ApplicationRunner {
+
+        private final CommandRegistry registry;
+        private final org.springframework.context.ConfigurableApplicationContext context;
+
+        OneShotCommand(CommandRegistry registry,
+                       org.springframework.context.ConfigurableApplicationContext context) {
+            this.registry = registry;
+            this.context = context;
+        }
+
+        @Override
+        public void run(org.springframework.boot.ApplicationArguments args) {
+            List<String> argv = io.jaravel.console.CommandLine.split(
+                    java.lang.System.getProperty(COMMAND_PROPERTY));
+            if (argv.isEmpty()) {
+                java.lang.System.err.println(
+                        "[jaravel] -D" + COMMAND_PROPERTY + " 是空的 —— 没有命令可跑。");
+                exit(1);
+                return;
+            }
+
+            int code = registry.run(argv.get(0), argv.subList(1, argv.size()),
+                    new io.jaravel.console.ConsoleIo.System());
+            exit(code);
+        }
+
+        /**
+         * ★ 为什么是 {@code System.exit} 而不是让启动流程自然走完。
+         *
+         * <p>两个理由:
+         * <ul>
+         *   <li><b>退出码是 CLI 与 shell 唯一的契约</b>。让 {@code run()}
+         *       正常返回的话,{@code main} 结束、JVM 退出码是 0 ——
+         *       一条失败的 {@code migrate} 在 CI 里会被当成成功,
+         *       而那是这整条路径最不能出的错。</li>
+         *   <li><b>这个进程的任务已经完成了</b>。它是为一条命令起的,
+         *       不该接着去开端口、起定时任务、连队列。
+         *       (启动器还会传 {@code web-application-type=none},
+         *       但那只管 web 那一半。)</li>
+         * </ul>
+         *
+         * <p>容器照样关得干净:Spring Boot 注册了关闭钩子,
+         * 所以 {@code @PreDestroy} 都会跑到 —— 连接池、通道、
+         * 队列的 worker 都会收到关闭信号。
+         */
+        private void exit(int code) {
+            java.lang.System.out.flush();
+            java.lang.System.exit(
+                    org.springframework.boot.SpringApplication.exit(context, () -> code));
+        }
     }
 
     /** 启动后把终端交给 tinker */
@@ -369,6 +533,13 @@ public class JaravelConsoleAutoConfiguration {
         @PostConstruct
         void start() {
             if (!config.bool("console.channel.enabled", true)) return;
+            // ★ 命令模式(-Djaravel.command=…)下**绝不**开通道。
+            // 两个进程的 socket 路径是同一个,所以这个短命的 JVM 会先抢占
+            // 那个文件、再在退出时把它删掉 —— 结果是「jaravel migrate 跑完之后,
+            // 旁边那个 dev server 的通道莫名其妙没了」。
+            // 症状与原因离得极远,而这个进程本来也不需要通道:
+            // 它自己就是来跑一条命令的。
+            if (java.lang.System.getProperty(COMMAND_PROPERTY) != null) return;
             if (Application.isProduction()) {
                 // 不打日志:生产环境里这是**正常**状态,
                 // 一条「通道未启动」的警告只会训练人忽略警告

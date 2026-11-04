@@ -2,7 +2,7 @@
 
 `php artisan` 是 Laravel 体验的半壁江山。Java 侧没有等价物(`mvn spring-boot:run` 不是同一个东西)。本模块补齐这块,目标是**让 `jaravel` 命令的手感与 `artisan` 一致**。
 
-> ### v0.5 实现状态:内核 + 15 条 make:*/key + 通道 + doctor + tinker(177 个测试)
+> ### v0.5 实现状态:内核 + 15 条 make:*/key + 通道 + 启动器 + doctor + tinker(190 个测试)
 >
 > **已实现(`jaravel-console`)**
 >
@@ -25,9 +25,11 @@
 > | **`doctor`**(7 项检查 + `--fix`) | §2.6 |
 > | `key:generate`(离线) | §2.5 |
 > | **`tinker`**(求值引擎 + REPL;入口见 §5) | §5 |
+> | **冷启动启动器**:应用没跑时起一个 JVM 执行在线命令 | `AppLauncher`(§1 下方) |
+> | **一次性命令模式** `-Djaravel.command=…` | starter(§1 下方) |
 >
-> **未实现**:JVM 启动器(通道不存在时的那条回落 —— 也是
-> `jaravel tinker` 还进不去的原因)、
+> **未实现**:`jaravelw` 包装脚本(没有它,Windows 上要自己拼 classpath,
+> 而且中文要靠 `-Dstdout.encoding=UTF-8` —— 见下)、
 > native 二进制、`db:show` / `db:table` / `config:show` /
 > `optimize` 这一批、`queue:restart` / `queue:monitor` /
 > `schedule:work`、`analyze:*`、
@@ -35,7 +37,66 @@
 > `@Command` 的 APT 索引(应用的命令靠 Spring 扫到,框架自带的仍要显式
 > `register`)、§4.3 的生成后处理。
 >
-> **终端上已经能用的**:
+> #### 两条路径都通了:通道(快)与冷启动(兜底)
+>
+> ```
+> $ jaravel migrate:status          # 应用跑着 → 走通道,0 启动开销
+> $ jaravel migrate:status          # 应用没跑 → 起一个 JVM(实测如下)
+> [jaravel] 解析依赖(pom.xml 变了;结果会缓存在 .jaravel/classpath)…
+> ┌──────┬────────────────────────────────────┬──────┐
+> │ 已跑 │ 迁移                               │ 批次 │
+> ...
+> ```
+>
+> 在 `examples/blog` 上端到端实测(应用没在跑):
+>
+> | | 耗时 |
+> |---|---|
+> | 首次(要解析依赖) | 4.5 s |
+> | 之后(缓存命中) | 2.1 s |
+> | 改过源码(要先编译) | 5.3 s |
+> | 通道那条(应用跑着) | 0 启动开销 |
+>
+> 所以**启动器是兜底,不是主路径**。它不可省的理由是 CI 里、
+> 部署脚本里、刚 clone 下来的机器上根本没有一个跑着的应用,
+> 而「请先把应用跑起来」在那些地方是最没用的建议。
+>
+> **怎么知道要启动什么** —— 三件事,结果都缓存在 `.jaravel/`:
+>
+> | | 怎么来的 | 为什么要缓存 |
+> |---|---|---|
+> | classpath | `mvn dependency:build-classpath` | **要 2.7 秒**,比应用启动本身还慢;`pom.xml` 变了才重算 |
+> | 主类 | 扫 `target/classes` 的常量池找 `main`(**不加载类** —— 加载会跑静态初始化) | 顺带成了覆盖入口:猜错了就往 `.jaravel/main-class` 里写一行 |
+> | 编译 | 比一次「最新 .java vs 最新 .class」 | 见下 |
+>
+> **★ 源码比 class 新时必须先编译**,这是 Java 这条路独有的陷阱:
+> 直接拿 `target/classes` 跑的话,用户改完迁移、重跑 `jaravel migrate`,
+> **跑的还是旧代码**,而输出看起来完全正常 ——
+> 那种失败会让人去怀疑迁移器、怀疑数据库,查不到「你跑的是上一次编译的结果」。
+> 所以源码更新就先 `mvn compile`(并且说出来),否则跳过 Maven 直接起 JVM。
+>
+> 手敲也完全可用,而且这是不需要 CLI 的那条路:
+>
+> ```bash
+> mvn spring-boot:run -Dspring-boot.run.jvmArguments="-Djaravel.command=migrate"
+> ```
+>
+> **实现中查出来的三件事**
+>
+> 1. **中文乱码**:JDK 18 起 `System.out` 跟的是**操作系统控制台**的编码
+>    (本机 cp936),而源码是 UTF-8 —— 实测「没有待执行的迁移」打成一串问号。
+>    但不能无条件写 UTF-8:真的 `cmd.exe` 里 cp936 才是对的。
+>    所以启动器**透传父进程自己的编码**给子进程,两边永远一致。
+>    CLI 自己那一侧归 `jaravelw` 管(还没有),今天要自己加
+>    `-Dstdout.encoding=UTF-8`。
+> 2. **命令模式下绝不开通道**:两个进程的 socket 路径是同一个,
+>    否则这个短命的 JVM 会先抢占那个文件、再在退出时删掉它 ——
+>    结果是「`jaravel migrate` 跑完之后,旁边那个 dev server 的通道没了」。
+> 3. **`jaravel tinker` 仍然要一个真终端**:启动器用 `inheritIO`,
+>    所以子进程拿到的就是你的终端;拿不到时 tinker 会**拒绝并说清出路**
+>    (§5),而不是启动一个读不到输入、看起来挂住了的 REPL。
+>
+> > **终端上已经能用的**:
 >
 > ```
 > $ jaravel make:model Post -mcr
@@ -811,20 +872,26 @@ jaravel> :exit
 > 后果:**表达式求值**(REPL 的常用形态)完全正常;直接 `println` 的片段,
 > 输出出现在另一个终端上。`:help` 里说了这件事。
 >
-> #### ⚠ 今天进 tinker 只有一条路
+> #### 怎么进 tinker
 >
 > ```bash
 > mvn spring-boot:run -Djaravel.tinker=true    # IDE 里就在运行配置上加这个 -D
+> jaravel tinker                               # 应用没跑时:启动器会起一个 JVM
 > ```
 >
-> `jaravel tinker` **还进不去**:求值要在应用进程里跑,而 REPL 要读键盘 ——
+> 第二条是 §1 的冷启动启动器带来的:它用 `inheritIO` 起子进程,
+> 所以那个 JVM 拿到的就是**你的终端**,而求值天然在它自己的进程里。
+>
+> ⚠ 但 `jaravel tinker` **走通道那条路进不去**,而且这是设计:
 > 本地命令通道是单向的(服务端能往回写,读不到客户端的键盘)。
 > 所以那条路径**直接拒绝并说清出路**,而不是启动一个读不到输入、
 > 看起来挂住了的 REPL(一个挂住的 REPL 会让人去查网络、查数据库,
-> 查不到自己的键盘上)。
+> 查不到自己的键盘上)。应用跑着时通道优先,所以此刻要进 tinker
+> 还是得用上面第一条。
 >
-> docs §1 说的「CLI 冷启动一个应用 JVM」那条回落一到位,
-> `jaravel tinker` 就能直接进 —— 那时终端天然属于那个新进程。
+> 另外:启动器那条路**没有在真终端上验证过**(这台机器上的测试环境
+> 没有 TTY,`System.console()` 恒为 null)。拿不到终端时的行为是
+> 已验证的那一半 —— 那道护栏会拒绝并说清出路。
 >
 > #### 实现里两处值得记的
 >

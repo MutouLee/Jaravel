@@ -14,7 +14,7 @@ import io.jaravel.support.Str;
  *
  * <p>所以分两个 stub(与「每个变体一个 stub 文件」的做法一致)。
  */
-@Command(name = "make:listener", description = "新建一个事件监听器")
+@Command(name = "make:listener", description = "新建一个事件监听器", offline = true)
 public final class MakeListener extends SimpleGenerator {
 
     @Option(names = "--event", description = "要监听的事件类(app.events 下)")

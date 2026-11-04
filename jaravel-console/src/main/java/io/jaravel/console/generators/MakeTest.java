@@ -20,7 +20,7 @@ import io.jaravel.console.Option;
  * 不与被测类同包是故意的:同包会让测试能碰到包私有成员,
  * 而那条捷径一旦存在就会被用,于是测试开始依赖实现细节。
  */
-@Command(name = "make:test", description = "新建一个测试")
+@Command(name = "make:test", description = "新建一个测试", offline = true)
 public final class MakeTest extends SimpleGenerator {
 
     @Option(names = "--unit", description = "生成单元测试(默认是功能测试)")

@@ -17,7 +17,7 @@ import io.jaravel.support.Str;
  * 命令对象带状态(解析出来的参数就写在字段上),单例会让连着跑的
  * 第二条命令看到第一条留下的选项。装配时会警告,但生成时就写对更好。
  */
-@Command(name = "make:command", description = "新建一个 Artisan 命令")
+@Command(name = "make:command", description = "新建一个 Artisan 命令", offline = true)
 public final class MakeConsoleCommand extends SimpleGenerator {
 
     @Option(names = "--command", description = "命令名,默认 app:kebab-类名")

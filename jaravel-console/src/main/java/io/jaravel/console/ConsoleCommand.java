@@ -59,6 +59,15 @@ public abstract class ConsoleCommand {
         return io;
     }
 
+    /** 注册表 —— list / help 这类「关于命令的命令」要它 */
+    protected CommandRegistry commands() {
+        if (registry == null) {
+            throw new ConsoleException(name()
+                    + " 需要注册表,但它不是通过 CommandRegistry 运行的");
+        }
+        return registry;
+    }
+
     // ================= 输出 =================
 
     /** 普通一行 */

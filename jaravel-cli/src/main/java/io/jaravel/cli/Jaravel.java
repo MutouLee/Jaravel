@@ -1,0 +1,147 @@
+package io.jaravel.cli;
+
+import java.util.List;
+
+import io.jaravel.console.Artisan;
+import io.jaravel.console.CommandRegistry;
+import io.jaravel.console.ConsoleIo;
+
+/**
+ * {@code jaravel} 的入口(docs/13 §1)。
+ *
+ * <pre>
+ * jaravel make:model Post -m      离线命令:就在这个进程里跑完
+ * jaravel migrate                 在线命令:需要应用上下文
+ * jaravel list · help · --version
+ * </pre>
+ *
+ * <h2>★ 分流:离线命令**不启动任何容器**</h2>
+ * <p>这是整个模块存在的理由。{@code make:model} 只读写文件,
+ * 为它等 Spring 启动三秒是 docs/13 开头就点明的那个不可接受的 DX。
+ * 所以它在这里直接跑 —— 一个只有 jaravel-console + jaravel-support
+ * 的 classpath,没有数据库、没有模板引擎、没有容器。
+ *
+ * <p>离线与否由 {@code @Command(offline = true)} 声明,默认 false ——
+ * 标错方向的代价不对称,理由写在那个注解上。
+ *
+ * <h2>在线命令目前报错,而不是假装能跑</h2>
+ * <p>{@code migrate}、{@code tinker}、{@code queue:work} 要容器。
+ * 把它们接起来有两条路(docs/13 §1.2):连到已运行的 dev server 的
+ * 本地通道,或者冷启动一个应用 JVM。两条都还没实现。
+ *
+ * <p>所以这里给一条**说清状态与出路**的错,而不是:
+ * <ul>
+ *   <li>假装成功(退出码 0 而什么都没做 —— 脚本里它是成功的);</li>
+ *   <li>或者尝试在没有容器的进程里跑它,那会得到「数据库尚未装配」
+ *       之类与真正原因无关的报错。</li>
+ * </ul>
+ */
+public final class Jaravel {
+
+    private Jaravel() {
+    }
+
+    public static void main(String[] args) {
+        System.exit(run(args, new ConsoleIo.System()));
+    }
+
+    /**
+     * 可测的入口:不碰 {@code System.exit}。
+     *
+     * <p>{@code main} 里那一行 exit 是 CLI 必须有的(退出码是它与 shell
+     * 唯一的契约),但它在测试里会把 JVM 直接带走。
+     */
+    public static int run(String[] args, ConsoleIo io) {
+        return run(args, io, java.nio.file.Path.of("").toAbsolutePath());
+    }
+
+    /** 测试与 {@code jaravelw} 用:指定项目根 */
+    public static int run(String[] args, ConsoleIo io, java.nio.file.Path projectRoot) {
+        CommandRegistry registry = OfflineCommands.registry(projectRoot);
+        Artisan.use(registry);
+
+        List<String> argv = List.of(args);
+
+        if (argv.isEmpty()) return registry.run("list", List.of(), io);
+
+        String first = argv.get(0);
+        List<String> rest = argv.subList(1, argv.size());
+
+        switch (first) {
+            case "--version", "-V" -> {
+                io.write(version() + "\n");
+                return 0;
+            }
+            case "--help", "-h" -> {
+                return registry.run("help", rest, io);
+            }
+            default -> { }
+        }
+
+        if (registry.has(first)) {
+            if (first.startsWith("make:") && !OfflineCommands.looksLikeProject(projectRoot)) {
+                // 提示而不是拒绝:在空目录里 make:model 很可能是「忘了 cd」,
+                // 但也可能是故意的(还没有 pom 的新目录)。拒绝会挡住后者
+                io.writeError(("[提示] %s 看起来不像一个 Jaravel 项目"
+                        + "(没有 pom.xml,也没有 src/main/java)——%n"
+                        + "       生成的文件仍然会写到这里。%n").formatted(projectRoot));
+            }
+            return registry.run(first, rest, io);
+        }
+        if (ONLINE_COMMANDS.stream().anyMatch(first::startsWith)) {
+            io.writeError(needsApplication(first) + "\n");
+            return 1;
+        }
+        // 不认识的名字交给注册表 ——「是否想写」的建议在那里
+        return registry.run(first, rest, io);
+    }
+
+    /**
+     * docs/13 §2 里**需要容器**的那些命令。
+     *
+     * <p>这张表的用途只有一个:把「这条命令还没实现」与
+     * 「这条命令要容器而通道还没接」区分开。前者该给
+     * 「是否想写 …?」的拼写建议,后者该说清为什么跑不了 ——
+     * 对 {@code migrate} 给出「是否想写 make:migration ?」
+     * 是一条会把人带到错误方向的建议。
+     *
+     * <p>用前缀匹配:{@code queue:} 下面有七八条,而它们的状态是一样的。
+     */
+    static final List<String> ONLINE_COMMANDS = List.of(
+            "migrate", "db:", "db", "model:", "schema:",
+            "tinker", "serve", "queue:", "schedule:",
+            "route:", "config:", "view:", "event:",
+            "optimize", "about", "down", "up",
+            "key:generate", "storage:link", "lang:check", "openapi:",
+            "doctor", "analyze:", "inspire", "stub:publish");
+
+    private static String needsApplication(String command) {
+        return """
+                "%s" 需要应用上下文,而 jaravel 还没有连上应用的通道。
+
+                  这条命令要容器 / 数据库 / 队列(docs/13 §1 的「在线命令」),
+                  接它有两条路,都还没实现:
+                    · 连到已运行的 dev server 的本地通道(jaravel serve);
+                    · 冷启动一个应用 JVM 执行。
+
+                  现在能做的:在应用里调 Artisan.call("%s"),
+                  或者在计划任务里 s.command("%s")。
+
+                  不在这里硬跑它的理由:这个进程没有容器,
+                  硬跑会得到「数据库尚未装配」之类与真正原因无关的报错。""".formatted(
+                command, command, command);
+    }
+
+    /**
+     * 版本号从 jar 的 manifest 读。
+     *
+     * <p>不硬编码一个字符串:那个数字会漂 —— 发布流程改版本号时
+     * 没人会记得同步代码里的常量,而一个**报错版本号的 --version**
+     * 在排查「我装的是哪个版本」时是负资产。
+     */
+    static String version() {
+        String implementation = Jaravel.class.getPackage().getImplementationVersion();
+        return "Jaravel " + (implementation == null ? "开发版(未打包)" : implementation)
+                + " (Java " + Runtime.version().feature() + ")";
+    }
+}

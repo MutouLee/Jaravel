@@ -2,7 +2,7 @@
 
 `php artisan` 是 Laravel 体验的半壁江山。Java 侧没有等价物(`mvn spring-boot:run` 不是同一个东西)。本模块补齐这块,目标是**让 `jaravel` 命令的手感与 `artisan` 一致**。
 
-> ### v0.5 实现状态:内核 + stub 机制 + 14 条 make:* + starter 装配(68 个测试)
+> ### v0.5 实现状态:内核 + 14 条 make:* + starter 装配 + jaravel 命令(85 个测试)
 >
 > **已实现(`jaravel-console`)**
 >
@@ -15,12 +15,36 @@
 > | stub 机制 + 项目覆盖 | `Stub`(§4) |
 > | `make:model`(含 `-mcr`)· `make:migration` · `make:controller` | §2.2 |
 > | `make:request` · `make:job` · `make:middleware` · `make:event` · `make:listener` · `make:policy` · `make:seeder` · `make:mail` · `make:notification` · `make:command` · `make:test` | §2.2 |
+> | `list` · `help`(用法从注解生成) | `Usage`(§3.1) |
+> | **`jaravel` 命令本身**:离线/在线分流、`--version` | `jaravel-cli`(§1) |
 >
-> **未实现**:`jaravel-cli`(picocli + native 二进制 + 本地命令通道)、
-> 数据库/运行时/检视命令、`tinker`、`doctor`、
+> **未实现**:本地命令通道与 JVM 启动器(也就是**在线命令还跑不起来**)、
+> native 二进制、数据库/运行时/检视命令、`tinker`、`doctor`、
 > 其余 `make:*`(见下面那条注记)、
 > `@Command` 的 APT 索引(应用的命令靠 Spring 扫到,框架自带的仍要显式
 > `register`)、§4.3 的生成后处理。
+>
+> **终端上已经能用的**:
+>
+> ```
+> $ jaravel make:model Post -mcr
+> ✓ 模型:src/main/java/app/models/Post.java
+> ✓ 迁移:src/main/java/database/migrations/m2026_11_04_150115/CreatePostsTable.java
+> ✓ 控制器:src/main/java/app/http/controllers/PostController.java
+> ```
+>
+> 实测 **0.2s**(JVM 启动占绝大部分)。离 §设计目标 的 100ms 还差一截,
+> 那一截要靠 native 镜像(v0.9)—— 但与「等 Spring 启动三秒」已经不是
+> 一个量级,而后者才是这一节开头要解决的问题。
+>
+> ⚠ **在线命令(`migrate` / `tinker` / `queue:work`)会报错退出(码 1)**,
+> 消息里说清两条待实现的路与「现在能做什么」。
+> 不在 CLI 里硬跑它们的理由:那个进程没有容器,硬跑会得到
+> 「数据库尚未装配」之类与真正原因无关的报错;而假装成功(退出码 0
+> 什么都没做)在脚本里是成功的,更糟。
+>
+> 顺带:**不给 `migrate` 出「是否想写 make:migration ?」那种建议** ——
+> 拼写建议对真的手误有用,对一条「还没接通」的命令只会把人带错方向。
 >
 > ⚠ `make:*` 在应用进程里跑时,项目根取的是**当前工作目录** ——
 > 从项目目录启动(IDE / `mvn spring-boot:run`)才成立。打包后从别处启动
@@ -83,7 +107,21 @@ jaravel <command>
 
 ### 1.1 `jaravel` 可执行文件
 
-- 用 picocli + GraalVM native-image 编译;
+> **与下面不同的一处:没有用 picocli。**
+>
+> 命令的参数解析已经在 `jaravel-console` 里(`@Argument` / `@Option` +
+> `ArgumentBinder`),而它同时服务 `Artisan.call` 与调度器的命令通道。
+> 再引一个 picocli 意味着**两套注解、两个解析器**,而两边注定分叉 ——
+> 这个项目在别处(jblade 的组件复用 `@template`、邮件的渲染走 SPI)
+> 反复用的就是同一条理由。picocli 在这里只会负责最顶层的 argv 切分
+> (一个命令名 + 其余),那是三十行的事。
+>
+> ⚠ 但它的 native-image 价值是真的:picocli 的注解处理器会生成反射配置,
+> 而 `ArgumentBinder` 靠反射读字段 —— 打 native 镜像时需要 `reflect-config`。
+> 那一步与 `@Command` 的 APT 索引(§3.2)是同一件事:
+> 索引生成时顺带把反射配置也生成出来。这笔账记在这里。
+
+- 用 GraalVM native-image 编译(v0.9);
 - 分发:单文件二进制(Windows/macOS/Linux × x64/arm64),也提供 `jaravel.bat` / shell 包装脚本;
 - 项目内也可通过 `./jaravelw`(类比 `mvnw`)调用,自动下载匹配版本;
 - 安装:`scoop install jaravel` / `brew install jaravel` / `curl | sh`。

@@ -9,7 +9,7 @@ import io.jaravel.console.Command;
  * 一个带 setter 的事件意味着监听器能改掉后面监听器看到的东西,
  * 而那种耦合在事件总线上无从追踪。
  */
-@Command(name = "make:event", description = "新建一个事件")
+@Command(name = "make:event", description = "新建一个事件", offline = true)
 public final class MakeEvent extends SimpleGenerator {
 
     @Override protected String targetPackage() { return "app.events"; }

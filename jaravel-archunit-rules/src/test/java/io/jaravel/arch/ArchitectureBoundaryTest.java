@@ -41,6 +41,7 @@ class ArchitectureBoundaryTest {
             "io.jaravel.session..",
             "io.jaravel.auth..",
             "io.jaravel.console..",
+            "io.jaravel.cli..",
     };
 
     /**
@@ -259,8 +260,29 @@ class ArchitectureBoundaryTest {
                 .because("make:* 是离线命令:它要在没有模板引擎、没有数据库连接、"
                        + "甚至没有 javac(native 镜像)的环境里跑完");
 
+        /*
+         * v0.5 新增:jaravel-cli 只认识 console(与 support)。
+         *
+         * 它是**离线命令**的执行进程 —— 整个模块存在的理由就是
+         * 「make:model 不等 Spring 启动」。顺手 import 一个数据层或者
+         * starter,那个三秒就回来了,而且 native 镜像也打不出来。
+         *
+         * 在线命令(migrate / tinker)将来走的是进程间通道,
+         * 不是把应用的依赖拉进 CLI。
+         */
+        ArchRule cliDependsOnlyOnConsole = noClasses()
+                .that().resideInAPackage("io.jaravel.cli..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "io.jaravel.view..", "io.jaravel.http..", "io.jaravel.routing..",
+                        "io.jaravel.database..", "io.jaravel.eloquent..",
+                        "io.jaravel.migration..", "io.jaravel.queue..",
+                        "io.jaravel.cache..", "io.jaravel.auth..", "io.jaravel.spring..")
+                .because("CLI 的存在理由就是离线命令不启动容器:"
+                       + "拉进任何一个运行时模块,那三秒就回来了");
+
         supportDependsOnNothing.check(jaravelClasses);
         consoleDependsOnlyOnSupport.check(jaravelClasses);
+        cliDependsOnlyOnConsole.check(jaravelClasses);
         coreDependsOnlyOnSupport.check(jaravelClasses);
         httpDoesNotDependOnRouting.check(jaravelClasses);
         databaseIsIndependentOfWeb.check(jaravelClasses);

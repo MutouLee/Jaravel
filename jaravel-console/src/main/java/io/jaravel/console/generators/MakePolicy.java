@@ -18,7 +18,7 @@ import io.jaravel.support.Str;
  * 这里缺的是「这个类会不会生效」—— 后者在页面上表现为
  * 「授权规则没生效」,与一个没填的注解之间没有线索。
  */
-@Command(name = "make:policy", description = "新建一个授权策略")
+@Command(name = "make:policy", description = "新建一个授权策略", offline = true)
 public final class MakePolicy extends SimpleGenerator {
 
     @Option(names = "--model", description = "这个策略管哪个模型")

@@ -27,7 +27,7 @@ import io.jaravel.support.Str;
  * ({@code database.migrations.m2026_10_29_000100.CreatePostsTable})。
  * 执行顺序由包名的字典序决定,与 Laravel 的文件名排序等价。
  */
-@Command(name = "make:migration", description = "新建一个数据库迁移")
+@Command(name = "make:migration", description = "新建一个数据库迁移", offline = true)
 public final class MakeMigration extends GeneratorCommand {
 
     @Argument(description = "迁移名,如 create_posts_table")

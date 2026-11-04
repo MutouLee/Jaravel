@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.jaravel</groupId>
+    <artifactId>jaravel-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>jaravel-cli</artifactId>
+  <name>Jaravel :: jaravel 命令行</name>
+  <description>jaravel 可执行入口:离线命令直接执行,在线命令转发给应用进程</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-console</artifactId>
+    </dependency>
+
+    <!--
+      注意这里没有 picocli。
+
+      docs/13 §6 原本写的是「picocli 命令树」。实现时这条不成立:命令的
+      参数解析已经在 jaravel-console 里(@Argument / @Option +
+      ArgumentBinder),而它同时服务 Artisan.call 与调度器的命令通道。
+      再引一个 picocli 意味着两套注解、两个解析器,而两边注定分叉。
+      这个项目在别处(jblade 的组件复用 @template、邮件的渲染走 SPI)
+      反复用的就是同一条理由。
+
+      picocli 在这里只会负责最顶层的 argv 切分(一个命令名 + 其余),
+      那是三十行的事。
+      注意:它的 native-image 价值是真的(注解处理器会生成反射配置),
+      而 ArgumentBinder 是靠反射读字段的,打 native 镜像时需要
+      reflect-config。那一步与 @Command 的 APT 索引(docs/13 §3.2)
+      是同一件事:索引生成时顺带把反射配置也生成出来。
+    -->
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!--
+        可执行入口与版本号。
+
+        Implementation-Version 是 jaravel 的版本号输出的来源(从 manifest 读,
+        不硬编码 —— 理由写在 Jaravel.version())。
+
+        注意这里不打 fat jar:native 镜像与 fat jar 是两条不同的分发路线
+        (docs/13 §1.1),而 native 在 v0.9。现在的用法是
+        java -cp "jaravel-cli.jar;依赖..." io.jaravel.cli.Jaravel,
+        或者交给 jaravelw 包装脚本去拼 classpath。
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <configuration>
+          <archive>
+            <manifest>
+              <mainClass>io.jaravel.cli.Jaravel</mainClass>
+              <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
+            </manifest>
+          </archive>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

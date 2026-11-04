@@ -9,7 +9,7 @@ import io.jaravel.support.Str;
  * {@code jaravel make:controller PostController [--resource] [--api] [--model=Post]}
  * (docs/13 §2.2)。
  */
-@Command(name = "make:controller", description = "新建一个控制器")
+@Command(name = "make:controller", description = "新建一个控制器", offline = true)
 public final class MakeController extends GeneratorCommand {
 
     @Argument(description = "控制器类名,如 PostController")

@@ -72,6 +72,28 @@ public final class CommandRegistry {
         return factories.containsKey(name);
     }
 
+    /**
+     * 新建一个实例但**不运行** —— {@code help} 要读它的 @Argument/@Option。
+     *
+     * <p>不存在时返回 null:调用方(help)要自己给出「没有这条命令」的
+     * 提示,而那条提示带着「是否想写」的建议,与这里的 null 不是一回事。
+     */
+    public ConsoleCommand create(String name) {
+        var factory = factories.get(name);
+        if (factory == null) return null;
+        ConsoleCommand command = factory.get();
+        configurers.forEach(configurer -> configurer.accept(command));
+        return command;
+    }
+
+    /** 这条命令需要应用上下文吗(docs/13 §1 的离线/在线分流) */
+    public boolean isOffline(String name) {
+        ConsoleCommand command = create(name);
+        if (command == null) return false;
+        Command annotation = command.getClass().getAnnotation(Command.class);
+        return annotation != null && annotation.offline();
+    }
+
     public List<String> names() {
         return List.copyOf(factories.keySet());
     }

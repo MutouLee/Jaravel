@@ -16,7 +16,7 @@ import io.jaravel.support.Str;
  *
  * <p>合并的短开关({@code -mcr})是 artisan 的手感,ArgumentBinder 支持它。
  */
-@Command(name = "make:model", description = "新建一个 Eloquent 模型")
+@Command(name = "make:model", description = "新建一个 Eloquent 模型", offline = true)
 public final class MakeModel extends GeneratorCommand {
 
     @Argument(description = "模型类名,如 Post")

@@ -116,11 +116,21 @@ class ConsoleTest {
         }
 
         @Test
-        @DisplayName("缺少必填参数时报错并给出用法")
+        @DisplayName("★ 缺少必填参数时,用法是从注解**生成**的")
         void missingRequiredArgument() {
             Artisan.use(new CommandRegistry().register(Demo.class));
             assertThat(Artisan.call("demo")).isEqualTo(1);
-            assertThat(Artisan.output()).contains("缺少参数 <target>").contains("用法");
+
+            assertThat(Artisan.output())
+                    .contains("缺少参数 <target>")
+                    .as("""
+                            原先这行用法是手写的,与真实参数表之间没有关联 ——
+                            加一个选项不会让它跟着变,而一条说错了用法的报错
+                            比没有报错更费时间。""")
+                    .contains("用法:demo <target> [extra] [选项]")
+                    .contains("-f, --force")
+                    .contains("--chunk=值")
+                    .contains("(默认 500)");
         }
 
         @Test

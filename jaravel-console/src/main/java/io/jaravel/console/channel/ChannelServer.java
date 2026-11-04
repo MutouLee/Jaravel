@@ -149,12 +149,26 @@ public final class ChannelServer implements AutoCloseable {
                 args.add(CommandChannel.unescape(reader.readLine()));
             }
 
-            int code = registry.run(command, List.copyOf(args), new FramedIo(writer));
+            var framed = new FramedIo(writer);
+            int code;
+            try {
+                code = registry.run(command, List.copyOf(args), framed);
+            } catch (RuntimeException | Error e) {
+                // ★ 命令抛出来的异常要**作为输出发回客户端**。
+                //
+                // 不这么做的话,客户端只会看到「通道在收到退出码之前断开了」,
+                // 而真正的消息(比如 Migrator 的「本次已回滚,数据库结构未变」)
+                // 留在 dev server 那个终端里 —— 一个用户当时没在看的地方。
+                //
+                // 栈留在服务端:那是给框架开发者的,而命令的消息是给用户的。
+                framed.writeError(describe(e));
+                e.printStackTrace();
+                code = 1;
+            }
             writer.println(String.valueOf(CommandChannel.EXIT) + code);
 
         } catch (Exception e) {
-            // 服务端的异常也要让客户端看见 —— 否则那边只看到连接断了,
-            // 而真正的栈在 dev server 的日志里(两个终端之外的第三个地方)
+            // 协议层自己的失败(读帧、版本号解析)—— 这时连不连得上都不确定
             System.err.println("[jaravel] 命令通道执行失败:" + e);
         }
     }
@@ -173,6 +187,21 @@ public final class ChannelServer implements AutoCloseable {
             // 残留的 socket 文件由下一次 start() 删掉
         }
         if (acceptor != null) acceptor.interrupt();
+    }
+
+    /**
+     * 异常 → 给用户看的那几行。
+     *
+     * <p>消息优先,类型名其次:{@code Migrator.MigrationException} 这种名字
+     * 对用户没有信息量,而它的 message 写着「本次已回滚,下一步做什么」。
+     * 但也不能只给 message —— 有些异常的 message 是 null。
+     */
+    private static String describe(Throwable e) {
+        String message = e.getMessage();
+        return (message == null || message.isBlank())
+                ? e.getClass().getName()
+                : message + System.lineSeparator()
+                  + "  (" + e.getClass().getSimpleName() + ")";
     }
 
     /**

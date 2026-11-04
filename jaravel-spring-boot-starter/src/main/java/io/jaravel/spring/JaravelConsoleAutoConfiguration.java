@@ -3,6 +3,7 @@ package io.jaravel.spring;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.function.Supplier;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -34,6 +35,17 @@ import io.jaravel.console.generators.MakePolicy;
 import io.jaravel.console.generators.MakeRequest;
 import io.jaravel.console.generators.MakeSeeder;
 import io.jaravel.console.generators.MakeTest;
+import io.jaravel.database.Connection;
+import io.jaravel.migration.Migration;
+import io.jaravel.migration.Seeder;
+import io.jaravel.routing.RouteCollection;
+import io.jaravel.spring.commands.AboutCommand;
+import io.jaravel.spring.commands.DbSeedCommand;
+import io.jaravel.spring.commands.MigrateCommand;
+import io.jaravel.spring.commands.MigrateFreshCommand;
+import io.jaravel.spring.commands.MigrateRollbackCommand;
+import io.jaravel.spring.commands.MigrateStatusCommand;
+import io.jaravel.spring.commands.RouteListCommand;
 
 /**
  * 控制台的自动装配(docs/13)。
@@ -93,11 +105,15 @@ public class JaravelConsoleAutoConfiguration {
         // 框架自带的 make:*。无参构造,直接注册
         BUILT_IN.forEach(registry::register);
 
+        registerRuntimeCommands(registry, beans);
+
         // 应用自己的命令:每次向容器要一个新实例
         applicationCommands.stream().forEach(command -> {
             Class<?> type = command.getClass();
             warnIfSingleton(beans, type);
-            registry.register(() -> (ConsoleCommand) beans.getBean(type));
+            @SuppressWarnings("unchecked")
+            var commandType = (Class<? extends ConsoleCommand>) type;
+            registry.register(commandType, () -> (ConsoleCommand) beans.getBean(type));
         });
 
         // 生成类命令要知道项目根在哪。**不是 classpath,是源码目录** ——
@@ -110,6 +126,54 @@ public class JaravelConsoleAutoConfiguration {
 
         Artisan.use(registry);
         return registry;
+    }
+
+    /**
+     * 在线命令(docs/13 §2.3 / §2.5)。
+     *
+     * <h2>★ 依赖全部**惰性**取</h2>
+     * <p>每条命令拿到的是 {@code Supplier},而不是 {@code Connection} /
+     * {@code RouteCollection} 本身。两个理由:
+     *
+     * <ol>
+     *   <li><b>避免启动期的循环</b>:注册表在很早就建好(门面要它),
+     *       而 {@code RouteCollection} 要等全部 {@code RouteDefinition}
+     *       定义完。在这里直接注入会把注册表拖到路由之后,
+     *       而那条链上还有控制器 bean。</li>
+     *   <li><b>缺了也不致命</b>:一个纯队列应用可能没有路由定义。
+     *       惰性取的话,{@code route:list} 在它被调用时才报
+     *       「没有路由」—— 而不是让整个控制台装配失败。</li>
+     * </ol>
+     *
+     * <p>命令类住在 {@code io.jaravel.spring.commands} 而不是 jaravel-console,
+     * 理由写在 {@code RuntimeCommand} 的类注释上(发现机制是 Spring 的扫描器,
+     * 而 console 要保持羽量级给 CLI 用)。
+     */
+    private void registerRuntimeCommands(CommandRegistry registry,
+                                         org.springframework.beans.factory.BeanFactory beans) {
+
+        Supplier<Connection> connection = () -> beans.getBean(Connection.class);
+        Supplier<RouteCollection> routes = () -> beans.getBean(RouteCollection.class);
+        Supplier<List<Migration>> migrations =
+                () -> beans.getBean(MigrationRunner.class).discover();
+        Supplier<List<Seeder>> seeders =
+                () -> beans.getBean(MigrationRunner.class).discoverSeeders();
+
+        // 两个参数的 register:名字从**类的注解**读,实例留到真要跑的时候才建。
+        // 只给工厂的那个重载会立刻建一个实例探名字 —— 那会在注册时就解析
+        // 全部依赖,于是一个没有数据库的应用在注册 migrate 时就炸了
+        registry.register(MigrateCommand.class,
+                        () -> new MigrateCommand(connection, migrations))
+                .register(MigrateStatusCommand.class,
+                        () -> new MigrateStatusCommand(connection, migrations))
+                .register(MigrateRollbackCommand.class,
+                        () -> new MigrateRollbackCommand(connection, migrations))
+                .register(MigrateFreshCommand.class,
+                        () -> new MigrateFreshCommand(connection, migrations))
+                .register(DbSeedCommand.class, () -> new DbSeedCommand(seeders))
+                .register(RouteListCommand.class, () -> new RouteListCommand(routes))
+                .register(AboutCommand.class,
+                        () -> new AboutCommand(beans.getBean(ConfigRepository.class), routes));
     }
 
     /**

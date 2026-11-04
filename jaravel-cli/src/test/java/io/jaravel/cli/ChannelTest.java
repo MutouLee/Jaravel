@@ -192,6 +192,41 @@ class ChannelTest {
         }
     }
 
+    @Command(name = "db:wipe", description = "会抛异常的命令", offline = false)
+    static final class Exploding extends ConsoleCommand {
+        @Override public int handle() {
+            line("开始干活");
+            throw new IllegalStateException("""
+                    这张表不存在。
+
+                      本次已回滚,数据库结构未变。""");
+        }
+    }
+
+    @Test
+    @DisplayName("★ 命令抛异常时,客户端看到的是**消息**而不是「通道断开了」")
+    void exceptionsTravelThroughTheChannel(@TempDir Path tmp) throws Exception {
+        var registry = new CommandRegistry().register(Exploding.class);
+
+        try (var ignored = new ChannelServer(registry, tmp).start()) {
+            var result = cli(tmp, "db:wipe");
+
+            assertThat(result.code()).isEqualTo(1);
+            assertThat(result.out())
+                    .as("炸之前的输出照样到了客户端")
+                    .contains("开始干活");
+            assertThat(result.err())
+                    .as("""
+                            不转发的话客户端只会看到「通道在收到退出码之前断开了」,
+                            而真正的消息留在 dev server 那个终端里 ——
+                            一个用户当时没在看的地方。""")
+                    .contains("这张表不存在")
+                    .contains("本次已回滚")
+                    .as("类型名作为补充,而不是主角")
+                    .contains("IllegalStateException");
+        }
+    }
+
     // ================= 协议 =================
 
     @Test

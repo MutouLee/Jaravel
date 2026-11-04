@@ -59,6 +59,53 @@ public final class Jaravel {
 
     /** 测试与 {@code jaravelw} 用:指定项目根 */
     public static int run(String[] args, ConsoleIo io, java.nio.file.Path projectRoot) {
+        try {
+            return dispatch(args, io, projectRoot);
+        } catch (RuntimeException | Error e) {
+            io.writeError(failure(e));
+            return 1;
+        }
+    }
+
+    /**
+     * 命令抛异常时,给用户看**消息**而不是一屏栈帧。
+     *
+     * <h2>★ 为什么不直接让它冒出去</h2>
+     * <p>冒到 {@code main} 之外的话,JVM 打的是完整栈 —— 而对
+     * {@code jaravel migrate} 的用户来说,有用的那句话是
+     * {@code Migrator} 写在消息里的「本次已回滚,数据库结构未变。
+     * 下一步:修好上面的错误,再次 migrate 会从这个迁移继续」。
+     * 那句话会被埋在三十行框架帧的最上面一行。
+     *
+     * <p>栈不是没用,是**给框架开发者的**:所以它在
+     * {@code JARAVEL_DEBUG=1} 下才打。
+     */
+    private static String failure(Throwable e) {
+        var out = new StringBuilder();
+        String message = e.getMessage();
+        out.append(message == null || message.isBlank()
+                ? "命令失败:" + e.getClass().getName()
+                : message);
+        out.append(System.lineSeparator());
+
+        if (debugEnabled()) {
+            var stack = new java.io.StringWriter();
+            e.printStackTrace(new java.io.PrintWriter(stack));
+            out.append(stack);
+        } else {
+            out.append("  (").append(e.getClass().getSimpleName())
+               .append(";完整堆栈:JARAVEL_DEBUG=1)")
+               .append(System.lineSeparator());
+        }
+        return out.toString();
+    }
+
+    private static boolean debugEnabled() {
+        String flag = System.getenv("JARAVEL_DEBUG");
+        return flag != null && !flag.isBlank() && !flag.equals("0");
+    }
+
+    private static int dispatch(String[] args, ConsoleIo io, java.nio.file.Path projectRoot) {
         CommandRegistry registry = OfflineCommands.registry(projectRoot);
         Artisan.use(registry);
 

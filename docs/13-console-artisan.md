@@ -2,7 +2,7 @@
 
 `php artisan` 是 Laravel 体验的半壁江山。Java 侧没有等价物(`mvn spring-boot:run` 不是同一个东西)。本模块补齐这块,目标是**让 `jaravel` 命令的手感与 `artisan` 一致**。
 
-> ### v0.5 实现状态:内核 + 14 条 make:* + jaravel 命令 + 本地通道(96 个测试)
+> ### v0.5 实现状态:内核 + 14 条 make:* + jaravel 命令 + 通道 + 7 条在线命令(120 个测试)
 >
 > **已实现(`jaravel-console`)**
 >
@@ -18,10 +18,13 @@
 > | `list` · `help`(用法从注解生成) | `Usage`(§3.1) |
 > | **`jaravel` 命令本身**:离线/在线分流、`--version` | `jaravel-cli`(§1) |
 > | **本地命令通道**:在线命令在已跑着的应用进程里执行 | `ChannelServer` / `ChannelClient`(§1.2) |
+> | `migrate` · `migrate:status` · `migrate:rollback` · `migrate:fresh` · `db:seed` | §2.3 |
+> | `route:list`(带 `--method` / `--path` / `--name` 过滤)· `about` | §2.5 |
 >
 > **未实现**:JVM 启动器(通道不存在时的那条回落)、
-> native 二进制、数据库/运行时/检视命令本身(`migrate` / `tinker` 等的
-> **通道已经通了,但那些命令还没写**)、`doctor`、
+> native 二进制、`tinker`、`queue:*` / `schedule:*` 的 CLI 入口
+> (能力都在,缺命令壳子)、`db:show` / `db:table` / `config:show` /
+> `optimize` 这一批、`doctor`、
 > 其余 `make:*`(见下面那条注记)、
 > `@Command` 的 APT 索引(应用的命令靠 Spring 扫到,框架自带的仍要显式
 > `register`)、§4.3 的生成后处理。
@@ -336,6 +339,44 @@ jaravel model:show Post                 # 模型的字段/关联/作用域/观�
 jaravel model:prune                     # 清理可修剪的模型数据
 ```
 
+> ### v0.5:迁移这一组 + db:seed 已实现
+>
+> `migrate`(`--pretend` / `--step` / `--allow-drift` / `--seed`)·
+> `migrate:status` · `migrate:rollback --step=N` · `migrate:fresh` ·
+> `db:seed --class=`。
+>
+> Migrator 的能力(含 checksum 漂移检测)早就齐了,这些命令是壳子 ——
+> 真正值得记的是三件事:
+>
+> **1. 生产护栏,而且「不可交互时拒绝」**
+>
+> 这些命令会改库结构或删数据。它们跑在三种地方:开发者的终端(可交互)、
+> 本地命令通道(不可交互)、`Artisan.call`(不可交互)。
+> `confirm(..., false)` 在不可交互时返回默认值 `false` ——
+> 于是**没有终端的情况下一律拒绝**,要做就显式写 `--force`。
+> 反过来(默认放行)意味着一个部署脚本里的 `migrate` 会在生产库上
+> 静默执行,而那正是 Laravel 当年加这个护栏的原因。
+>
+> ⚠ 但 `--pretend` **不需要确认** —— 它什么都不改,
+> 而「想看看它会做什么」恰恰是生产环境里最该允许的操作。
+>
+> **2. `migrate:status` 会列出「库里有记录但代码里没有」的迁移**
+>
+> 标成 `?`。那通常意味着切了分支:当前分支少了一个已经执行过的迁移,
+> 而表结构里还留着它改的东西。只看代码侧的列表看不出这件事,
+> 而它恰恰是「我的库为什么和同事不一样」的常见答案。
+>
+> **3. 失败时输出不丢**
+>
+> `migrate` 在 `finally` 里把 `Migrator.output()` 打出来 ——
+> 「第几个迁移炸的」是排查的第一个问题,而异常本身只说了原因。
+> `Artisan.call` 也在 `finally` 里记录输出,所以炸了之后
+> `Artisan.output()` 仍然拿得到那几行(调用方正要用它写日志)。
+>
+> `db:seed` 的一个取舍:有 `DatabaseSeeder` 就只跑它(尊重 Laravel 的
+> 入口约定),没有就全跑 —— 否则一个只写了几个 seeder、没写入口的项目
+> 会「什么都没发生」。
+
 ### 2.4 运行时
 
 ```bash
@@ -366,6 +407,19 @@ jaravel lang:check                      # 校验语言包完整性(缺键/多余
 jaravel openapi:generate · openapi:diff
 jaravel inspire                         # 彩蛋,保留 Laravel 传统
 ```
+
+> ### v0.5:route:list 与 about 已实现
+>
+> `route:list` 的数据来自**编译后的路由表**,也就是请求真正走的那一张 ——
+> 而不是重新解析一遍路由定义。两者不一致时(分组前缀、资源路由的展开、
+> PATCH 的隐式注册),重新解析那份会说谎。
+> 支持 `--method`(不分大小写)/ `--path` / `--name` 过滤,
+> 过滤后会报「匹配 N / 共 M 条」——「我的过滤条件是不是写错了」
+> 与「真的只有这么多」要能分开。
+>
+> `about` 报的是**配置解析之后**的实际值。一半的「为什么不生效」最后都是
+> .env 没被读到、或者被另一个配置源覆盖了,而那件事只有解析完才看得出来 ——
+> 看 yml 文件是看不出来的。没配的驱动显示「(未配置)」而不是空白。
 
 ### 2.6 诊断(Jaravel 特有)
 

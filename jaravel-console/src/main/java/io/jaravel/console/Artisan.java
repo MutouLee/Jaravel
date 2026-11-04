@@ -57,10 +57,18 @@ public final class Artisan {
 
     public static int call(String command, List<String> args) {
         var io = new ConsoleIo.Recording();
-        int code = registry().run(command, args, io);
-        // 错误也进 output():调用方拿它去记日志时,最该看到的就是报错
-        LAST_OUTPUT.set(io.output() + io.errors());
-        return code;
+        try {
+            return registry().run(command, args, io);
+        } finally {
+            // ★ finally:命令**抛异常时也要**把已有输出留下。
+            //
+            // 不这么做的话,一个跑到一半炸掉的 migrate 会让 output() 返回上一次
+            // 调用的内容 —— 而调用方正要用它写日志。「第几个迁移炸的」
+            // 恰恰在那段输出里,异常本身只说了原因。
+            //
+            // 错误也进 output():调用方拿它去记日志时,最该看到的就是报错。
+            LAST_OUTPUT.set(io.output() + io.errors());
+        }
     }
 
     /**

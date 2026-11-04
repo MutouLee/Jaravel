@@ -101,6 +101,39 @@ class JaravelCliTest {
         assertThat(tmp.resolve("src/main/java/app/models/Post.java")).exists();
     }
 
+    @Test
+    @DisplayName("用错了(缺参数)→ 一条消息 + 用法,不带栈帧")
+    void misuseIsAMessage(@TempDir Path tmp) throws Exception {
+        var result = run(project(tmp), "make:model");
+
+        assertThat(result.code()).isEqualTo(1);
+        assertThat(result.err())
+                .as("ConsoleException 就是「用错了」,注册表就地处理成一条消息")
+                .contains("缺少参数")
+                .contains("用法:make:model")
+                .doesNotContain("at io.jaravel");
+    }
+
+    @Test
+    @DisplayName("★ 命令**抛异常**时也只给消息,栈留给 JARAVEL_DEBUG")
+    void thrownExceptionsBecomeAMessage(@TempDir Path tmp) throws Exception {
+        // make:model 往一个不可能写入的路径生成 —— 用一个文件当「目录」
+        Path root = project(tmp);
+        java.nio.file.Files.createDirectories(root.resolve("src/main/java/app"));
+        java.nio.file.Files.writeString(root.resolve("src/main/java/app/models"), "我是文件不是目录");
+
+        var result = run(root, "make:model", "Post");
+
+        assertThat(result.code()).isEqualTo(1);
+        assertThat(result.err())
+                .as("""
+                        栈不是没用,是**给框架开发者的** ——
+                        对 jaravel 的用户来说有用的是「写不了哪个文件」那句话,
+                        而它会被埋在三十行框架帧的最上面一行。""")
+                .contains("写不了")
+                .doesNotContain("at io.jaravel.console");
+    }
+
     // ================= 在线命令 =================
 
     @Nested

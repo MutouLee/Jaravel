@@ -141,6 +141,32 @@ class ConsoleAutoConfigurationTest {
                 .contains("prototype");
     }
 
+    @Test
+    @DisplayName("★ 容器里没有数据库/路由时,装配照样成功 —— 依赖在真要跑的时候才取")
+    void registrationDoesNotResolveDependencies(@TempDir Path tmp) {
+        // 这个 BeanFactory 里只有一个 String 和那个命令 bean:
+        // 没有 Connection、没有 RouteCollection、没有 ConfigRepository
+        var registry = registryFrom(beansWith(SyncInventory.class,
+                BeanDefinition.SCOPE_PROTOTYPE), tmp);
+
+        assertThat(registry.names())
+                .as("""
+                        名字从 @Command 注解读,不建实例 ——
+                        「注册时就建实例」会让一个没有数据库的应用
+                        在注册 migrate 时就炸,而那条命令它根本不会用。""")
+                .contains("migrate", "route:list", "about");
+
+        // 真去跑才会要那些 bean,那时报的是「没有这个 bean」,
+        // 而不是在启动期把整个控制台装配带下去。
+        //
+        // 用 route:list 而不是 migrate:后者第一步是生产护栏
+        // (这个测试里 Application.environment() 是默认的 production),
+        // 会在碰数据库之前就返回 —— 那证明不了惰性
+        Artisan.use(registry);
+        assertThatThrownBy(() -> Artisan.call("route:list"))
+                .hasMessageContaining("RouteCollection");
+    }
+
     // ================= 调度器的命令通道 =================
 
     @Test

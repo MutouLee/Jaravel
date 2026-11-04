@@ -61,8 +61,41 @@ public final class CommandRegistry {
         });
     }
 
+    /**
+     * 带依赖的命令。
+     *
+     * <p>⚠ **必须给类型**,不能只给工厂。名字与说明在 {@code @Command} 注解上,
+     * 只有工厂的话就得先建一个实例才能读到它们 —— 而那会在**注册的时候**
+     * 解析这条命令的全部依赖。
+     *
+     * <p>后果很具体:注册表在应用启动的很早就建好(门面要它),
+     * 而一条 {@code route:list} 的依赖是编译后的路由表,它要等所有路由定义完。
+     * 「注册时就建实例」会把注册表拖到那之后,而那条链上还有控制器 bean;
+     * 更糟的是一个**没有数据库的应用**会在注册 {@code migrate} 时就炸,
+     * 而那条命令它根本不会用。
+     *
+     * <p>给了类型就只读注解,实例留到真要跑的时候再建。
+     */
+    public CommandRegistry register(Class<? extends ConsoleCommand> type,
+                                    Supplier<? extends ConsoleCommand> factory) {
+        Command annotation = type.getAnnotation(Command.class);
+        if (annotation == null) {
+            throw new ConsoleException(type.getSimpleName()
+                    + " 没有 @Command 注解 —— 命令要有名字才能被调用");
+        }
+        factories.put(annotation.name(), factory);
+        descriptions.put(annotation.name(), annotation.description());
+        return this;
+    }
+
+    /**
+     * 只给工厂 —— 会**立刻建一个实例**来读它的名字。
+     *
+     * <p>所以它只适合没有依赖(或者依赖已经在手上)的命令。
+     * 依赖要从容器取的,用 {@link #register(Class, Supplier)}。
+     */
     public CommandRegistry register(Supplier<? extends ConsoleCommand> factory) {
-        ConsoleCommand probe = factory.get();   // 名字与说明在注解上,要一个实例才能读
+        ConsoleCommand probe = factory.get();
         factories.put(probe.name(), factory);
         descriptions.put(probe.name(), probe.description());
         return this;

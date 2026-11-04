@@ -149,6 +149,29 @@ public abstract class ConsoleCommand {
         return sb.toString();
     }
 
+    /**
+     * 两列的「键 值」一行(docs/13 §3.1 的 {@code twoColumnDetail})。
+     *
+     * <pre>
+     *   环境            local
+     *   数据库          sqlite
+     * </pre>
+     *
+     * <p>文档里写的是 {@code components().twoColumnDetail(...)} ——
+     * 这里没有那个 {@code components()} 中间层。它在 Laravel 里是为了给
+     * 一组渲染组件分命名空间,而这里只有两三个;多一层间接只是让
+     * 补全多按一次回车。
+     *
+     * <p>宽度按**显示宽度**算 —— 键几乎总是中文,
+     * 按 {@code length()} 对齐的话每一行都差两格。
+     */
+    public void twoColumnDetail(String key, String value) {
+        int pad = Math.max(1, DETAIL_WIDTH - displayWidth(key));
+        line("  " + key + " ".repeat(pad) + value);
+    }
+
+    private static final int DETAIL_WIDTH = 20;
+
     /** 等宽终端里的显示宽度:CJK 与全角符号算两格 */
     static int displayWidth(String text) {
         int width = 0;

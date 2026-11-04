@@ -86,7 +86,11 @@ public class MigrationRunner {
         }
     }
 
-    List<Seeder> discoverSeeders() {
+    /**
+     * public 而不是包可见:{@code db:seed} 命令在 io.jaravel.spring.commands 下,
+     * 它要的就是这个发现结果(发现本身只能在这里做 —— 它用 Spring 的扫描器)。
+     */
+    public List<Seeder> discoverSeeders() {
         var provider = new ClassPathScanningCandidateComponentProvider(false);
         provider.addIncludeFilter(new AssignableTypeFilter(Seeder.class));
 
@@ -116,8 +120,8 @@ public class MigrationRunner {
         return config.bool("jaravel.migrate.allow-drift", false);
     }
 
-    /** 扫描约定包,实例化全部 {@link Migration} 实现 */
-    List<Migration> discover() {
+    /** 扫描约定包,实例化全部 {@link Migration} 实现。public:migrate 命令也要它 */
+    public List<Migration> discover() {
         var provider = new ClassPathScanningCandidateComponentProvider(false);
         provider.addIncludeFilter(new AssignableTypeFilter(Migration.class));
 

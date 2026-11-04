@@ -45,8 +45,6 @@ public final class ListCommands extends ConsoleCommand {
     }
 
     private void describe(String name) {
-        String description = commands().descriptionOf(name);
-        int pad = Math.max(1, 24 - ConsoleCommand.displayWidth(name));
-        line("  " + name + " ".repeat(pad) + description);
+        twoColumnDetail(name, commands().descriptionOf(name));
     }
 }

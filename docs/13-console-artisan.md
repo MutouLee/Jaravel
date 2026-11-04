@@ -2,7 +2,7 @@
 
 `php artisan` 是 Laravel 体验的半壁江山。Java 侧没有等价物(`mvn spring-boot:run` 不是同一个东西)。本模块补齐这块,目标是**让 `jaravel` 命令的手感与 `artisan` 一致**。
 
-> ### v0.5 实现状态:内核 + 15 条 make:*/key + 通道 + 启动器 + doctor + tinker(190 个测试)
+> ### v0.5 实现状态:内核 + 16 条生成命令 + 通道 + 启动器 + 包装脚本 + doctor + tinker(197 个测试)
 >
 > **已实现(`jaravel-console`)**
 >
@@ -27,10 +27,9 @@
 > | **`tinker`**(求值引擎 + REPL;入口见 §5) | §5 |
 > | **冷启动启动器**:应用没跑时起一个 JVM 执行在线命令 | `AppLauncher`(§1 下方) |
 > | **一次性命令模式** `-Djaravel.command=…` | starter(§1 下方) |
+> | **`wrapper:install`**:生成 `jaravelw` / `jaravelw.cmd` | §1.1 下方 |
 >
-> **未实现**:`jaravelw` 包装脚本(没有它,Windows 上要自己拼 classpath,
-> 而且中文要靠 `-Dstdout.encoding=UTF-8` —— 见下)、
-> native 二进制、`db:show` / `db:table` / `config:show` /
+> **未实现**:native 二进制、`db:show` / `db:table` / `config:show` /
 > `optimize` 这一批、`queue:restart` / `queue:monitor` /
 > `schedule:work`、`analyze:*`、
 > 其余 `make:*`(见下面那条注记)、
@@ -87,8 +86,7 @@
 >    (本机 cp936),而源码是 UTF-8 —— 实测「没有待执行的迁移」打成一串问号。
 >    但不能无条件写 UTF-8:真的 `cmd.exe` 里 cp936 才是对的。
 >    所以启动器**透传父进程自己的编码**给子进程,两边永远一致。
->    CLI 自己那一侧归 `jaravelw` 管(还没有),今天要自己加
->    `-Dstdout.encoding=UTF-8`。
+>    CLI 自己那一侧由 `jaravelw` 处理(§1.1 下方)。
 > 2. **命令模式下绝不开通道**:两个进程的 socket 路径是同一个,
 >    否则这个短命的 JVM 会先抢占那个文件、再在退出时删掉它 ——
 >    结果是「`jaravel migrate` 跑完之后,旁边那个 dev server 的通道没了」。
@@ -206,6 +204,56 @@ jaravel <command>
 > 而 `ArgumentBinder` 靠反射读字段 —— 打 native 镜像时需要 `reflect-config`。
 > 那一步与 `@Command` 的 APT 索引(§3.2)是同一件事:
 > 索引生成时顺带把反射配置也生成出来。这笔账记在这里。
+
+> ### v0.5:`jaravelw` 已经有了,native 还没有
+>
+> ```bash
+> jaravel wrapper:install          # 生成 jaravelw + jaravelw.cmd(两个都该提交)
+> ./jaravelw list                  # 0.27 秒(实测,离线命令)
+> ./jaravelw migrate:status        # 4.9 秒(实测,冷启动一个应用 JVM)
+> ```
+>
+> **它解决三件事**,每一件单独都够烦:
+>
+> | | 没有 wrapper 时 |
+> |---|---|
+> | classpath | CLI 不打 fat jar(native 与 fat jar 是两条路线,见上),所以要手写 `java -cp jaravel-cli.jar;jaravel-console.jar;…` |
+> | 版本 | 没有东西保证团队里每个人、CI 上那台机器用的是同一个 CLI 版本。脚本把版本**钉在自己里面**并提交 —— 这正是 `mvnw` 的理由 |
+> | 中文编码 | Git Bash 下 JDK 探到的是 Windows 代码页而终端是 UTF-8,输出全是问号(实测)。判断写在脚本里一次 |
+>
+> **classpath 怎么来的**:脚本写一个只有一条依赖的「标记 pom」,
+> 交给 Maven 解析。于是「自动下载匹配版本」是 **Maven** 在做 ——
+> 不是脚本自己拼 URL、校验 sha1、处理代理与私服。
+> 要两三秒,所以结果缓存在 `.jaravel/`,版本号变了才重算。
+>
+> **⚠ 两份实现,而且承认它会腐坏**:`jaravelw`(sh)与 `jaravelw.cmd`
+> 是同一件事的两份实现。本项目在别处(命令通道用 unix socket 而不是
+> 「unix 用 socket、Windows 用命名管道」)刻意避开了这种分叉,
+> 但包装脚本避不开 —— **它运行在还没有 Java 的时刻**,
+> 而两个平台的 shell 没有交集。所以不假装没问题,改为钉住一致性:
+> 一条测试核对两边的主类名、三个缓存文件名与版本号。
+>
+> **编码这件事两边故意不一样**:sh 版在 locale 说 UTF-8、或者
+> locale 为空但 `MSYSTEM` 有值(Git Bash 的默认状态)时才指定 UTF-8;
+> cmd 版**什么都不传** —— 真的 `cmd.exe` 里 cp936 才是对的,
+> 强塞只是把乱码换个方向。猜错了用 `JARAVEL_ENCODING` / `JARAVEL_JVM_ARGS` 覆盖。
+>
+> **行尾不能交给平台**:`jaravelw` 必须是 LF —— CRLF 会让 `#!/bin/sh`
+> 变成 `#!/bin/sh`,症状是 `bad interpreter: No such file or directory`,
+> 而那条报错指着一个明明存在的路径,极难查。`.cmd` 反过来要 CRLF。
+> 两条测试各钉一边。
+>
+> **可执行位**:Windows 上设不了(文件系统没有它),所以命令会提示
+> `git update-index --chmod=+x jaravelw` —— 不然 Linux / macOS 上
+> clone 下来的脚本不能直接跑。
+>
+> **版本号读不到时报错而不是猜**:从 `target/classes` 跑的开发版
+> manifest 里没有版本号。猜一个写进脚本的话,它会去解析一个不存在的
+> artifact,而报错出现在**将来某个人**第一次跑 `./jaravelw` 的时候 ——
+> 离这里很远。那时用 `--jaravel-version=…`。
+> (这条是端到端跑出来的:第一版从 jar 里也读不到 ——
+> 命令住在 `jaravel-console`,而只有 `jaravel-cli` 配了
+> `Implementation-Version`。)
 
 - 用 GraalVM native-image 编译(v0.9);
 - 分发:单文件二进制(Windows/macOS/Linux × x64/arm64),也提供 `jaravel.bat` / shell 包装脚本;

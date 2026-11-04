@@ -37,6 +37,7 @@ import io.jaravel.console.generators.MakePolicy;
 import io.jaravel.console.generators.MakeRequest;
 import io.jaravel.console.generators.MakeSeeder;
 import io.jaravel.console.generators.MakeTest;
+import io.jaravel.console.generators.WrapperInstallCommand;
 import io.jaravel.database.Connection;
 import io.jaravel.migration.Migration;
 import io.jaravel.migration.Seeder;
@@ -112,7 +113,7 @@ public class JaravelConsoleAutoConfiguration {
             MakeEvent.class, MakeListener.class, MakePolicy.class,
             MakeSeeder.class, MakeMail.class, MakeNotification.class,
             MakeConsoleCommand.class, MakeTest.class,
-            KeyGenerateCommand.class);
+            KeyGenerateCommand.class, WrapperInstallCommand.class);
 
     @Bean
     @ConditionalOnMissingBean

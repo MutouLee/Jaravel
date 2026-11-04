@@ -36,4 +36,32 @@
       这条取舍与 jaravel-mail 不依赖 jaravel-view 是同一类决定。
     -->
   </dependencies>
+  <build>
+    <plugins>
+      <!--
+        把 Implementation-Version 写进 manifest。
+
+        ★ 为什么是**这个**模块需要它:wrapper:install 要把一个版本号钉进
+        生成的 jaravelw 脚本里,而它读的是自己所在 jar 的 manifest
+        (getClass().getPackage().getImplementationVersion())。
+        这个命令住在 jaravel-console,所以是这里的 manifest 说话 ——
+        此前只有 jaravel-cli 配了这几行,于是从 jar 里跑也读不到版本号
+        (端到端跑 ./jaravelw wrapper:install 时当场撞上)。
+
+        框架的所有模块同版本发布(有 BOM),所以这个号就是要钉的那个号。
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <configuration>
+          <archive>
+            <manifest>
+              <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
+            </manifest>
+          </archive>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
 </project>

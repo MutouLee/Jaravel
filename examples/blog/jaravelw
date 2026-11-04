@@ -1,0 +1,111 @@
+#!/bin/sh
+# jaravel 包装脚本 —— 由 `jaravel wrapper:install` 生成,类比 mvnw。
+#
+# 用途:不用全局安装 jaravel,项目里直接 ./jaravelw make:model Post
+# 版本钉在下面那一行 —— 它跟着项目走,所以团队里每个人用的是同一个版本。
+#
+# 这个文件可以提交进仓库。改它没问题,但 wrapper:install 会覆盖
+# (想保留改动就加 --force 之前先看一眼 diff)。
+set -e
+
+JARAVEL_VERSION=0.1.0-SNAPSHOT
+
+# 缓存跟着**脚本**走,而不是跟着当前目录 —— 从子目录里敲 ./jaravelw 时
+# 缓存仍然命中。但命令本身看到的项目根是**当前目录**(mvnw 也是这个行为)
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+CACHE_DIR="$SCRIPT_DIR/.jaravel"
+CLASSPATH_FILE="$CACHE_DIR/cli-classpath"
+VERSION_FILE="$CACHE_DIR/cli-version"
+MARKER_POM="$CACHE_DIR/cli.pom.xml"
+
+# ---------------------------------------------------------------
+# CLI 自己的 classpath
+#
+# 用一个只有一条依赖的「标记 pom」交给 Maven 解析。这样
+# 「自动下载匹配版本」是 Maven 在做 —— 而不是这个脚本自己拼 URL、
+# 校验 sha1、处理代理与私服。那些事 Maven 已经按这台机器上的
+# settings.xml 做对了。
+#
+# 要两三秒,所以结果缓存;版本号变了才重算。
+# ---------------------------------------------------------------
+if [ ! -f "$CLASSPATH_FILE" ] \
+   || [ ! -f "$VERSION_FILE" ] \
+   || [ "$(cat "$VERSION_FILE")" != "$JARAVEL_VERSION" ]; then
+
+  mkdir -p "$CACHE_DIR"
+  cat > "$MARKER_POM" <<POM
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 由 jaravelw 生成,只用来解析 CLI 的 classpath。不要提交。 -->
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>io.jaravel.wrapper</groupId>
+  <artifactId>jaravel-cli-classpath</artifactId>
+  <version>1</version>
+  <packaging>pom</packaging>
+  <dependencies>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-cli</artifactId>
+      <version>$JARAVEL_VERSION</version>
+    </dependency>
+  </dependencies>
+</project>
+POM
+
+  echo "[jaravelw] 解析 jaravel-cli $JARAVEL_VERSION 的依赖(结果会缓存)…" >&2
+
+  # 这里**不加** -o:第一次跑可能要下载,那正是 wrapper 该做的事。
+  # 项目自带 mvnw 的话优先用它 —— 它钉住了 Maven 的版本
+  if [ -x "$SCRIPT_DIR/mvnw" ]; then MVN="$SCRIPT_DIR/mvnw"; else MVN=mvn; fi
+
+  "$MVN" -q -f "$MARKER_POM" dependency:build-classpath \
+      -Dmdep.outputFile="$CLASSPATH_FILE" \
+      -Dmdep.includeScope=runtime
+
+  echo "$JARAVEL_VERSION" > "$VERSION_FILE"
+fi
+
+# ---------------------------------------------------------------
+# java
+#
+# JAVA_HOME 优先:PATH 上那个可能是另一个版本(机器上装着 8 和 21
+# 很常见),而症状会是 UnsupportedClassVersionError —— 那条报错
+# 不会让任何人想到「用的不是同一个 java」。
+# ---------------------------------------------------------------
+if [ -n "$JAVA_HOME" ] && [ -x "$JAVA_HOME/bin/java" ]; then
+  JAVACMD="$JAVA_HOME/bin/java"
+else
+  JAVACMD=java
+fi
+
+# ---------------------------------------------------------------
+# 输出编码:只在**确定**是 UTF-8 终端时才指定
+#
+# JDK 18 起 System.out 跟的是操作系统控制台的编码。Windows 上那常常是
+# cp936,而 Git Bash / MSYS2 的终端实际是 UTF-8 —— 于是中文打成一串问号
+# (实测:「没有待执行的迁移」)。
+#
+# 但**不能无条件写 UTF-8**:真的 cmd.exe 里 cp936 才是对的,
+# 强塞只是把乱码换个方向。所以:locale 说 UTF-8 就用 UTF-8;
+# locale 是空的(Git Bash 的默认状态)但 MSYSTEM 有值,说明是 MSYS 终端,
+# 那也是 UTF-8;其余情况**什么都不传**,让 JDK 自己判断。
+#
+# 猜错了用 JARAVEL_ENCODING=... 覆盖(传 none 表示「别管」)。
+# ---------------------------------------------------------------
+ENCODING=
+case "${LC_ALL:-${LC_CTYPE:-$LANG}}" in
+  *UTF-8*|*utf-8*|*UTF8*|*utf8*) ENCODING=UTF-8 ;;
+  "") [ -n "$MSYSTEM" ] && ENCODING=UTF-8 ;;
+esac
+[ -n "$JARAVEL_ENCODING" ] && ENCODING="$JARAVEL_ENCODING"
+[ "$ENCODING" = none ] && ENCODING=
+
+ENCODING_ARGS=
+if [ -n "$ENCODING" ]; then
+  ENCODING_ARGS="-Dstdout.encoding=$ENCODING -Dstderr.encoding=$ENCODING"
+fi
+
+# exec:让 jaravel 直接拿到这个终端(tinker 要读键盘),
+# 并且 Ctrl-C 不会留下一个孤儿进程
+exec "$JAVACMD" $ENCODING_ARGS $JARAVEL_JVM_ARGS \
+    -cp "$(cat "$CLASSPATH_FILE")" io.jaravel.cli.Jaravel "$@"

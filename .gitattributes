@@ -1,0 +1,18 @@
+# 行尾只在这两处是**语义**,不是风格。
+#
+# 这台开发机的 git 开着 core.autocrlf,所以 checkout 时文本文件会变成 CRLF。
+# 对 .java / .md 无所谓,对下面这两种致命:
+#
+#   jaravelw     —— CRLF 会让 #!/bin/sh 变成 #!/bin/sh\r,症状是
+#                   bad interpreter: No such file or directory ——
+#                   那条报错指着一个明明存在的路径(/bin/sh),极难查。
+#   jaravelw.cmd —— 反过来:cmd.exe 对 LF 的多行结构(括号块、for /f)会出错。
+#
+# wrapper:install 生成文件时自己写死了行尾(不走平台默认),这里是另一半:
+# 保证**从仓库 clone 下来的**那份也是对的。
+jaravelw         text eol=lf
+jaravelw.cmd     text eol=crlf
+
+# stub 不受影响:生成器会把读到的内容统一成 LF 再按目标文件的要求转换。
+# 列在这里只是让它和被生成的文件保持同一个形状,便于 diff。
+*.stub           text eol=lf

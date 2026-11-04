@@ -1,5 +1,11 @@
 app:
-  name: ${APP_NAME:Jaravel Todo}
+  name: ${APP_NAME:Jaravel Blog}
   env: ${APP_ENV:local}
   debug: ${APP_DEBUG:true}
   url: ${APP_URL:http://localhost:8000}
+  # 会话加密、签名 URL、加密字段都依赖它。
+  # ⚠ 这一行是补上的:auth 模块(v0.3)之后 Encrypter 变成**启动即校验**的
+  # 饿加载 bean,而这个示例写在那之前 —— 于是它被静默压死了,
+  # 症状是「示例按提交的样子根本起不来」。
+  # 真实项目里这一行只写 ${APP_KEY} —— 不带默认值,让它缺失时启动失败。
+  key: ${APP_KEY:base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}

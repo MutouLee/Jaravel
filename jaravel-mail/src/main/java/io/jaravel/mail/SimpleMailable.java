@@ -175,10 +175,15 @@ public final class SimpleMailable extends Mailable {
     /**
      * 纯文本版本 —— **手写的**,不是从 HTML 退化出来的。
      *
-     * <p>这里知道结构(几行字 + 一个按钮),所以能生成一个比
-     * {@code Content.plainTextFallback} 好得多的版本:
-     * 按钮变成「文字:URL」而不是只剩文字 ——
-     * 退化版本会把链接整个丢掉,而那正是收件人要点的东西。
+     * <p>这里知道结构(几行字 + 一个按钮),所以排版能比退化版本好:
+     * 称呼、正文、按钮、结尾各自分段,不用从 HTML 里猜。
+     *
+     * <p>写这段注释时,退化版本还会把 {@code <a>} 的 URL 整个丢掉 ——
+     * 「按钮变成文字:URL」原本是这个方法独有的好处。
+     * 那个缺陷后来修了({@link Content#plainTextFallback}),
+     * 格式也对齐成同一个(「文字:URL」)。
+     * 留着这条记录是因为它解释了为什么这里仍然手写:
+     * **知道结构的那一方排得更好**,与链接那件事无关。
      */
     private String renderText() {
         var out = new StringBuilder();

@@ -204,6 +204,50 @@ class MailComponentsTest {
     }
 
     @Test
+    @DisplayName("★ 端到端:组件邮件的纯文本版本里,按钮的 URL 还在")
+    void plainTextVersionKeepsTheButtonUrl(@TempDir Path tmp) throws Exception {
+        Path views = writeApplicationView(tmp, "mail/shipped", """
+                @params(String tracking)
+                <x-mail::message title="订单已发货">
+                  <p>你的订单已经发出。</p>
+                  <x-mail::button :url="tracking">查看物流</x-mail::button>
+                  <x-mail::table>
+                    <tr><x-mail::th>商品</x-mail::th><x-mail::th>数量</x-mail::th></tr>
+                    <tr><x-mail::td>铁观音</x-mail::td><x-mail::td>2</x-mail::td></tr>
+                  </x-mail::table>
+                </x-mail::message>
+                """);
+        var engine = JbladeEngine.forDirectory(views, tmp.resolve("jte"),
+                getClass().getClassLoader());
+
+        var renderer = new io.jaravel.mail.MailRenderer(
+                (view, data, locale) -> engine.render(view, data),
+                io.jaravel.mail.Address.of("noreply@shop.com", "小店"));
+
+        var message = renderer.render(new io.jaravel.mail.Mailable() {
+            @Override public io.jaravel.mail.Envelope envelope() {
+                return io.jaravel.mail.Envelope.subject("订单已发货");
+            }
+            @Override public io.jaravel.mail.Content content() {
+                return io.jaravel.mail.Content.view("mail.shipped")
+                        .with("tracking", "https://example.com/t/1024");
+            }
+        }, new io.jaravel.mail.MailRenderer.Recipients(
+                List.of(io.jaravel.mail.Address.of("a@b.com", null)), List.of(), List.of()), null);
+
+        assertThat(message.text())
+                .as("""
+                        这是「只写一份模板」的真实代价检查:纯文本版本是从
+                        组件渲染出的 HTML 退化来的。退化丢了 URL 的话,
+                        那封邮件的行动号召就没了 —— 而 <x-mail::button>
+                        把整封邮件的行动号召都放在那一个 <a> 里。""")
+                .contains("查看物流:https://example.com/t/1024")
+                .as("head 整段去掉,标题不该在正文里重复一遍")
+                .doesNotStartWith("订单已发货")
+                .contains("商品\t数量");
+    }
+
+    @Test
     @DisplayName("生产模式(forClasspath)也能解析到这套组件")
     void worksInProductionMode(@TempDir Path tmp) {
         // 入口模板也必须在 classpath 上 —— 用 jaravel-mail 自带的组件直接当入口

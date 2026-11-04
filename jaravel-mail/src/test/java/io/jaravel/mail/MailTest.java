@@ -183,6 +183,77 @@ class MailTest {
             assertThat(text).doesNotContain("<p>");
         }
 
+        /**
+         * 下面三条用的 HTML 是内置邮件组件(docs/11 §1.4)**真实渲染产物**
+         * 的删节版。这三个缺陷在手写的 Mailable.simple() 下看不出来
+         * (它自己手写纯文本版本),是组件那条路把它们暴露出来的。
+         */
+        @Test
+        @DisplayName("★ 链接退化成「文字:URL」—— 光秃秃的文字等于把行动号召删了")
+        void fallbackKeepsLinkUrls() {
+            Mail.to("x@y.com").send(new HtmlMail("""
+                    <p>你的订单已经发出。</p>
+                    <table><tr><td><a href="https://example.com/t/1024"
+                       style="padding:12px">查看物流</a></td></tr></table>
+                    """));
+
+            assertThat(array.sent().get(0).text())
+                    .as("""
+                            <x-mail::button> 把整封邮件的行动号召放在一个 <a> 里,
+                            所以这不是边角情况 —— 丢了 URL 的那封邮件没法用。
+                            格式与 Mailable.simple() 手写的那份一致。""")
+                    .contains("查看物流:https://example.com/t/1024");
+        }
+
+        @Test
+        @DisplayName("链接文字就是 URL、或者没有文字时,不输出「URL:URL」")
+        void fallbackLinkEdgeCases() {
+            Mail.to("x@y.com").send(new HtmlMail(
+                    "<p><a href=\"https://a.com\">https://a.com</a></p>"
+                  + "<p><a href=\"https://b.com\"><img src=\"logo.png\"></a></p>"));
+
+            var text = array.sent().get(0).text();
+            assertThat(text).contains("https://a.com").doesNotContain("https://a.com:https://a.com");
+            assertThat(text).contains("https://b.com").doesNotContain(":https://b.com");
+        }
+
+        @Test
+        @DisplayName("★ head 整段去掉 —— 否则文本版本以一行重复的标题开头")
+        void fallbackDropsHead() {
+            Mail.to("x@y.com").send(new HtmlMail("""
+                    <!DOCTYPE html>
+                    <html><head><meta charset="utf-8"><title>订单已发货</title></head>
+                    <body><p>正文</p></body></html>
+                    """));
+
+            assertThat(array.sent().get(0).text())
+                    .as("而那一行常常就是收件箱摘要里显示的那一行")
+                    .isEqualTo("正文");
+        }
+
+        @Test
+        @DisplayName("表格单元格之间留制表符,而不是连成一片")
+        void fallbackSeparatesTableCells() {
+            Mail.to("x@y.com").send(new HtmlMail("""
+                    <table role="presentation"><tr><td>
+                      <table>
+                        <tr><th>商品</th><th>数量</th></tr>
+                        <tr><td>铁观音</td><td>2</td></tr>
+                      </table>
+                    </td></tr></table>
+                    """));
+
+            var text = array.sent().get(0).text();
+            assertThat(text).contains("商品\t数量").contains("铁观音\t2");
+            assertThat(text)
+                    .as("""
+                            用制表符而不是「 | 」:邮件的布局本身就是 table 套 table,
+                            分不清哪个 <td> 是数据、哪个是布局。制表符是空白,
+                            布局单元格留下的那个会被行尾清理掉 ——
+                            竖线会变成正文里一串无来由的「|」。""")
+                    .doesNotContain("|");
+        }
+
         @Test
         @DisplayName("显式给的纯文本优先于退化生成")
         void explicitTextWins() {

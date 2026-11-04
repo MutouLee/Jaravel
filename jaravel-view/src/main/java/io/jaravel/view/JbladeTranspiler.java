@@ -130,17 +130,45 @@ public final class JbladeTranspiler {
 
     private final Deque<ComponentFrame> componentFrames = new ArrayDeque<>();
 
-    private JbladeTranspiler(String source, String templateName) {
+    private final ComponentProps componentProps;
+    /** 本模板调用了哪些组件 —— 引擎用它做热重载的依赖追踪(见 Result#components) */
+    private final List<String> calledComponents = new ArrayList<>();
+
+    private JbladeTranspiler(String source, String templateName, ComponentProps componentProps) {
         this.source = source;
         this.templateName = templateName;
+        this.componentProps = componentProps;
         this.lineMap = LineMap.builder(templateName);
     }
 
     public record Result(String jteSource, LineMap lineMap, List<String> declaredParams,
-                         Optional<String> layout) {}
+                         Optional<String> layout, List<String> components) {}
+
+    /**
+     * 组件声明了哪些 {@code @props} —— **属性袋唯一需要的跨模板信息**。
+     *
+     * <p>为什么非要跨模板:属性袋的定义是「调用方传了、组件没声明的属性」,
+     * 而转写器只看调用方那一行。不知道组件声明了什么,就分不出
+     * {@code type="error"}(是 prop)和 {@code id="x"}(进袋)。
+     *
+     * <p>{@link Optional#empty()} 表示**不知道**(查不到、或那个模板用的是
+     * {@code @params} 而不是 {@code @props})。此时退回「全部当成声明过的
+     * 参数」—— 也就是属性袋之前的行为。退回而不是报错:
+     * {@code @include} 的目标、还没写出来的组件都会走到这里。
+     */
+    public interface ComponentProps {
+        Optional<List<String>> propsOf(String componentView);
+
+        /** 不知道任何组件的声明 —— 直接用 transpile(source, name) 时的默认 */
+        ComponentProps UNKNOWN = view -> Optional.empty();
+    }
 
     public static Result transpile(String source, String templateName) {
-        return new JbladeTranspiler(source, templateName).run();
+        return transpile(source, templateName, ComponentProps.UNKNOWN);
+    }
+
+    public static Result transpile(String source, String templateName, ComponentProps props) {
+        return new JbladeTranspiler(source, templateName, props).run();
     }
 
     private Result run() {
@@ -195,7 +223,7 @@ public final class JbladeTranspiler {
         }
 
         return new Result(assemble(), buildLineMap(), List.copyOf(params),
-                          Optional.ofNullable(layout));
+                          Optional.ofNullable(layout), List.copyOf(calledComponents));
     }
 
     /**
@@ -256,6 +284,36 @@ public final class JbladeTranspiler {
         return work;
     }
 
+    /**
+     * 一处输出 → jte 的 {@code ${}} 或 {@code $unsafe{}}。
+     *
+     * <h2>★ 属性袋走 {@code $unsafe}</h2>
+     * <p>{@code {{ attributes }}} 要输出的是 {@code id="x" class="y"} ——
+     * 一串**属性**,而不是一个值。两件事逼出这个特例:
+     * <ul>
+     *   <li>jte 的 HTML 模式**禁止**在属性名位置写 {@code ${}}
+     *       (「Illegal HTML attribute name」),而那正是属性袋唯一的用处;
+     *   <li>整体走转义会变成 {@code id=&quot;x&quot;},也就是页面上的乱码。
+     * </ul>
+     *
+     * <p>**不转义 ≠ 不安全**:{@link Attributes} 自己转义每一个值
+     * (见那边的注释)。这里不转义的只有属性之间的空格和等号。
+     *
+     * <p>于是组件作者写的还是文档里那句 {@code {{ attributes }}} ——
+     * {@code $unsafe} 是生成码里的事。
+     */
+    private String echo(String expr, boolean raw) {
+        String rewritten = rewriteExpression(expr);
+        if (ATTRIBUTES_ROOT.matcher(rewritten).find()) {
+            return "$unsafe{io.jaravel.view.Attributes.render(" + rewritten + ")}";
+        }
+        return (raw ? "$unsafe{" : "${") + rewritten + "}";
+    }
+
+    /** 以 {@code attributes} 这个标识符开头的表达式 —— 属性袋本身或它的变换 */
+    private static final Pattern ATTRIBUTES_ROOT =
+            Pattern.compile("^attributes\\b(?!\\s*=)");
+
     private String translateEchos(String line) {
         // @{{ x }} 先替换成占位,避免被 ESC_ECHO 吃掉
         // 哨兵用不可能出现在模板里的控制字符,写成转义序列以保持源文件为纯文本
@@ -271,9 +329,9 @@ public final class JbladeTranspiler {
         String work = sb.toString();
 
         work = RAW_ECHO.matcher(work).replaceAll(m ->
-                Matcher.quoteReplacement("$unsafe{" + rewriteExpression(m.group(1)) + "}"));
+                Matcher.quoteReplacement(echo(m.group(1), true)));
         work = ESC_ECHO.matcher(work).replaceAll(m ->
-                Matcher.quoteReplacement("${" + rewriteExpression(m.group(1)) + "}"));
+                Matcher.quoteReplacement(echo(m.group(1), false)));
 
         for (String g : guarded) {
             work = work.replaceFirst(Pattern.quote(GUARD), Matcher.quoteReplacement(g));
@@ -555,6 +613,9 @@ public final class JbladeTranspiler {
                 || p.contains(" slot ") || p.contains(" slot="));
         if (!declared) params.add("gg.jte.Content slot = null");
 
+        // 隐式属性袋。每个组件都有,默认空 —— 没有未声明属性的调用方什么都不用传。
+        // 与 slot 同理:要求每个组件作者写一遍声明是纯噪音。
+        params.add("io.jaravel.view.Attributes attributes = io.jaravel.view.Attributes.empty()");
     }
 
     private void collectImport(String trimmed) {
@@ -683,10 +744,12 @@ public final class JbladeTranspiler {
 
     private String openTag(String name, String rawAttributes, boolean selfClosing,
                            int sourceLine) {
-        var call = new StringBuilder("@template.")
-                .append(componentPath(name)).append("(ctx = ctx");
+        String view = componentPath(name);
+        calledComponents.add(view);
 
-        for (String attribute : parseAttributes(rawAttributes, sourceLine)) {
+        var call = new StringBuilder("@template.").append(view).append("(ctx = ctx");
+
+        for (String attribute : parseAttributes(view, rawAttributes, sourceLine)) {
             call.append(", ").append(attribute);
         }
 
@@ -807,32 +870,47 @@ public final class JbladeTranspiler {
      * Blade 的习惯是 kebab。不转的话这个最自然的写法会变成一个
      * 语法错误,而错误会指向生成的 jte 代码。
      */
-    private List<String> parseAttributes(String rawAttributes, int sourceLine) {
+    private List<String> parseAttributes(String componentView, String rawAttributes,
+                                         int sourceLine) {
         var out = new ArrayList<String>();
         if (rawAttributes == null || rawAttributes.isBlank()) return out;
+
+        // 组件声明了哪些 prop。empty = 不知道 → 全部当成声明过的(属性袋之前的行为)
+        Optional<List<String>> declared = componentProps.propsOf(componentView);
+        var bag = new ArrayList<String>();
 
         var matcher = ATTRIBUTE.matcher(rawAttributes);
         while (matcher.find()) {
             boolean bound = !matcher.group(1).isEmpty();
-            String name = camelAttribute(matcher.group(2));
+            String rawName = matcher.group(2);
+            String name = camelAttribute(rawName);
             String doubleQuoted = matcher.group(3);
             String singleQuoted = matcher.group(4);
             String value = doubleQuoted != null ? doubleQuoted : singleQuoted;
 
-            if (value == null) {
-                if (bound) {
-                    throw new JbladeException(templateName, sourceLine,
-                            "组件属性 :" + matcher.group(2) + " 用了冒号前缀"
-                          + "(表示传表达式)但没给值。"
-                          + "\n  传表达式:  :" + matcher.group(2) + "=\"user.id\""
-                          + "\n  布尔简写:  " + matcher.group(2) + "(不带冒号)");
-                }
-                out.add(name + " = true");
-                continue;
+            if (value == null && bound) {
+                throw new JbladeException(templateName, sourceLine,
+                        "组件属性 :" + rawName + " 用了冒号前缀"
+                      + "(表示传表达式)但没给值。"
+                      + "\n  传表达式:  :" + rawName + "=\"user.id\""
+                      + "\n  布尔简写:  " + rawName + "(不带冒号)");
             }
 
-            out.add(name + " = " + (bound ? rewriteExpression(value)
-                                          : '"' + value.replace("\"", "\\\"") + '"'));
+            String javaValue = value == null ? "true"
+                             : bound ? rewriteExpression(value)
+                             : '"' + value.replace("\"", "\\\"") + '"';
+
+            // 组件没声明 → 进属性袋,**用原名**(id、data-test、class 要原样出现在 HTML 里)
+            if (declared.isPresent() && !declared.get().contains(name)) {
+                bag.add(javaStringLiteral(rawName) + ", " + javaValue);
+            } else {
+                out.add(name + " = " + javaValue);
+            }
+        }
+
+        if (!bag.isEmpty()) {
+            out.add("attributes = io.jaravel.view.Attributes.of("
+                    + String.join(", ", bag) + ")");
         }
         return out;
     }

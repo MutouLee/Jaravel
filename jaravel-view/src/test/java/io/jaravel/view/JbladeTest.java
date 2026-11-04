@@ -17,6 +17,13 @@ class JbladeTest {
 
     private static java.util.List<TestPost> posts() { return TestPost.sample(); }
 
+    /** Map.of 不收 null 值,而「属性值是 null」正是要测的一种情况 */
+    private static Map<String, Object> nullable(Object... pairs) {
+        var map = new java.util.HashMap<String, Object>();
+        for (int i = 0; i < pairs.length; i += 2) map.put(String.valueOf(pairs[i]), pairs[i + 1]);
+        return map;
+    }
+
     private JbladeEngine engine(@TempDir Path tmp, Map<String, String> templates) {
         return JbladeEngine.forMap(templates, tmp.resolve("jte-classes"),
                                    JbladeTest.class.getClassLoader());
@@ -1228,6 +1235,206 @@ class JbladeTest {
             assertThat(jte)
                     .as("hasSlot 就是判空 —— 没传的 slot 是 null")
                     .contains("(__slot_subCopy != null)");
+        }
+    }
+
+    // ================= 属性袋 =================
+
+    /**
+     * 属性袋(docs/04 §1.7 的 {@code {{ attributes }}})。
+     *
+     * <p>docs/04 曾把这个列为「不是暂时没做」,理由是转写器只看调用方那一行,
+     * 不知道组件声明了什么。解法是给转写器一个 {@code ComponentProps} 查询 ——
+     * 组件源码在仓库里,扫它的 {@code @props} 一行就够了。
+     */
+    @Nested
+    @DisplayName("属性袋({{ attributes }})")
+    class AttributeBag {
+
+        private String render(Map<String, String> templates, Map<String, Object> data, Path tmp) {
+            return JbladeEngine.forMap(templates, tmp.resolve("c"),
+                            JbladeTest.class.getClassLoader())
+                    .render("page", data);
+        }
+
+        @Test
+        @DisplayName("★ 组件没声明的属性原样透传,声明过的不进袋")
+        void undeclaredAttributesPassThrough(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.alert", """
+                            @props(String type = "info")
+                            <div class="alert-{{ type }}" {{ attributes }}>{{ slot }}</div>
+                            """,
+                    "page", """
+                            <x-alert type="error" id="login-error" data-test="x">出错了</x-alert>
+                            """), Map.of(), tmp);
+
+            assertThat(out).contains("id=\"login-error\"")
+                           .as("kebab 的属性名原样留着 —— 它要出现在 HTML 里")
+                           .contains("data-test=\"x\"")
+                           .as("声明过的 prop 走参数,不该再出现在袋里")
+                           .contains("alert-error")
+                           .doesNotContain("type=\"error\"");
+        }
+
+        @Test
+        @DisplayName("★ merge(\"class\", …):组件的默认类与调用方的类都留下")
+        void mergeClassKeepsBoth(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.btn", """
+                            @props()
+                            <button {{ attributes.merge("class", "btn btn-primary") }}>{{ slot }}</button>
+                            """,
+                    "page", "<x-btn class=\"mt-4\">点我</x-btn>\n"), Map.of(), tmp);
+
+            assertThat(out)
+                    .as("""
+                            覆盖语义的话,调用方加一个外边距就会悄悄删掉组件自己的样式。
+                            组件的默认值在前、调用方的在后 —— 后者才能覆盖前者。""")
+                    .contains("class=\"btn btn-primary mt-4\"");
+        }
+
+        @Test
+        @DisplayName("merge 的非 class 属性:调用方给了就不动")
+        void mergeNonClassPrefersCaller(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.input", """
+                            @props()
+                            <input {{ attributes.merge("type", "text") }}>
+                            """,
+                    "page", "<x-input type=\"password\" />\n<x-input />\n"), Map.of(), tmp);
+
+            assertThat(out).contains("type=\"password\"").contains("type=\"text\"");
+        }
+
+        @Test
+        @DisplayName("★ 属性值照样转义 —— 属性袋不是绕过安全的后门")
+        void valuesAreEscaped(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.box", "@props()\n<div {{ attributes }}>x</div>\n",
+                    "page", """
+                            @params(String evil)
+                            <x-box :title="evil" />
+                            """), Map.of("evil", "\"><script>alert(1)</script>"), tmp);
+
+            assertThat(out).doesNotContain("<script>")
+                           .contains("&quot;").contains("&lt;script&gt;");
+        }
+
+        @Test
+        @DisplayName("布尔简写 → 裸属性;false / null → 不输出")
+        void booleanAndNullAttributes(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.box", "@props()\n<div {{ attributes }}>x</div>\n",
+                    "page", """
+                            @params(Boolean off, String nothing)
+                            <x-box disabled />
+                            <x-box :disabled="off" />
+                            <x-box :title="nothing" />
+                            """), nullable("off", false, "nothing", null), tmp);
+
+            String[] divs = out.split("<div");
+            assertThat(divs[1]).as("裸属性只输出名字,这才是合法 HTML").contains("disabled>");
+            assertThat(divs[2]).as(":disabled=\"false\" 不该渲染出 disabled").doesNotContain("disabled");
+            assertThat(divs[3]).as("null 值的属性不输出").doesNotContain("title");
+        }
+
+        @Test
+        @DisplayName("表达式属性进袋时会求值")
+        void boundExpressionInBag(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.box", "@props()\n<div {{ attributes }}>x</div>\n",
+                    "page", """
+                            @params(int n)
+                            <x-box :data-count="n * 2" />
+                            """), Map.of("n", 21), tmp);
+
+            assertThat(out).contains("data-count=\"42\"");
+        }
+
+        @Test
+        @DisplayName("except / only 挑属性")
+        void exceptAndOnly(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.box", """
+                            @props()
+                            <div {{ attributes.except("id") }}>甲</div>|<span {{ attributes.only("id") }}>乙</span>|
+                            """,
+                    "page", "<x-box id=\"a\" title=\"b\" />\n"), Map.of(), tmp);
+
+            String[] parts = out.split("\\|");
+            assertThat(parts[0]).contains("title=\"b\"").doesNotContain("id=\"a\"");
+            assertThat(parts[1]).contains("id=\"a\"").doesNotContain("title=\"b\"");
+        }
+
+        @Test
+        @DisplayName("组件用 @params(而不是 @props)时没有属性袋 —— 全当声明过的参数")
+        void paramsTemplatesHaveNoBag(@TempDir Path tmp) {
+            String out = render(Map.of(
+                    "components.plain", """
+                            @params(String title)
+                            <p>{{ title }}</p>
+                            """,
+                    "page", "<x-plain title=\"甲\" />\n"), Map.of(), tmp);
+
+            assertThat(out)
+                    .as("""
+                            @include 的目标、还没写出来的组件都走这条路 ——
+                            退回旧行为而不是报错。""")
+                    .contains("甲");
+        }
+
+        @Test
+        @DisplayName("★ 开发模式:给组件加一个 prop 后,调用方的路由跟着变(不用去动调用方的文件)")
+        void addingAPropReroutesCaller(@TempDir Path tmp) throws Exception {
+            Path views = tmp.resolve("views");
+            java.nio.file.Files.createDirectories(views.resolve("components"));
+            Path alert = views.resolve("components/alert" + JbladeEngine.SUFFIX);
+            java.nio.file.Files.writeString(views.resolve("page" + JbladeEngine.SUFFIX),
+                    "<x-alert type=\"warn\" />\n");
+            java.nio.file.Files.writeString(alert,
+                    "@props()\n<div {{ attributes }}>袋</div>\n");
+
+            var engine = JbladeEngine.forDirectory(views, tmp.resolve("c"),
+                    JbladeTest.class.getClassLoader());
+
+            assertThat(engine.render("page", Map.of()))
+                    .as("组件没声明 type,于是它进袋,渲染成一个 HTML 属性")
+                    .contains("type=\"warn\"");
+
+            // 只改组件,不碰调用方
+            java.nio.file.Files.writeString(alert,
+                    "@props(String type = \"info\")\n<div {{ attributes }}>prop={{ type }}</div>\n");
+            java.nio.file.Files.setLastModifiedTime(alert,
+                    java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis() + 2000));
+
+            assertThat(engine.render("page", Map.of()))
+                    .as("""
+                            路由是在转写调用方的时候决定的。调用方的文件没动过,
+                            所以它的时间戳必须算上组件的 —— 否则症状是
+                            「我声明了 prop,组件里却读不到」,而改完组件再随便
+                            动一下调用方的文件就好了,极难复现。""")
+                    .contains("prop=warn")
+                    .doesNotContain("type=\"warn\"");
+        }
+
+        @Test
+        @DisplayName("直接调 transpile(不给 ComponentProps)时不认属性袋 —— 全当参数")
+        void transpileWithoutLookupKeepsOldBehaviour() {
+            String jte = JbladeTranspiler.transpile(
+                    "<x-alert id=\"a\" />\n", "t").jteSource();
+
+            assertThat(jte).contains("id = \"a\"").doesNotContain("Attributes.of");
+        }
+
+        @Test
+        @DisplayName("转写结果带上调用了哪些组件 —— 引擎靠它追踪热重载依赖")
+        void resultReportsCalledComponents() {
+            var result = JbladeTranspiler.transpile(
+                    "<x-alert />\n<x-mail::message>x</x-mail::message>\n", "t");
+
+            assertThat(result.components())
+                    .containsExactly("components.alert", "components.mail.message");
         }
     }
 

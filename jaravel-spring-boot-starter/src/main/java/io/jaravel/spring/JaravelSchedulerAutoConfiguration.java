@@ -44,7 +44,8 @@ import io.jaravel.scheduler.TaskAction;
  * <p>没有任何任务时**不启动线程** —— 一个空的调度器没必要存在。
  */
 @AutoConfiguration(after = {JaravelAutoConfiguration.class,
-        JaravelQueueAutoConfiguration.class, JaravelEventsAutoConfiguration.class})
+        JaravelQueueAutoConfiguration.class, JaravelEventsAutoConfiguration.class,
+        JaravelConsoleAutoConfiguration.class})
 public class JaravelSchedulerAutoConfiguration {
 
     @Bean
@@ -52,9 +53,14 @@ public class JaravelSchedulerAutoConfiguration {
     public Schedule jaravelSchedule(
             ConfigRepository config,
             Container container,
-            ObjectProvider<Schedule.ScheduleDefinition> definitions) {
+            ObjectProvider<Schedule.ScheduleDefinition> definitions,
+            ObjectProvider<TaskAction.CommandRunner> commandRunner) {
 
-        var schedule = new Schedule(queueDispatcher(container), null);
+        // 命令通道来自 JaravelConsoleAutoConfiguration。没有它时传 null ——
+        // 那时 s.command(...) 会报一条说清原因的错(见 Schedule.command),
+        // 而不是静默什么都不做
+        var schedule = new Schedule(queueDispatcher(container),
+                                    commandRunner.getIfAvailable());
 
         String zone = config.string("schedule.timezone", null);
         if (zone != null && !zone.isBlank()) {

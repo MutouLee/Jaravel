@@ -2,6 +2,7 @@ io.jaravel.spring.JaravelAutoConfiguration
 io.jaravel.spring.JaravelAuthAutoConfiguration
 io.jaravel.spring.JaravelQueueAutoConfiguration
 io.jaravel.spring.JaravelEventsAutoConfiguration
+io.jaravel.spring.JaravelConsoleAutoConfiguration
 io.jaravel.spring.JaravelSchedulerAutoConfiguration
 io.jaravel.spring.JaravelMailAutoConfiguration
 io.jaravel.spring.JaravelNotificationsAutoConfiguration

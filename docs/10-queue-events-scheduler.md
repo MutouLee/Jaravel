@@ -694,12 +694,18 @@ public class ConsoleKernel extends Kernel {
 > 几小时后落在上一分钟的第 59 秒上 —— 那时一个 `dailyAt("03:00")`
 > 的任务会跑两遍或一遍不跑,取决于漂移方向。
 >
-> **`s.command(...)` 仍不可用** —— 它需要 `jaravel-console`,而 CLI 在 v0.5。
-> 调它会报一条说明这一点的错,而不是静默什么都不做。
-> (v0.5 的控制台**内核**已经有了:`ConsoleCommand` 与命令注册表,
-> 见 docs/13 的实现状态。接上调度器要的是「从调度器那边按名字找到一条
-> 命令并跑它」—— 注册表已经能做这件事,缺的是 scheduler → console
-> 的那条装配线,而它按模块依赖方向应当由 starter 接。)
+> **`s.command(...)` 已经可用**(v0.5)。通道由 starter 接:
+> `JaravelConsoleAutoConfiguration` 提供一个 `TaskAction.CommandRunner`,
+> 把命令字符串切成参数交给 `Artisan.call`。
+> 按模块依赖方向这条线只能由 starter 接 —— scheduler 不认识 console,
+> console 也不认识 scheduler。
+>
+> 没装控制台时仍然报那条「需要 CLI,但调度器没有命令通道」的错,
+> 而不是静默什么都不做。
+>
+> ⚠ 命令返回**非 0 退出码时抛异常**。不抛的话,一个失败的计划任务在
+> 调度日志里是成功的 —— 而 `onFailure` 与心跳 ping 都靠这个异常。
+> 异常消息里带上命令自己的输出,否则日志里只有一个数字。
 > 同样,`schedule:list` / `schedule:run` / `schedule:test` 这几条命令
 > 的**能力**都已实现(`Scheduler.list` / `runDue` / `runNow` /
 > `clearMutexes`),只是还没有 CLI 入口。

@@ -2,7 +2,7 @@
 
 `php artisan` 是 Laravel 体验的半壁江山。Java 侧没有等价物(`mvn spring-boot:run` 不是同一个东西)。本模块补齐这块,目标是**让 `jaravel` 命令的手感与 `artisan` 一致**。
 
-> ### v0.5 实现状态:内核 + stub 机制 + 前三个 make:*(38 个测试)
+> ### v0.5 实现状态:内核 + stub 机制 + 前三个 make:* + starter 装配(46 个测试)
 >
 > **已实现(`jaravel-console`)**
 >
@@ -17,9 +17,27 @@
 >
 > **未实现**:`jaravel-cli`(picocli + native 二进制 + 本地命令通道)、
 > 其余 `make:*`、数据库/运行时/检视命令、`tinker`、`doctor`、
-> `@Command` 的 APT 索引(现在要显式 `register`)、§4.3 的生成后处理。
+> `@Command` 的 APT 索引(应用的命令靠 Spring 扫到,框架自带的仍要显式
+> `register`)、§4.3 的生成后处理。
 >
-> 也就是说:**命令还只能从进程内调用**(`Artisan.call(...)`),
+> ⚠ `make:*` 在应用进程里跑时,项目根取的是**当前工作目录** ——
+> 从项目目录启动(IDE / `mvn spring-boot:run`)才成立。打包后从别处启动
+> 时会往那个目录写 `src/main/java/...`;看不到 `src/main/java` 时会提醒
+> 一句,让「生成的文件去哪了」有线索。这不是缺陷而是范围:生成类命令
+> 终将由 `jaravel-cli` 在项目目录里执行(§1)。
+>
+> **装配已接上**(`JaravelConsoleAutoConfiguration`):自带的 `make:*` 与
+> 应用自己的 `ConsoleCommand` bean 都登记进注册表,`Artisan` 门面可用。
+> 应用的命令是 Spring bean,所以**依赖直接由容器注入** —— 注册表存的是
+> 工厂而不是实例,这里正好填进那个接缝。
+> ⚠ 命令 bean 应当是 `prototype`:命令对象带状态(解析出来的参数就写在
+> 字段上),单例会让第二条命令看到第一条留下的选项。发现单例时会警告。
+>
+> 顺带把 docs/10 §3.3 挂了很久的 `s.command("cache:clear")` 接通了 ——
+> 那个 SPI(`TaskAction.CommandRunner`)早就在 scheduler 里,缺的只是
+> 一个实现,而按模块依赖方向它只能由 starter 提供。
+>
+> 也就是说:**命令还只能从进程内调用**(`Artisan.call(...)` 或计划任务),
 > 终端上的 `jaravel xxx` 要等 CLI 那一片。先做内核的理由是它在下面 ——
 > CLI、tinker、每一条在线命令都站在 `ConsoleCommand` 与注册表上。
 >

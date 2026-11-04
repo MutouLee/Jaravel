@@ -38,13 +38,26 @@ import io.jaravel.console.generators.MakeTest;
 import io.jaravel.database.Connection;
 import io.jaravel.migration.Migration;
 import io.jaravel.migration.Seeder;
+import io.jaravel.queue.FailedJobStore;
+import io.jaravel.queue.JobInvoker;
+import io.jaravel.queue.JobSerializer;
+import io.jaravel.queue.QueueManager;
 import io.jaravel.routing.RouteCollection;
+import io.jaravel.scheduler.Scheduler;
 import io.jaravel.spring.commands.AboutCommand;
 import io.jaravel.spring.commands.DbSeedCommand;
 import io.jaravel.spring.commands.MigrateCommand;
 import io.jaravel.spring.commands.MigrateFreshCommand;
 import io.jaravel.spring.commands.MigrateRollbackCommand;
 import io.jaravel.spring.commands.MigrateStatusCommand;
+import io.jaravel.spring.commands.QueueFailedCommand;
+import io.jaravel.spring.commands.QueueFlushCommand;
+import io.jaravel.spring.commands.QueueRetryCommand;
+import io.jaravel.spring.commands.QueueWorkCommand;
+import io.jaravel.spring.commands.ScheduleClearMutexesCommand;
+import io.jaravel.spring.commands.ScheduleListCommand;
+import io.jaravel.spring.commands.ScheduleRunCommand;
+import io.jaravel.spring.commands.ScheduleTestCommand;
 import io.jaravel.spring.commands.RouteListCommand;
 
 /**
@@ -174,6 +187,26 @@ public class JaravelConsoleAutoConfiguration {
                 .register(RouteListCommand.class, () -> new RouteListCommand(routes))
                 .register(AboutCommand.class,
                         () -> new AboutCommand(beans.getBean(ConfigRepository.class), routes));
+
+        // 队列与调度:能力早就在模块里了,这里只是接上 CLI 入口。
+        // 同样惰性 —— 一个没有队列驱动的应用不该在注册时就炸
+        Supplier<QueueManager> queues = () -> beans.getBean(QueueManager.class);
+        Supplier<FailedJobStore> failedJobs = () -> beans.getBean(FailedJobStore.class);
+        Supplier<JobInvoker> invoker = () -> beans.getBean(JobInvoker.class);
+        Supplier<JobSerializer> serializer = () -> beans.getBean(JobSerializer.class);
+        Supplier<Scheduler> scheduler = () -> beans.getBean(Scheduler.class);
+
+        registry.register(QueueWorkCommand.class,
+                        () -> new QueueWorkCommand(queues, failedJobs, invoker))
+                .register(QueueFailedCommand.class, () -> new QueueFailedCommand(failedJobs))
+                .register(QueueRetryCommand.class,
+                        () -> new QueueRetryCommand(queues, failedJobs, serializer))
+                .register(QueueFlushCommand.class, () -> new QueueFlushCommand(failedJobs))
+                .register(ScheduleListCommand.class, () -> new ScheduleListCommand(scheduler))
+                .register(ScheduleRunCommand.class, () -> new ScheduleRunCommand(scheduler))
+                .register(ScheduleTestCommand.class, () -> new ScheduleTestCommand(scheduler))
+                .register(ScheduleClearMutexesCommand.class,
+                        () -> new ScheduleClearMutexesCommand(scheduler));
     }
 
     /**

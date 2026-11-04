@@ -239,6 +239,20 @@ jaravel queue:prune-batches --hours=48
 
 **Java 的优势**:`--concurrency=50` 在虚拟线程下几乎零成本(50 个虚拟线程 ≈ 几十 KB),而 PHP 需要起 50 个进程(数 GB 内存)。这是 Jaravel 相对 Laravel 的真实优势,应在文档中突出。
 
+> **v0.5:`queue:work` / `queue:failed` / `queue:retry` / `queue:flush` 已实现**
+> (docs/13 §2.4 记了几处语义)。
+>
+> 上面这段里**还没有的**:`queue:listen`(每任务独立进程 —— 在 Java 里
+> 它的用途被热重载覆盖了,优先级低)、`queue:restart`、`queue:monitor`、
+> `queue:prune-batches`、`queue:forget`(`queue:flush --older-than` 覆盖了
+> 大部分需要)。
+>
+> 另外 `--tries` / `--timeout` **不在命令上** —— 它们是**任务自己的属性**
+> (`ShouldQueue.tries()` / `timeout()`,见 §1.1)。Laravel 在命令上也提供
+> 一份作为覆盖值,而那意味着同一件事有两个事实来源:
+> 一个任务为什么重试了 5 次,要同时看任务类和启动 worker 的那行命令。
+> 需要按环境调的话用配置(`queue.worker.*`)。
+
 > **v0.4 实现时的两条语义说明**
 >
 > **1. `timeout` 不保证停止那段代码。** 实现是「在另一个虚拟线程里跑,
@@ -706,9 +720,10 @@ public class ConsoleKernel extends Kernel {
 > ⚠ 命令返回**非 0 退出码时抛异常**。不抛的话,一个失败的计划任务在
 > 调度日志里是成功的 —— 而 `onFailure` 与心跳 ping 都靠这个异常。
 > 异常消息里带上命令自己的输出,否则日志里只有一个数字。
-> 同样,`schedule:list` / `schedule:run` / `schedule:test` 这几条命令
-> 的**能力**都已实现(`Scheduler.list` / `runDue` / `runNow` /
-> `clearMutexes`),只是还没有 CLI 入口。
+> 同样,`schedule:list` / `schedule:run` / `schedule:test` /
+> `schedule:clear-mutexes` 的 **CLI 入口也已经有了**(v0.5,docs/13 §2.4)。
+> `schedule:work`(前台常驻跑调度)还没有 —— 进程内调度器已经覆盖了
+> 它的用途。
 
 ### 3.2 频率方法全集
 

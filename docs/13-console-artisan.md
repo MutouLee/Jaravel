@@ -2,7 +2,7 @@
 
 `php artisan` 是 Laravel 体验的半壁江山。Java 侧没有等价物(`mvn spring-boot:run` 不是同一个东西)。本模块补齐这块,目标是**让 `jaravel` 命令的手感与 `artisan` 一致**。
 
-> ### v0.5 实现状态:内核 + 14 条 make:* + jaravel 命令 + 通道 + 7 条在线命令(120 个测试)
+> ### v0.5 实现状态:内核 + 14 条 make:* + jaravel 命令 + 通道 + 15 条在线命令(139 个测试)
 >
 > **已实现(`jaravel-console`)**
 >
@@ -20,11 +20,13 @@
 > | **本地命令通道**:在线命令在已跑着的应用进程里执行 | `ChannelServer` / `ChannelClient`(§1.2) |
 > | `migrate` · `migrate:status` · `migrate:rollback` · `migrate:fresh` · `db:seed` | §2.3 |
 > | `route:list`(带 `--method` / `--path` / `--name` 过滤)· `about` | §2.5 |
+> | `queue:work` · `queue:failed` · `queue:retry` · `queue:flush` | §2.4 |
+> | `schedule:list` · `schedule:run` · `schedule:test` · `schedule:clear-mutexes` | §2.4 |
 >
 > **未实现**:JVM 启动器(通道不存在时的那条回落)、
-> native 二进制、`tinker`、`queue:*` / `schedule:*` 的 CLI 入口
-> (能力都在,缺命令壳子)、`db:show` / `db:table` / `config:show` /
-> `optimize` 这一批、`doctor`、
+> native 二进制、`tinker`、`db:show` / `db:table` / `config:show` /
+> `optimize` 这一批、`queue:restart` / `queue:monitor` /
+> `schedule:work`、`doctor`、
 > 其余 `make:*`(见下面那条注记)、
 > `@Command` 的 APT 索引(应用的命令靠 Spring 扫到,框架自带的仍要显式
 > `register`)、§4.3 的生成后处理。
@@ -388,6 +390,58 @@ jaravel schedule:list · schedule:run · schedule:work · schedule:test · sched
 jaravel down --message="维护中" --retry=60 --secret=bypass-token
 jaravel up
 ```
+
+> ### v0.5:queue 与 schedule 的入口已实现
+>
+> `queue:work`(`--queue` / `--once` / `--max-jobs` / `--max-time` /
+> `--sleep` / `--concurrency` / `--stop-when-empty` / `--connection`)·
+> `queue:failed` · `queue:retry <id|all>` · `queue:flush [--older-than=N]` ·
+> `schedule:list` · `schedule:run` · `schedule:test <任务>` ·
+> `schedule:clear-mutexes`。
+>
+> 能力早就在 `QueueWorker` / `Scheduler` 里,这些是入口。几处值得记的:
+>
+> **⚠ 走命令通道时,worker 跑在应用进程里**
+>
+> 与 Laravel 的 `php artisan queue:work`(独立进程)不同。开发期这正是
+> 要的(不用再起一个 JVM),但**生产环境应当让 worker 独立部署** ——
+> web 与 worker 要能分开伸缩与重启,一个耗内存的任务不该影响接口的 P99
+> (那也是进程内 worker 默认不开的原因)。
+>
+> **★ 客户端 Ctrl-C 之后,服务端那条命令会停**
+>
+> `queue:work` 不带限制时不会自己停(那正是 worker 该有的行为),
+> 所以通道必须能发现客户端走了。做法:`PrintWriter` 不抛异常而是把 IO
+> 错误记在标志位上,所以**每次输出之后查一下** `checkError()`,
+> 置位了就抛一个内部信号把命令中断。
+>
+> 没有这个检测的话,一次 Ctrl-C 会在 dev server 里留下一个**永远跑着的
+> worker**,而下一次 `queue:work` 会再留一个 —— 几次之后那个进程里有
+> 五个 worker 在抢任务,而终端上什么都看不到。
+> 代价:要等到命令**下一次输出**才会发现(worker 每处理一个任务打一行,
+> 所以够快)。
+>
+> **`queue:failed` 的「原因」列取根因,不是堆栈第一行**
+>
+> worker 会把任务的异常包一层(`JobFailedException: 已尝试 N 次…`),
+> 于是每一行都长得一样。而看这张表的第一个问题是「这些失败是不是同一个
+> 原因」—— 答案在最后一个 `Caused by` 上。
+>
+> **`queue:retry` 放回原来的那个连接**,不是默认连接 ——
+> 一个 redis 上失败的任务被重试到 database 上,症状是「重试了但没反应」,
+> 而两张表各自看起来都正常。放回后删掉失败记录:不删的话下一次
+> `retry all` 会再放一遍,那是「同一个任务跑了两遍」最常见的来源。
+>
+> **`queue:flush` 即便不在生产环境也要确认** ——
+> 失败记录是重试的唯一依据,删了就回不去了(不可交互时默认答不)。
+> 只想清旧的用 `--older-than=7`。
+>
+> **`schedule:list` 把「乐观估计」标出来**:下次运行时间只按 cron 算,
+> 约束要到那一刻才判。不标的话一个 `weekdays()` 的任务会显示一个周六的
+> 时间,而那会让人以为约束没生效。
+>
+> **`schedule:run` 一个到期的都没有也是正常结果**(退出码 0)——
+> 外部触发模式下它每分钟跑一次,绝大多数分钟里什么都不该发生。
 
 ### 2.5 检视与优化
 

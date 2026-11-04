@@ -227,6 +227,68 @@ class ChannelTest {
         }
     }
 
+    /** 一个会一直打印的命令 —— 模拟 queue:work */
+    @Command(name = "queue:work", description = "一直跑的命令", offline = false)
+    static final class Forever extends ConsoleCommand {
+        static final java.util.concurrent.atomic.AtomicInteger TICKS =
+                new java.util.concurrent.atomic.AtomicInteger();
+        static final java.util.concurrent.CountDownLatch STOPPED =
+                new java.util.concurrent.CountDownLatch(1);
+
+        @Override public int handle() {
+            try {
+                for (int i = 0; i < 10_000; i++) {
+                    line("tick " + TICKS.incrementAndGet());
+                    Thread.sleep(5);
+                }
+                return 0;
+            } catch (InterruptedException e) {
+                return 1;
+            } finally {
+                STOPPED.countDown();
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("★ 客户端断开(Ctrl-C)之后,服务端那条命令会停下来")
+    void clientDisconnectStopsTheCommand(@TempDir Path tmp) throws Exception {
+        Forever.TICKS.set(0);
+        var registry = new CommandRegistry().register(Forever.class);
+
+        try (var server = new ChannelServer(registry, tmp).start()) {
+            // 手写客户端:发完请求读几行就**直接关掉** —— 这就是 Ctrl-C
+            try (var connection = java.nio.channels.SocketChannel.open(
+                    java.net.StandardProtocolFamily.UNIX)) {
+                connection.connect(java.net.UnixDomainSocketAddress.of(server.socketPath()));
+
+                var writer = new java.io.PrintWriter(new java.io.OutputStreamWriter(
+                        java.nio.channels.Channels.newOutputStream(connection),
+                        java.nio.charset.StandardCharsets.UTF_8), true);
+                CommandChannel.request("queue:work", List.of()).forEach(writer::println);
+
+                var reader = new java.io.BufferedReader(new java.io.InputStreamReader(
+                        java.nio.channels.Channels.newInputStream(connection),
+                        java.nio.charset.StandardCharsets.UTF_8));
+                assertThat(reader.readLine()).startsWith(String.valueOf(CommandChannel.STDOUT));
+            }
+
+            assertThat(Forever.STOPPED.await(10, java.util.concurrent.TimeUnit.SECONDS))
+                    .as("""
+                            没有这个检测的话,一次 Ctrl-C 会在 dev server 里留下一个
+                            永远跑着的 queue:work —— 而下一次 queue:work 会再留一个。
+                            几次之后那个进程里有五个 worker 在抢任务,
+                            而终端上什么都看不到。""")
+                    .isTrue();
+
+            int atStop = Forever.TICKS.get();
+            Thread.sleep(100);
+            assertThat(Forever.TICKS.get())
+                    .as("真的停了,不是只是慢了")
+                    .isEqualTo(atStop);
+        }
+    }
+
     // ================= 协议 =================
 
     @Test

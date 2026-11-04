@@ -153,6 +153,12 @@ public final class ChannelServer implements AutoCloseable {
             int code;
             try {
                 code = registry.run(command, List.copyOf(args), framed);
+            } catch (ClientGoneException e) {
+                // 客户端 Ctrl-C 了。不往那条已经断掉的连接上写任何东西,
+                // 只在服务端留一行 —— dev server 的终端上要能看出
+                // 「那个 queue:work 是被终端打断的」而不是自己崩了
+                System.err.println("[jaravel] 客户端断开,已终止:" + command);
+                return;
             } catch (RuntimeException | Error e) {
                 // ★ 命令抛出来的异常要**作为输出发回客户端**。
                 //
@@ -190,6 +196,22 @@ public final class ChannelServer implements AutoCloseable {
     }
 
     /**
+     * 客户端已经走了。
+     *
+     * <p>不是错误 —— Ctrl-C 是用户的正常操作。它只是**命令该停下来**的信号,
+     * 一路从 {@code FramedIo} 的写操作抛到 {@link #serve} 的那个 catch。
+     *
+     * <p>用异常而不是返回值:命令不知道自己的输出去哪了,
+     * 也不该为了「可能被打断」在每次 {@code line(...)} 之后检查返回值 ——
+     * 那种检查一定会有人漏掉,而漏掉的后果是一个跑不完的 worker。
+     */
+    static final class ClientGoneException extends RuntimeException {
+        ClientGoneException() {
+            super("命令通道的客户端已断开", null, false, false);
+        }
+    }
+
+    /**
      * 异常 → 给用户看的那几行。
      *
      * <p>消息优先,类型名其次:{@code Migrator.MigrationException} 这种名字
@@ -215,10 +237,35 @@ public final class ChannelServer implements AutoCloseable {
 
         @Override public void write(String text) {
             writer.println(CommandChannel.STDOUT + CommandChannel.escape(text));
+            checkClientStillThere();
         }
 
         @Override public void writeError(String text) {
             writer.println(CommandChannel.STDERR + CommandChannel.escape(text));
+            checkClientStillThere();
+        }
+
+        /**
+         * ★ 客户端走了(Ctrl-C)之后,命令必须停下来。
+         *
+         * <p>没有这一步的话,一次 Ctrl-C 会在 dev server 里留下一个
+         * **永远跑着的 {@code queue:work}** —— 而下一次 {@code queue:work}
+         * 会再留一个。几次之后那个进程里有五个 worker 在抢任务,
+         * 而终端上什么都看不到。
+         *
+         * <p>怎么知道客户端走了:{@code PrintWriter} 不抛异常,它把 IO 错误
+         * 记在一个标志位上({@code checkError})。客户端关掉之后,
+         * 写操作会失败并置上那个位 —— 所以**每次输出之后查一下**。
+         *
+         * <p>代价:要等到命令**下一次输出**才会发现。对 worker 没问题
+         * (它每处理一个任务打一行);一个长时间不输出的命令会多跑一会儿。
+         * 真要立刻停就得另开一条读通道去等 EOF,而那要给命令一个
+         * 取消信号的 API —— 留到有第二个需要它的命令时再做。
+         */
+        private void checkClientStillThere() {
+            if (writer.checkError()) {
+                throw new ClientGoneException();
+            }
         }
 
         /** 通道上不可交互 —— 与管道、CI 同一个约定,调用方会走默认值 */

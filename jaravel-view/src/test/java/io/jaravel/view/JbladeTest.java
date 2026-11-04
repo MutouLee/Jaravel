@@ -978,4 +978,68 @@ class JbladeTest {
             assertThat(e.render("t", Map.of())).contains("版本二");
         }
     }
+
+    // ================= 模板来源 =================
+
+    /**
+     * 开发模式(目录)下的 classpath 回落。
+     *
+     * <p>这些测试钉住的是**框架自带视图**(邮件组件、将来的分页/错误页)
+     * 在开发模式下也能被找到 —— 否则它们会「打包后能用、本地跑不了」。
+     *
+     * <p>固定件:{@code src/test/resources/views/fixtures/framework-provided.jblade.html}
+     * 扮演「框架带的那一份」。
+     */
+    @Nested
+    @DisplayName("模板来源:开发模式回落到 classpath")
+    class DirectoryFallback {
+
+        private static final String VIEW = "fixtures.framework-provided";
+
+        private JbladeEngine dirEngine(Path tmp) {
+            return JbladeEngine.forDirectory(tmp.resolve("views"), tmp.resolve("jte-classes"),
+                                             JbladeTest.class.getClassLoader());
+        }
+
+        @Test
+        @DisplayName("应用 views 目录里没有时,渲染 classpath 上的那一份")
+        void fallsBackToClasspath(@TempDir Path tmp) throws Exception {
+            java.nio.file.Files.createDirectories(tmp.resolve("views"));
+
+            assertThat(dirEngine(tmp).render(VIEW, Map.of()))
+                    .contains("来自 classpath 的框架自带视图");
+        }
+
+        @Test
+        @DisplayName("★ 应用目录优先:同名模板覆盖框架自带的那一份(零配置的 vendor:publish)")
+        void appDirectoryWins(@TempDir Path tmp) throws Exception {
+            Path f = tmp.resolve("views/fixtures/framework-provided" + JbladeEngine.SUFFIX);
+            java.nio.file.Files.createDirectories(f.getParent());
+            java.nio.file.Files.writeString(f, "<p>应用自己改过的版本</p>\n");
+
+            assertThat(dirEngine(tmp).render(VIEW, Map.of()))
+                    .contains("应用自己改过的版本")
+                    .doesNotContain("来自 classpath");
+        }
+
+        @Test
+        @DisplayName("两头都没有时仍报「模板不存在」,不被回落吞掉")
+        void missingEverywhereStillFails(@TempDir Path tmp) throws Exception {
+            java.nio.file.Files.createDirectories(tmp.resolve("views"));
+
+            assertThatThrownBy(() -> dirEngine(tmp).render("fixtures.nobody-has-this", Map.of()))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("fixtures.nobody-has-this");
+        }
+
+        @Test
+        @DisplayName("lastModified 与 read 同源:回落命中的模板时间戳不是 0")
+        void lastModifiedFollowsFallback(@TempDir Path tmp) {
+            var repo = new JbladeEngine.DirectoryRepository(tmp.resolve("views"),
+                                                            JbladeTest.class.getClassLoader());
+
+            assertThat(repo.read(VIEW)).isPresent();
+            assertThat(repo.lastModified(VIEW)).isNotZero();
+        }
+    }
 }

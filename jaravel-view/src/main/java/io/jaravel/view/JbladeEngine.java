@@ -74,7 +74,7 @@ public final class JbladeEngine implements ViewEngine {
 
     /** 开发模式:从目录读取,文件变更自动重编译 */
     public static JbladeEngine forDirectory(Path viewRoot, Path classDirectory, ClassLoader parent) {
-        return new JbladeEngine(new DirectoryRepository(viewRoot), classDirectory, parent, true);
+        return new JbladeEngine(new DirectoryRepository(viewRoot, parent), classDirectory, parent, true);
     }
 
     /** 生产模式:从 classpath 读取 */
@@ -322,10 +322,42 @@ public final class JbladeEngine implements ViewEngine {
         List<String> allNames();
     }
 
+    /**
+     * 开发模式的仓库:先看应用的 views 目录,**再回落到 classpath**。
+     *
+     * <h2>★ 为什么必须有 classpath 回落</h2>
+     * <p>框架自己会带视图 —— 邮件组件({@code components/mail/message})
+     * 就是第一批,将来的分页视图、错误页也是。
+     *
+     * <p>没有回落的话那些视图在**打包后能用、开发模式下找不到** ——
+     * 一个「本地跑不了但线上正常」的失败,而它的症状(模板找不到)
+     * 与原因(仓库只看应用目录)之间没有线索。
+     *
+     * <p>这个项目修过很多次它的镜像版本(「本地好的,打包后全挂」),
+     * 两个方向同样糟。
+     *
+     * <h2>顺序:应用目录优先</h2>
+     * <p>于是**应用可以覆盖框架自带的视图** —— 在自己的
+     * {@code views/components/mail/message.jblade.html} 放一份就生效,
+     * 不需要任何配置。那正是 Laravel 的 {@code vendor:publish} 想达到
+     * 的效果,而这里是零命令的。
+     *
+     * <p>⚠ 代价:应用里一个**打错名字**的模板不会报「找不到」,
+     * 而是静默用了框架的那一份。这是优先级顺序的固有结果 ——
+     * 反过来(classpath 优先)会让开发期的编辑失效,那更糟。
+     */
     static final class DirectoryRepository implements TemplateRepository {
         private final Path root;
+        private final ClasspathRepository fallback;
 
-        DirectoryRepository(Path root) { this.root = root; }
+        DirectoryRepository(Path root) {
+            this(root, null);
+        }
+
+        DirectoryRepository(Path root, ClassLoader loader) {
+            this.root = root;
+            this.fallback = new ClasspathRepository("views", loader);
+        }
 
         private Path pathOf(String viewName) {
             return root.resolve(viewName.replace('.', '/') + SUFFIX);
@@ -333,7 +365,7 @@ public final class JbladeEngine implements ViewEngine {
 
         @Override public Optional<String> read(String viewName) {
             Path p = pathOf(viewName);
-            if (!Files.isRegularFile(p)) return Optional.empty();
+            if (!Files.isRegularFile(p)) return fallback.read(viewName);
             try {
                 return Optional.of(Files.readString(p, StandardCharsets.UTF_8));
             } catch (IOException e) {
@@ -341,10 +373,19 @@ public final class JbladeEngine implements ViewEngine {
             }
         }
 
+        /**
+         * 不存在时**委托回落** —— 必须与 {@link #read} 走同一个来源。
+         *
+         * <p>若这里返回 0 而 read 却从 classpath 拿到了内容,jte 会看到
+         * 一个「时间戳一直是 0」的模板。那恰好不会出错(0 是个常量,
+         * 和 classpath 的 1L 一样稳定),但两个方法指向不同的来源是
+         * 个等着被人踩的陷阱。
+         */
         @Override public long lastModified(String viewName) {
             Path p = pathOf(viewName);
             try {
-                return Files.isRegularFile(p) ? Files.getLastModifiedTime(p).toMillis() : 0L;
+                if (!Files.isRegularFile(p)) return fallback.lastModified(viewName);
+                return Files.getLastModifiedTime(p).toMillis();
             } catch (IOException e) {
                 return 0L;
             }

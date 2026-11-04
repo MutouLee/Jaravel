@@ -127,6 +127,30 @@ public abstract class ConsoleCommand {
      * 按 {@code String.length()} 排的表在中文内容上每一行都对不齐,
      * 而那是这个框架的主要使用语言。
      */
+    /**
+     * 表格,行从一个集合映射出来。
+     *
+     * <pre>
+     * table(List.of("ID", "单号"), invoices, invoice -&gt; List.of(invoice.id, invoice.orderNo));
+     * </pre>
+     *
+     * <p>★ 与 {@link #withProgressBar(Collection, Consumer)} 同一个形状
+     * (集合 + lambda),这不是巧合:命令里要渲染的几乎总是**一批领域对象**,
+     * 而不是一批已经排好的字符串列表。只有 {@code List<List<?>>} 那个重载时,
+     * 每个调用点都要自己写一遍 {@code .stream().map(...).toList()} ——
+     * 同一段样板出现在每条带表格的命令里。
+     *
+     * <p>这是写 parity 切片 05(自定义 artisan 命令)时发现的:
+     * Laravel 侧那段是 {@code $items->map(fn ($i) => [...])->all()},
+     * 而 Jaravel 侧多出的两行纯属样板。
+     */
+    public <T> void table(List<String> headers, Collection<T> items,
+                          java.util.function.Function<T, List<?>> row) {
+        var rows = new ArrayList<List<?>>(items.size());
+        for (T item : items) rows.add(row.apply(item));
+        table(headers, rows);
+    }
+
     public void table(List<String> headers, List<? extends List<?>> rows) {
         var all = new ArrayList<List<String>>();
         all.add(headers);

@@ -98,6 +98,11 @@ class ConsoleAutoConfigurationTest {
         assertThat(tmp.resolve("src/main/java/app/models/Post.java")).exists();
     }
 
+    /** 这条测试不写文件,给注册表一个随便的根目录就行 */
+    private Path tempRoot() {
+        return Path.of("").toAbsolutePath();
+    }
+
     @Test
     @DisplayName("★ 应用命令的依赖由容器注入 —— 注册表存工厂,正好填进这个接缝")
     void applicationCommandGetsItsDependencies(@TempDir Path tmp) {
@@ -124,21 +129,24 @@ class ConsoleAutoConfigurationTest {
     }
 
     @Test
-    @DisplayName("★ 单例命令要警告 —— 症状(第二条命令带上了第一条的选项)离原因太远")
-    void warnsAboutSingletonCommands(@TempDir Path tmp) {
-        var err = new java.io.ByteArrayOutputStream();
-        var original = System.err;
-        System.setErr(new java.io.PrintStream(err, true, java.nio.charset.StandardCharsets.UTF_8));
-        try {
-            registryFrom(beansWith(SyncInventory.class, BeanDefinition.SCOPE_SINGLETON), tmp);
-        } finally {
-            System.setErr(original);
-        }
+    @DisplayName("★ 即便声明成单例,也不会泄漏状态 —— 框架每次新造一个")
+    void singletonCommandsDoNotLeakStateEither() {
+        var registry = registryFrom(
+                beansWith(SyncInventory.class, BeanDefinition.SCOPE_SINGLETON), tempRoot());
+        Artisan.use(registry);
 
-        assertThat(err.toString(java.nio.charset.StandardCharsets.UTF_8))
-                .contains("是单例 bean")
-                .as("不去改用户 bean 的作用域(那会很意外),而是把话说出来")
-                .contains("prototype");
+        Artisan.call("inventory:sync", "-f");
+        assertThat(Artisan.output()).contains("force=true");
+
+        Artisan.call("inventory:sync");
+        assertThat(Artisan.output())
+                .as("""
+                        此前的做法是照样 getBean、但在装配时**警告**
+                        「请加 @Scope("prototype")」。那不够好:一条警告要求
+                        每个用户在每条命令上重复一个仪式,而忘了的代价是
+                        一个极难查的 bug(「我没加 --force 但它覆盖了」)。
+                        改用 createBean 之后,正确成了默认。""")
+                .contains("force=false");
     }
 
     @Test

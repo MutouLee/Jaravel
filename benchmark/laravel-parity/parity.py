@@ -272,11 +272,53 @@ QUEUE_LARAVEL = [
 ]
 
 
+# ---- 功能切片 05:自定义 artisan 命令(v0.5 的功能面) ----
+#
+# v0.5 的主体工作量是控制台(两百多个测试),而 parity 门禁此前对它
+# **一无所知** —— 门禁量不到的地方就是会漂的地方。这个切片补上。
+#
+# 量的是**应用写的命令**,不是框架提供的命令。
+# make:model / migrate / doctor 那些是框架代码,计入它们等于量框架自己的
+# 实现量,与「用户要写多少」无关。
+#
+# 覆盖的能力:位置参数(可选)、短/长选项、带默认值的选项、表格输出、
+# 进度条、确认、生产环境护栏、JSON 输出、退出码。
+#
+# ★ 这个切片**对 Jaravel 不利**,而那正是选它的理由:
+#   Laravel 的 $signature 是**一行字符串**就声明完参数、选项、默认值
+#   与帮助文本;Jaravel 要为每一个参数写一个带注解的字段(至少两行)。
+#   三条命令一共 8 个参数/选项,也就是 Jaravel 先天多出十几行。
+#   挑一个 Jaravel 占优的切片去量只会得到一个自我安慰的数字。
+#
+# 三条口径上的决定:
+#
+# 1. **调度登记两侧都不计入**(ConsoleKernel.java / Console/Kernel.php):
+#    它们已经在切片 04 里算过了,再算一次是重复计分。
+# 2. **模型与任务两侧都不计入**:同样在 04 里算过。这个切片只有命令类。
+# 3. **注册代码两侧都没有**:Laravel 11 自动发现 app/Console/Commands,
+#    Jaravel 自动发现 @Component 的 ConsoleCommand bean。这一条是平的。
+
+C5 = "examples/queue/src/main/java/app/console/"
+CONSOLE_JARAVEL = [
+    ("命令",      C5 + "SendInvoicesCommand.java"),
+    ("命令",      C5 + "PruneInvoicesCommand.java"),
+    ("命令",      C5 + "InvoiceReportCommand.java"),
+]
+
+L5 = "benchmark/laravel-parity/05-console/laravel/app/Console/Commands/"
+CONSOLE_LARAVEL = [
+    ("命令",      L5 + "SendInvoices.php"),
+    ("命令",      L5 + "PruneInvoices.php"),
+    ("命令",      L5 + "InvoiceReport.php"),
+]
+
+
 SLICES = [
     ("01:Todo CRUD", JARAVEL, LARAVEL),
     ("02:Blog(关联/校验/迁移)", BLOG_JARAVEL, BLOG_LARAVEL),
     ("03:认证(guard/Policy/重置/验证)", AUTH_JARAVEL, AUTH_LARAVEL),
     ("04:队列/邮件/通知/调度", QUEUE_JARAVEL, QUEUE_LARAVEL),
+    ("05:自定义 artisan 命令", CONSOLE_JARAVEL, CONSOLE_LARAVEL),
 ]
 
 

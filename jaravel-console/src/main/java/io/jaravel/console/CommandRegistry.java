@@ -172,20 +172,8 @@ public final class CommandRegistry {
      */
     private String unknownCommand(String name) {
         var message = new StringBuilder("没有命令 \"" + name + "\"");
-
-        String closest = null;
-        int best = Integer.MAX_VALUE;
-        for (String candidate : factories.keySet()) {
-            int distance = distance(name, candidate);
-            if (distance < best) {
-                best = distance;
-                closest = candidate;
-            }
-        }
-        // 阈值:名字长度的三分之一。再松就会把 make:model 推给 db:seed
-        if (closest != null && best <= Math.max(1, name.length() / 3)) {
-            message.append("\n  是否想写 \"").append(closest).append("\" ?");
-        }
+        suggestion(name).ifPresent(closest ->
+                message.append("\n  是否想写 \"").append(closest).append("\" ?"));
 
         String group = Str.before(name, ":");
         var sameGroup = new ArrayList<String>();
@@ -197,6 +185,35 @@ public final class CommandRegistry {
                    .append(String.join(" ", sameGroup));
         }
         return message.toString();
+    }
+
+    /**
+     * 这个名字最像注册表里的哪一条 —— 没有足够像的就是 empty。
+     *
+     * <h2>★ 为什么是 public:{@code jaravel-cli} 要用它来**分流**</h2>
+     * <p>CLI 遇到一个不认识的名字时有两种可能:用户敲错了,
+     * 或者那是**应用自己定义的**命令(CLI 这个进程里没有应用,
+     * 所以它的注册表里当然没有)。两者的处理截然不同:前者该立刻给建议,
+     * 后者要去问应用 —— 走通道,或者冷启动一个 JVM(要几秒)。
+     *
+     * <p>有近似匹配就按「敲错了」处理,因为那条路**便宜且几乎总是对的**:
+     * {@code make:modle} 不值得为它启动一个应用 JVM。
+     *
+     * @return 阈值内最近的那条命令名
+     */
+    public java.util.Optional<String> suggestion(String name) {
+        String closest = null;
+        int best = Integer.MAX_VALUE;
+        for (String candidate : factories.keySet()) {
+            int distance = distance(name, candidate);
+            if (distance < best) {
+                best = distance;
+                closest = candidate;
+            }
+        }
+        // 阈值:名字长度的三分之一。再松就会把 make:model 推给 db:seed
+        boolean close = closest != null && best <= Math.max(1, name.length() / 3);
+        return close ? java.util.Optional.of(closest) : java.util.Optional.empty();
     }
 
     /** 编辑距离。命令名很短,O(n·m) 的朴素实现足够 */

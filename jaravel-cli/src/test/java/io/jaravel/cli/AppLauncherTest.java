@@ -40,6 +40,24 @@ class AppLauncherTest {
         assertThat(io.errors()).isEmpty();
     }
 
+    @Test
+    @DisplayName("★ 聚合 pom 不是应用 —— 否则会对整个 reactor 跑 mvn compile")
+    void anAggregatorPomIsRefused(@TempDir Path tmp) throws Exception {
+        Files.writeString(tmp.resolve("pom.xml"),
+                "<project><modules><module>app</module></modules></project>");
+        var io = new ConsoleIo.Recording();
+
+        var result = AppLauncher.tryRun(tmp, "migrate", java.util.List.of(), io);
+
+        assertThat(result).contains(1);
+        assertThat(io.errors())
+                .as("""
+                        在本框架自己的仓库根目录里,那是四十个模块、好几分钟 ——
+                        而触发它的只是一个敲在根目录的命令。
+                        而且就算编完也没用:哪个模块是应用,这里无从得知。""")
+                .contains("聚合 pom");
+    }
+
     // ================= 主类 =================
 
     @Test

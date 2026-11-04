@@ -64,14 +64,28 @@ final class AppLauncher {
      *         由调用方去打那条说明(它比这里更清楚上下文)
      */
     static Optional<Integer> tryRun(Path root, String command, List<String> args, ConsoleIo io) {
-        if (!Files.isRegularFile(root.resolve("pom.xml"))) {
+        Path pom = root.resolve("pom.xml");
+        if (!Files.isRegularFile(pom)) {
             // 不是 Maven 项目:可能是 Gradle,也可能只是敲错了目录。
             // 两种情况都不该由这里猜 —— 调用方那条说明会把路指出来
             return Optional.empty();
         }
-
         Path classes = root.resolve("target").resolve("classes");
         try {
+            if (isAggregator(pom)) {
+                // ★ 聚合 pom(带 <modules>)不是一个应用。
+                //
+                // 不挡住的话这里会对**整个 reactor** 跑 mvn compile ——
+                // 在本框架自己的仓库里那是四十个模块、好几分钟,
+                // 而触发它的只是一个在根目录里敲的命令。
+                // 而且就算编完也没用:哪个模块才是应用,这里无从得知。
+                io.writeError(("[jaravel] %s 是一个聚合 pom(有 <modules>)——"
+                        + "它不是一个应用。%n"
+                        + "          到那个应用模块的目录里再敲。%n")
+                        .formatted(root.getFileName()));
+                return Optional.of(1);
+            }
+
             if (!ensureCompiled(root, classes, io)) return Optional.of(1);
 
             String mainClass = mainClass(root, classes, io);
@@ -87,6 +101,22 @@ final class AppLauncher {
             Thread.currentThread().interrupt();
             return Optional.of(130);   // 128 + SIGINT,shell 的约定
         }
+    }
+
+    /**
+     * 这个 pom 是聚合器吗。
+     *
+     * <p>按文本找 {@code <modules>} 而不是解析 XML:引一个 XML 库进
+     * {@code jaravel-cli} 要付 classpath(而 CLI 的卖点就是启动快),
+     * 而这个判断只要一个布尔值。
+     *
+     * <p>误判的方向是安全的:一个注释里提到 {@code <modules>} 的
+     * 单模块 pom 会被当成聚合器 —— 那时用户看到的是一句明确的说明
+     * (而不是一次几分钟的构建),而且 {@code .jaravel/main-class}
+     * 那条路仍然可用。
+     */
+    private static boolean isAggregator(Path pom) throws IOException {
+        return Files.readString(pom).contains("<modules>");
     }
 
     // ================= 编译 =================

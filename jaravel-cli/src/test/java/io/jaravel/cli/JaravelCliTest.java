@@ -180,6 +180,37 @@ class JaravelCliTest {
         }
 
         @Test
+        @DisplayName("★ 应用自己定义的命令也要能到达 —— 它不在任何一张表里")
+        void applicationDefinedCommandsReachTheApplication(@TempDir Path tmp) throws Exception {
+            // invoice:send 既不是离线命令、也不在 ONLINE_COMMANDS 里,
+            // 而且没有近似匹配 —— 那它很可能是应用里的 @Command
+            var result = run(project(tmp), "invoice:send");
+
+            assertThat(result.code()).isEqualTo(1);
+            assertThat(result.err())
+                    .as("""
+                            此前这种名字直接得到「没有命令」,也就是说应用写的
+                            artisan 命令从 CLI 上根本到不了 —— 而那是自定义命令
+                            最主要的用法。(这个临时目录里没有 pom.xml,
+                            所以冷启动那条路也走不通,于是落到这条说明。)""")
+                    .contains("这个进程里没有应用")
+                    .contains("@Command");
+        }
+
+        @Test
+        @DisplayName("★ 但拼错了不该冷启动一个 JVM —— 那要几秒")
+        void typosDoNotPayForAColdStart(@TempDir Path tmp) throws Exception {
+            var result = run(project(tmp), "make:modle", "Post");
+
+            assertThat(result.err())
+                    .as("""
+                            有近似匹配就按「敲错了」处理:那条路便宜且几乎总是对的。
+                            make:modle 不值得为它启动一个应用 JVM(实测 4.9 秒)。""")
+                    .contains("是否想写")
+                    .doesNotContain("这个进程里没有应用");
+        }
+
+        @Test
         @DisplayName("真的拼错了还是给拼写建议")
         void typosStillGetSuggestions(@TempDir Path tmp) throws Exception {
             var result = run(project(tmp), "make:modle", "Post");

@@ -131,13 +131,12 @@ public class JaravelConsoleAutoConfiguration {
 
         registerRuntimeCommands(registry, beans);
 
-        // 应用自己的命令:每次向容器要一个新实例
+        // 应用自己的命令 —— 每次跑都是一个**新实例**,见 freshInstance
         applicationCommands.stream().forEach(command -> {
             Class<?> type = command.getClass();
-            warnIfSingleton(beans, type);
             @SuppressWarnings("unchecked")
             var commandType = (Class<? extends ConsoleCommand>) type;
-            registry.register(commandType, () -> (ConsoleCommand) beans.getBean(type));
+            registry.register(commandType, () -> freshInstance(beans, commandType));
         });
 
         // 生成类命令要知道项目根在哪。**不是 classpath,是源码目录** ——
@@ -284,19 +283,37 @@ public class JaravelConsoleAutoConfiguration {
         return cwd;
     }
 
-    private void warnIfSingleton(org.springframework.beans.factory.BeanFactory beans,
-                                 Class<?> type) {
-        String[] names = beans instanceof org.springframework.beans.factory.ListableBeanFactory listable
-                ? listable.getBeanNamesForType(type)
-                : new String[0];
-        for (String name : names) {
-            if (!beans.isSingleton(name)) continue;
-            System.err.printf("""
-                    [jaravel] 命令 %s 是单例 bean。
-                              命令对象带状态(解析出来的参数就写在它的字段上),
-                              所以连着跑两条命令时,第二条会看到第一条留下的选项。
-                              加 @Scope("prototype")。%n""", type.getName());
+    /**
+     * 每跑一次,新造一个命令实例。
+     *
+     * <h2>★ 为什么不是 {@code beans.getBean(type)}</h2>
+     * <p>命令对象**带状态**:解析出来的参数就写在它的字段上。
+     * 单例 bean 上连着跑两条命令时,第二条会看到第一条留下的选项 ——
+     * 而那个症状(「我没加 --force 但它覆盖了」)与原因离得太远。
+     *
+     * <p>此前的做法是:照样 {@code getBean},但在装配时**警告**
+     * 「这条命令是单例,请加 @Scope("prototype")」。那不够好 ——
+     * 一条警告要求每个用户在每条命令上重复一个仪式,而忘了的代价是
+     * 一个极难查的 bug。{@code createBean} 让容器按类型造一个新实例
+     * (依赖照样注入、BeanPostProcessor 照样跑),于是**正确成了默认**,
+     * {@code @Scope("prototype")} 不再是必须的。
+     *
+     * <p>这件事是写 parity 切片 05 时发现的:那个仪式在每条命令上
+     * 要花两行(注解 + import),而它本可以是零行。
+     */
+    private ConsoleCommand freshInstance(
+            org.springframework.beans.factory.BeanFactory beans,
+            Class<? extends ConsoleCommand> type) {
+        if (beans instanceof org.springframework.beans.factory.config.AutowireCapableBeanFactory factory) {
+            return factory.createBean(type);
         }
+        // 兜底:拿不到 AutowireCapableBeanFactory 时回到 getBean ——
+        // 那时 @Scope("prototype") 又变成必须的了,所以说一句
+        System.err.printf("""
+                [jaravel] 这个容器不支持新造实例,命令 %s 会复用同一个对象。
+                          请给它加 @Scope("prototype") —— 否则连着跑两条命令时,
+                          第二条会看到第一条留下的选项。%n""", type.getName());
+        return (ConsoleCommand) beans.getBean(type);
     }
 
     /**

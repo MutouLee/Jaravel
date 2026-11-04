@@ -137,9 +137,24 @@ public final class Jaravel {
             }
             return registry.run(first, rest, io);
         }
-        if (ONLINE_COMMANDS.stream().anyMatch(first::startsWith)) {
+        // ★ 这个名字要不要去问应用
+        //
+        // 两种情况都要:
+        //  · 框架自己的在线命令(migrate / queue:* / …)—— 那张表列着;
+        //  · **应用自己定义的命令** —— CLI 这个进程里没有应用,所以它的
+        //    注册表里当然没有 invoice:send。此前这种名字直接得到
+        //    「没有命令」,也就是说**应用写的 artisan 命令从 CLI 上根本到不了**,
+        //    而那是自定义命令最主要的用法。这是写 parity 切片 05 时撞出来的。
+        //
+        // 但不认识 + 有近似匹配 = 敲错了,那条路便宜且几乎总是对的:
+        // make:modle 不值得为它冷启动一个应用 JVM(实测 4.9 秒)。
+        boolean frameworkOnline = ONLINE_COMMANDS.stream().anyMatch(first::startsWith);
+        boolean looksLikeATypo = registry.suggestion(first).isPresent();
+
+        if (frameworkOnline || !looksLikeATypo) {
             // 先试通道:dev server 开着的话,这条命令就在那个**已经热起来的**
-            // 进程里跑 —— docs/13 §1.2 称它是本模块最重要的 DX 设计
+            // 进程里跑 —— docs/13 §1.2 称它是本模块最重要的 DX 设计。
+            // 而且应用的注册表认得应用自己的命令,连「是否想写」都更准
             var throughChannel = ChannelClient.tryRun(projectRoot, first, rest, io);
             if (throughChannel.isPresent()) return throughChannel.get();
 
@@ -149,10 +164,21 @@ public final class Jaravel {
             var coldStart = AppLauncher.tryRun(projectRoot, first, rest, io);
             if (coldStart.isPresent()) return coldStart.get();
 
-            io.writeError(needsApplication(first) + "\n");
+            if (frameworkOnline) {
+                io.writeError(needsApplication(first) + System.lineSeparator());
+                return 1;
+            }
+            // 既不是框架的在线命令、也问不到应用 —— 那就按「不认识」处理,
+            // 但要说清**可能是应用定义的**:否则一个确实存在的命令
+            // 得到的是一句「没有这条命令」,而用户会去怀疑自己的注解写错了
+            io.writeError(("没有命令 %s。%n"
+                    + "  这个进程里没有应用,所以应用自己定义的命令也看不到。%n"
+                    + "  如果它是应用里的命令(@Command + @Component):%n"
+                    + "    · 把应用跑起来(它会开通道),或者%n"
+                    + "    · 在项目根目录里敲(冷启动那条路要 pom.xml)。%n").formatted(first));
             return 1;
         }
-        // 不认识的名字交给注册表 ——「是否想写」的建议在那里
+        // 敲错了 —— 注册表给「是否想写」的建议,不启动任何东西
         return registry.run(first, rest, io);
     }
 

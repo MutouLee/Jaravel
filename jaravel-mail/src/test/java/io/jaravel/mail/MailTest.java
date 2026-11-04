@@ -258,7 +258,7 @@ class MailTest {
         @DisplayName("显式给的纯文本优先于退化生成")
         void explicitTextWins() {
             Mail.to("x@y.com").send(new Mailable() {
-                @Override public Envelope envelope() { return Envelope.subject("s"); }
+                @Override public Envelope envelope() { return Envelope.of().subject("s"); }
 
                 @Override public Content content() {
                     return Content.html("<p>html</p>").withText("手写文本");
@@ -293,7 +293,7 @@ class MailTest {
         @DisplayName("★ 没有正文时报错,不发一封空白邮件")
         void noBodyFails() {
             assertThatThrownBy(() -> Mail.to("x@y.com").send(new Mailable() {
-                @Override public Envelope envelope() { return Envelope.subject("s"); }
+                @Override public Envelope envelope() { return Envelope.of().subject("s"); }
 
                 @Override public Content content() { return Content.html(null); }
             }))
@@ -318,7 +318,7 @@ class MailTest {
         void mailableFromWins() {
             Mail.to("x@y.com").send(new Mailable() {
                 @Override public Envelope envelope() {
-                    return Envelope.subject("s").from("custom@example.com", "自定义");
+                    return Envelope.of().subject("s").from("custom@example.com", "自定义");
                 }
 
                 @Override public Content content() { return Content.html("<p>x</p>"); }
@@ -546,7 +546,7 @@ class MailTest {
             byte[] payload = "PDF 内容".getBytes();
 
             Mail.to("x@y.com").send(new Mailable() {
-                @Override public Envelope envelope() { return Envelope.subject("s"); }
+                @Override public Envelope envelope() { return Envelope.of().subject("s"); }
 
                 @Override public Content content() { return Content.html("<p>x</p>"); }
 
@@ -567,7 +567,7 @@ class MailTest {
         @DisplayName("★ 路径附件只传路径,不在渲染时读盘")
         void pathAttachmentStaysAReference() {
             Mail.to("x@y.com").send(new Mailable() {
-                @Override public Envelope envelope() { return Envelope.subject("s"); }
+                @Override public Envelope envelope() { return Envelope.of().subject("s"); }
 
                 @Override public Content content() { return Content.html("<p>x</p>"); }
 
@@ -1014,7 +1014,7 @@ class MailTest {
     // ================= 测试用 Mailable =================
 
     static class TemplatedMail extends Mailable {
-        @Override public Envelope envelope() { return Envelope.subject("测试主题"); }
+        @Override public Envelope envelope() { return Envelope.of().subject("测试主题"); }
 
         @Override public Content content() {
             return Content.view("mail.test").with("order", 42);
@@ -1024,7 +1024,7 @@ class MailTest {
     static class GermanMail extends Mailable {
         @Override public String locale() { return "de"; }
 
-        @Override public Envelope envelope() { return Envelope.subject("s"); }
+        @Override public Envelope envelope() { return Envelope.of().subject("s"); }
 
         @Override public Content content() { return Content.view("v"); }
     }
@@ -1036,7 +1036,7 @@ class MailTest {
 
         HtmlMail(String markup) { this.markup = markup; }
 
-        @Override public Envelope envelope() { return Envelope.subject("s"); }
+        @Override public Envelope envelope() { return Envelope.of().subject("s"); }
 
         @Override public Content content() { return Content.html(markup); }
     }
@@ -1048,7 +1048,7 @@ class MailTest {
 
         long invoiceId() { return invoiceId; }
 
-        @Override public Envelope envelope() { return Envelope.subject("发票"); }
+        @Override public Envelope envelope() { return Envelope.of().subject("发票"); }
 
         @Override public Content content() { return Content.html("<p>发票</p>"); }
     }

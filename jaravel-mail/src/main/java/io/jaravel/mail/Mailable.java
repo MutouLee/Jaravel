@@ -15,7 +15,7 @@ import java.util.List;
  *     @Override public Envelope envelope() {
  *         return Envelope.of()
  *                 .from("noreply@shop.com", "小店")
- *                 .withSubject("订单 #" + order.number() + " 已发货");
+ *                 .subject("订单 #" + order.number() + " 已发货");
  *     }
  *
  *     @Override public Content content() {

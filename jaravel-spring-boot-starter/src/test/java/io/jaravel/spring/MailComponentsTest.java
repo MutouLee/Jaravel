@@ -226,7 +226,7 @@ class MailComponentsTest {
 
         var message = renderer.render(new io.jaravel.mail.Mailable() {
             @Override public io.jaravel.mail.Envelope envelope() {
-                return io.jaravel.mail.Envelope.subject("订单已发货");
+                return io.jaravel.mail.Envelope.of().subject("订单已发货");
             }
             @Override public io.jaravel.mail.Content content() {
                 return io.jaravel.mail.Content.view("mail.shipped")

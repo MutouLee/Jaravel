@@ -107,7 +107,7 @@ public final class MailRenderer {
                 %s 的 envelope() 没有主题。
                   没有主题的邮件在大多数客户端里显示成「(无主题)」,
                   而且显著提高垃圾邮件评分。
-                  Envelope.of().withSubject("…")"""
+                  Envelope.of().subject("…")"""
                 .formatted(mailable.getClass().getSimpleName()), null);
     }
 

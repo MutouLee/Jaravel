@@ -52,10 +52,6 @@ public final class Envelope {
         return new Envelope();
     }
 
-    public static Envelope subject(String subject) {
-        return of().withSubject(subject);
-    }
-
     public Envelope from(String email) {
         this.from = Address.of(email);
         return this;
@@ -81,8 +77,26 @@ public final class Envelope {
         return this;
     }
 
-    /** 与 {@link #subject(String)} 同名的实例方法 —— 链式写法用这个 */
-    public Envelope withSubject(String text) {
+    /**
+     * 主题。
+     *
+     * <h2>★ 这里曾经有一个静态的 {@code subject(String)} 快捷方式</h2>
+     * <p>它让 {@code Envelope.subject("x")} 读起来很顺,但同时制造了一个
+     * 静默的陷阱:Java 不允许静态方法与实例方法同名,于是链式写法只能叫
+     * {@code withSubject} —— 而
+     * {@code Envelope.of().from("a@b.com").subject("x")} 是**合法的**
+     * (静态方法可以经实例引用调用),它**丢掉前面所有设置**并返回一个
+     * 全新的 Envelope。
+     *
+     * <p>后果是一封 From 为空的邮件,而拒信里的 {@code 501 Bad address
+     * syntax} 与「主题那一行把发件人吃掉了」之间没有任何线索。
+     * docs/11 §1.1 的头号示例当时就是那个写法。
+     *
+     * <p>所以静态快捷方式删掉了,实例方法改回自然的名字。
+     * 只要主题的话写 {@code Envelope.of().subject("x")} —— 多四个字符,
+     * 换掉一整类看不见的错误。
+     */
+    public Envelope subject(String text) {
         this.subject = text;
         return this;
     }

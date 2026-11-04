@@ -100,7 +100,7 @@ public final class SimpleMailable extends Mailable {
 
     @Override
     public Envelope envelope() {
-        var envelope = Envelope.of().withSubject(subject);
+        var envelope = Envelope.of().subject(subject);
         if (from != null) envelope.from(from);
         return envelope;
     }

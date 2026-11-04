@@ -160,13 +160,18 @@ public final class Jaravel {
      * 是一条会把人带到错误方向的建议。
      *
      * <p>用前缀匹配:{@code queue:} 下面有七八条,而它们的状态是一样的。
+     *
+     * <p>⚠ {@code key:generate} **不在**这张表里,尽管 docs/13 §2.5 把它
+     * 列在检视命令那一组:没有 APP_KEY 的应用起不来,所以一条
+     * 「要先把应用跑起来」的路径在那里是死循环。它是离线命令。
+     * (有一条测试核对「两张表不重叠」—— 这个冲突就是它抓出来的。)
      */
     static final List<String> ONLINE_COMMANDS = List.of(
             "migrate", "db:", "db", "model:", "schema:",
             "tinker", "serve", "queue:", "schedule:",
             "route:", "config:", "view:", "event:",
             "optimize", "about", "down", "up",
-            "key:generate", "storage:link", "lang:check", "openapi:",
+            "storage:link", "lang:check", "openapi:",
             "doctor", "analyze:", "inspire", "stub:publish");
 
     private static String needsApplication(String command) {

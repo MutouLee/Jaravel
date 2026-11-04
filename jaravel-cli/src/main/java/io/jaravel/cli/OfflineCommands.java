@@ -9,6 +9,7 @@ import io.jaravel.console.ConsoleCommand;
 import io.jaravel.console.HelpCommand;
 import io.jaravel.console.ListCommands;
 import io.jaravel.console.generators.GeneratorCommand;
+import io.jaravel.console.generators.KeyGenerateCommand;
 import io.jaravel.console.generators.MakeConsoleCommand;
 import io.jaravel.console.generators.MakeController;
 import io.jaravel.console.generators.MakeEvent;
@@ -46,7 +47,8 @@ final class OfflineCommands {
             MakeRequest.class, MakeJob.class, MakeMiddleware.class,
             MakeEvent.class, MakeListener.class, MakePolicy.class,
             MakeSeeder.class, MakeMail.class, MakeNotification.class,
-            MakeConsoleCommand.class, MakeTest.class);
+            MakeConsoleCommand.class, MakeTest.class,
+            KeyGenerateCommand.class);
 
     static CommandRegistry registry() {
         return registry(Path.of("").toAbsolutePath());

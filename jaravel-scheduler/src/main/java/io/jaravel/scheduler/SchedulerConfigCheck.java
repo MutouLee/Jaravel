@@ -56,15 +56,10 @@ public final class SchedulerConfigCheck {
      */
     public static void verify(List<ScheduledTask> tasks, String cacheDriver,
                               int instanceCount) {
-        var offenders = tasks.stream()
-                .filter(ScheduledTask::runsOnOneServer)
-                .map(ScheduledTask::label)
-                .toList();
-
+        var offenders = offendingTasks(tasks, cacheDriver);
         if (offenders.isEmpty()) return;
 
-        String driver = cacheDriver == null ? "(未配置)" : cacheDriver.toLowerCase();
-        if (!NON_SHARED_DRIVERS.contains(driver)) return;      // redis / database → 安全
+        String driver = normalise(cacheDriver);
 
         // 明确声明了单实例 → 放行,但说清这个声明的含义
         if (instanceCount == 1) {
@@ -108,6 +103,37 @@ public final class SchedulerConfigCheck {
                     3. 去掉这些任务的 onOneServer() —— 只在确认它们
                        幂等、跑两遍无害时这么做。"""
                 .formatted(offenders.size(), driver, offenders, driver));
+    }
+
+    /**
+     * 「用了 onOneServer() 但缓存不是共享存储」的那些任务。
+     *
+     * <p>**查询形式**,给 {@code jaravel doctor} 用:那条命令要把这个问题
+     * 报成一行可读的检查结果,而不是抛异常。
+     *
+     * <p>抽出来而不是让 doctor 自己判:那份「哪些驱动不是共享存储」的名单
+     * 复抄一遍就会漂 —— 加一个新驱动时只有一边会被想起来,
+     * 而漏掉的那边表现为「检查通过但线上任务跑了两遍」。
+     *
+     * @return 受影响的任务标签;组合安全时为空
+     */
+    public static List<String> offendingTasks(List<ScheduledTask> tasks, String cacheDriver) {
+        var offenders = tasks.stream()
+                .filter(ScheduledTask::runsOnOneServer)
+                .map(ScheduledTask::label)
+                .toList();
+
+        if (offenders.isEmpty()) return List.of();
+        return NON_SHARED_DRIVERS.contains(normalise(cacheDriver)) ? offenders : List.of();
+    }
+
+    /** 这个驱动是共享存储吗 —— redis / database 是,array / caffeine / file 不是 */
+    public static boolean isSharedDriver(String cacheDriver) {
+        return !NON_SHARED_DRIVERS.contains(normalise(cacheDriver));
+    }
+
+    private static String normalise(String cacheDriver) {
+        return cacheDriver == null ? "(未配置)" : cacheDriver.toLowerCase();
     }
 
     /**

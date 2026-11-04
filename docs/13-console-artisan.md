@@ -2,7 +2,7 @@
 
 `php artisan` 是 Laravel 体验的半壁江山。Java 侧没有等价物(`mvn spring-boot:run` 不是同一个东西)。本模块补齐这块,目标是**让 `jaravel` 命令的手感与 `artisan` 一致**。
 
-> ### v0.5 实现状态:内核 + 14 条 make:* + jaravel 命令 + 通道 + 15 条在线命令(139 个测试)
+> ### v0.5 实现状态:内核 + 15 条 make:*/key + jaravel 命令 + 通道 + doctor(158 个测试)
 >
 > **已实现(`jaravel-console`)**
 >
@@ -22,11 +22,13 @@
 > | `route:list`(带 `--method` / `--path` / `--name` 过滤)· `about` | §2.5 |
 > | `queue:work` · `queue:failed` · `queue:retry` · `queue:flush` | §2.4 |
 > | `schedule:list` · `schedule:run` · `schedule:test` · `schedule:clear-mutexes` | §2.4 |
+> | **`doctor`**(7 项检查 + `--fix`) | §2.6 |
+> | `key:generate`(离线) | §2.5 |
 >
 > **未实现**:JVM 启动器(通道不存在时的那条回落)、
 > native 二进制、`tinker`、`db:show` / `db:table` / `config:show` /
 > `optimize` 这一批、`queue:restart` / `queue:monitor` /
-> `schedule:work`、`doctor`、
+> `schedule:work`、`analyze:*`、
 > 其余 `make:*`(见下面那条注记)、
 > `@Command` 的 APT 索引(应用的命令靠 Spring 扫到,框架自带的仍要显式
 > `register`)、§4.3 的生成后处理。
@@ -455,12 +457,31 @@ jaravel event:list · event:cache
 jaravel optimize                        # config + route + view + event 全量缓存
 jaravel optimize:clear
 jaravel about                           # 环境、版本、驱动、缓存状态总览
-jaravel key:generate                    # 生成 APP_KEY
+jaravel key:generate                    # 生成 APP_KEY(v0.5 已实现,**离线命令**)
 jaravel storage:link                    # 创建 public/storage 符号链接
 jaravel lang:check                      # 校验语言包完整性(缺键/多余键)
 jaravel openapi:generate · openapi:diff
 jaravel inspire                         # 彩蛋,保留 Laravel 传统
 ```
+
+> ### key:generate 必须是**离线**命令
+>
+> docs 把它列在这一组(检视与优化),但它不能走命令通道:
+> **没有 APP_KEY 的应用起不来**(会话与 crypt 在装配时就要它),
+> 于是「先把应用跑起来」在这里是死循环。
+>
+> 代价:密钥的生成在 `jaravel-console` 里重写了一遍
+> (32 字节 SecureRandom + base64),而权威定义在
+> `io.jaravel.core.crypt.Encrypter` —— 让 console 为三行代码去依赖 core
+> 不值得。**那份重复由一条跨模块测试钉住**:starter 的测试拿
+> `KeyGenerateCommand.generate()` 的产物去喂 `Encrypter.fromBase64`,
+> 格式一旦漂掉它就红。
+>
+> ⚠ **已有 APP_KEY 时拒绝覆盖**,除非 `--force`:换掉它会让所有已加密的
+> 数据解不开(会话 → 用户全部掉线;加密列 → 永久读不出来,
+> 没有旧密钥就没有退路)。
+> 顺带:`# APP_KEY=` 这样注释掉的行**不算「已有」**——
+> 从 `.env.example` 抄过来的文件常常是那样,改那一行等于没写。
 
 > ### v0.5:route:list 与 about 已实现
 >
@@ -501,6 +522,53 @@ jaravel parity                          # 与等价 Laravel 代码的行数比(�
 ```
 
 **这个命令是 Jaravel 的差异化加分项**:把框架使用中的常见陷阱变成可自动检测的项,而不是让用户踩坑后搜索。
+
+> ### v0.5:doctor 已实现(7 项检查 + `--fix`)
+>
+> 每一项都对着一个**这个项目里真实存在**的陷阱:
+>
+> | 检查 | 不管它会怎样 |
+> |---|---|
+> | APP_KEY 有没有、合不合法 | 会话与敏感列加密在**第一次用到时**才失败 —— 可能是上线后第一个登录请求 |
+> | 生产环境开着 debug | 错误页会把堆栈、SQL、配置值打进响应 —— 一个 500 页面泄露连接串。它不让任何功能失效,所以没人会注意到 |
+> | 数据库连通(`select 1`) | — |
+> | 迁移:没跑的(⚠)/ **执行后被改过的**(✗) | 后者是这里最重要的一项:`migrate` 只看名字,所以它会说「没有待执行的迁移」。那个改动在本机永远不生效,而在同事新建的库上会生效 —— 两边表结构从此不同,且两边的 migrate 都说一切正常 |
+> | `onOneServer()` + 非共享缓存驱动 | docs 原文举的那个例子。多实例下任务在每个实例各跑一遍,症状可能是「客户收到两封一样的邮件」 |
+> | 非开发环境用 sync 队列 | 削峰、重试、失败归档全没了,而且接口变慢(本该异步的活儿算进了请求时间) |
+> | 懒加载检测没开(⚠) | N+1 要等到生产的慢查询日志里才被发现 |
+>
+> **每一项都要能回答三个问题**:行不行、不管它会怎样、怎么办。
+> 只给结论的检查项是没用的 —— 「✗ 缓存驱动不对」留给用户的下一步
+> 还是去搜索,而那正是 doctor 要消除的那一步。
+>
+> **★ 有 ✗ 就退出码 1**,让它能当 CI 的一道闸(「部署前先 doctor」)。
+> 退出码恒为 0 的检查命令只能靠人去读输出,而人会读过去。
+> 但**只有 ⚠ 时退出码是 0** —— 警告是「有个坑在前面」,不是「现在就不对」;
+> 把它也算失败的话,CI 会因为「开发环境没开懒加载检测」变红,
+> 而那会训练人加 `|| true`。
+>
+> **★ 整份报告在一条流上。** ✗ 那几行走 **stdout** 而不是 stderr ——
+> 实现时先用了 `error()`,结果在日志里结论与解释分了家:
+> 一串无主的「→ 修复:…」在上面、一串无因的「✗」在下面
+> (终端上两条流交错输出,所以这个缺陷在人眼前看不出来)。
+> 为此在 `ConsoleCommand` 上分出了 `failure()`:
+> `error()` 是「**这条命令**失败了」(走 stderr,保持管道干净),
+> `failure()` 是「命令跑完了,而它**报告**的内容里有坏消息」。
+>
+> **一项检查自己炸了不会遮住后面的**:doctor 的用途恰恰是「有些东西不对」
+> 的时候,那时某项检查抛异常是预期之内的(数据库连不上、调度器没装)。
+>
+> `--fix` 目前只修 APP_KEY(调 `key:generate`)—— 它是唯一一个
+> 「机器能安全决定怎么做」的项。`onOneServer` 该换哪个驱动、
+> sync 队列该换成什么,都是人的决定。
+>
+> 判定复用 `SchedulerConfigCheck.offendingTasks` 而不是复抄一份
+> 「哪些驱动不是共享存储」的名单:复抄的后果是加新驱动时只有一边
+> 被想起来,而漏掉的那边表现为「检查通过但线上任务跑了两遍」。
+>
+> 应用可以把自己的检查项做成 `DoctorCheck` bean 加进来 ——
+> 一条「我们的 S3 桶配了吗」与框架的检查项同样属于「启动前确认」。
+> 框架的排在前面:一个连不上数据库的应用,它的 S3 桶配得怎么样不重要。
 
 ---
 

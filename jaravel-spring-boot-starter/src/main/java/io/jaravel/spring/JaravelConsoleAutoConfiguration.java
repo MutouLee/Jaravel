@@ -21,6 +21,7 @@ import io.jaravel.console.CommandRegistry;
 import io.jaravel.console.ConsoleCommand;
 import io.jaravel.console.channel.ChannelServer;
 import io.jaravel.console.generators.GeneratorCommand;
+import io.jaravel.console.generators.KeyGenerateCommand;
 import io.jaravel.console.generators.MakeConsoleCommand;
 import io.jaravel.console.generators.MakeController;
 import io.jaravel.console.generators.MakeEvent;
@@ -46,6 +47,9 @@ import io.jaravel.routing.RouteCollection;
 import io.jaravel.scheduler.Scheduler;
 import io.jaravel.spring.commands.AboutCommand;
 import io.jaravel.spring.commands.DbSeedCommand;
+import io.jaravel.spring.commands.DoctorCheck;
+import io.jaravel.spring.commands.DoctorCommand;
+import io.jaravel.spring.commands.FrameworkChecks;
 import io.jaravel.spring.commands.MigrateCommand;
 import io.jaravel.spring.commands.MigrateFreshCommand;
 import io.jaravel.spring.commands.MigrateRollbackCommand;
@@ -105,7 +109,8 @@ public class JaravelConsoleAutoConfiguration {
             MakeRequest.class, MakeJob.class, MakeMiddleware.class,
             MakeEvent.class, MakeListener.class, MakePolicy.class,
             MakeSeeder.class, MakeMail.class, MakeNotification.class,
-            MakeConsoleCommand.class, MakeTest.class);
+            MakeConsoleCommand.class, MakeTest.class,
+            KeyGenerateCommand.class);
 
     @Bean
     @ConditionalOnMissingBean
@@ -207,6 +212,32 @@ public class JaravelConsoleAutoConfiguration {
                 .register(ScheduleTestCommand.class, () -> new ScheduleTestCommand(scheduler))
                 .register(ScheduleClearMutexesCommand.class,
                         () -> new ScheduleClearMutexesCommand(scheduler));
+
+        // doctor:框架自带的检查项 + 应用自己加的(DoctorCheck bean)
+        registry.register(DoctorCommand.class, () -> new DoctorCommand(
+                doctorChecks(beans.getBean(ConfigRepository.class),
+                        connection, migrations, scheduler,
+                        beans.getBeanProvider(DoctorCheck.class))));
+    }
+
+    /**
+     * 框架的检查项 + 应用自己的。
+     *
+     * <p>应用的排在后面:框架的那些是「这个应用能不能正常工作」,
+     * 而应用的是「我们这套部署的额外前提」。先看前者 ——
+     * 一个连不上数据库的应用,它的 S3 桶配得怎么样不重要。
+     */
+    private List<DoctorCheck> doctorChecks(
+            ConfigRepository config,
+            Supplier<Connection> connection,
+            Supplier<List<Migration>> migrations,
+            Supplier<Scheduler> scheduler,
+            ObjectProvider<DoctorCheck> applicationChecks) {
+
+        var checks = new java.util.ArrayList<DoctorCheck>(
+                FrameworkChecks.all(config, connection, migrations, scheduler));
+        applicationChecks.orderedStream().forEach(checks::add);
+        return List.copyOf(checks);
     }
 
     /**

@@ -87,6 +87,28 @@ public abstract class ConsoleCommand {
      */
     public void error(String text) { io.writeError(color("31", "✗ " + text) + "\n"); }
 
+    /**
+     * 报告里的一条失败 —— 红色,但走 **stdout**。
+     *
+     * <h2>★ 与 {@link #error} 的区别:谁失败了</h2>
+     * <ul>
+     *   <li>{@code error(...)}:**这条命令**失败了。走 stderr,
+     *       于是 {@code route:list --json | jq} 的管道不被污染。</li>
+     *   <li>{@code failure(...)}:命令正常跑完了,而它**报告**的内容里有
+     *       一条坏消息({@code doctor} 的 ✗ 项、{@code migrate:status}
+     *       里没跑的那些)。它属于报告,必须和报告的其余部分在同一条流上。</li>
+     * </ul>
+     *
+     * <p>这个区分不是洁癖。doctor 的每个 ✗ 后面跟着几行 {@code →} 说明,
+     * 而那些说明走 stdout —— 用 {@code error} 的话,
+     * 在日志里(或者任何把两条流分开收集的地方)**结论与解释就分家了**:
+     * 一串无主的 {@code → 修复:…} 在上面,一串无因的 {@code ✗} 在下面。
+     * 终端上两条流交错输出,所以这个缺陷在人眼前是看不出来的。
+     *
+     * <p>命令是否失败由**退出码**表达 —— 那才是机器要读的那一位。
+     */
+    public void failure(String text) { io.write(color("31", "✗ " + text) + "\n"); }
+
     public void newLine()          { newLine(1); }
 
     public void newLine(int count) { io.write("\n".repeat(Math.max(0, count))); }

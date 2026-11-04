@@ -1,0 +1,16 @@
+package {{ pkg }};
+
+import io.jaravel.migration.Seeder;
+
+public class {{ class }} implements Seeder {
+
+    @Override
+    public void run() {
+        // TODO 用 Factory 批量造数据(元模型由 APT 生成):
+        //
+        //   Factory.of(Post_.META, (f, p) -> {
+        //       p.title = f.word();
+        //       p.body  = f.sentence();
+        //   }).count(20).create();
+    }
+}

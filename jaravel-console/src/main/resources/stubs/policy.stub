@@ -1,0 +1,45 @@
+package {{ pkg }};
+
+import org.springframework.stereotype.Component;
+
+import app.models.{{ model }};
+import app.models.User;
+import io.jaravel.auth.access.Policy;
+
+/**
+ * {{ model }} 的授权策略。
+ *
+ * <p>{@code @Policy({{ model }}.class)} 让它自动注册 —— 不需要在别处
+ * 维护一张「模型 → Policy」的映射表(那张表的问题是新增时会忘,
+ * 而忘了的症状是「授权规则不生效」)。
+ *
+ * <h2>方法名就是 ability</h2>
+ * <p>{@code Gate.allows("update", post)} 走到 update;
+ * 路由上的 {@code middleware("can:update,post")} 也是同一条路径。
+ * 带模型参数的方法用于「对这一条做什么」;不带的用于
+ * 「能不能新建」之类还没有实例的操作。
+ */
+@Component
+@Policy({{ model }}.class)
+public class {{ class }} {
+
+    public boolean viewAny(User user) {
+        return true;
+    }
+
+    public boolean view(User user, {{ model }} model) {
+        return true;
+    }
+
+    public boolean create(User user) {
+        return true;
+    }
+
+    public boolean update(User user, {{ model }} model) {
+        return false;
+    }
+
+    public boolean delete(User user, {{ model }} model) {
+        return false;
+    }
+}

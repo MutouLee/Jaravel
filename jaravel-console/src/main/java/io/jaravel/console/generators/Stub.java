@@ -142,6 +142,10 @@ public final class Stub {
      */
     public static List<String> bundled() {
         return List.of("model", "controller", "controller.resource", "controller.api",
-                       "migration.create", "migration.update");
+                       "migration.create", "migration.update",
+                       "request", "job", "middleware", "event",
+                       "listener", "listener.event", "policy", "seeder",
+                       "mail", "notification", "command",
+                       "test.feature", "test.unit");
     }
 }

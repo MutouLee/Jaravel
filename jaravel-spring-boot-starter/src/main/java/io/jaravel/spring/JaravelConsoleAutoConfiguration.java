@@ -13,9 +13,20 @@ import io.jaravel.console.Artisan;
 import io.jaravel.console.CommandRegistry;
 import io.jaravel.console.ConsoleCommand;
 import io.jaravel.console.generators.GeneratorCommand;
+import io.jaravel.console.generators.MakeConsoleCommand;
 import io.jaravel.console.generators.MakeController;
+import io.jaravel.console.generators.MakeEvent;
+import io.jaravel.console.generators.MakeJob;
+import io.jaravel.console.generators.MakeListener;
+import io.jaravel.console.generators.MakeMail;
+import io.jaravel.console.generators.MakeMiddleware;
 import io.jaravel.console.generators.MakeMigration;
 import io.jaravel.console.generators.MakeModel;
+import io.jaravel.console.generators.MakeNotification;
+import io.jaravel.console.generators.MakePolicy;
+import io.jaravel.console.generators.MakeRequest;
+import io.jaravel.console.generators.MakeSeeder;
+import io.jaravel.console.generators.MakeTest;
 
 /**
  * 控制台的自动装配(docs/13)。
@@ -47,6 +58,23 @@ import io.jaravel.console.generators.MakeModel;
 @AutoConfiguration(after = JaravelAutoConfiguration.class)
 public class JaravelConsoleAutoConfiguration {
 
+    /**
+     * 框架自带的命令。
+     *
+     * <p>一张显式的表而不是扫包:docs/13 §3.2 说注册由 APT 生成索引,
+     * 那一步还没做 —— 而运行时扫包在可执行 jar 与 native 镜像里都不可靠,
+     * 恰好是这个模块最终要跑的两个环境(同 {@code Stub.bundled()} 的理由)。
+     *
+     * <p>加一条命令 = 写类 + 写 stub + 在这里加一行。第三行是暂时的:
+     * APT 索引做完之后它会消失。
+     */
+    static final List<Class<? extends ConsoleCommand>> BUILT_IN = List.of(
+            MakeModel.class, MakeController.class, MakeMigration.class,
+            MakeRequest.class, MakeJob.class, MakeMiddleware.class,
+            MakeEvent.class, MakeListener.class, MakePolicy.class,
+            MakeSeeder.class, MakeMail.class, MakeNotification.class,
+            MakeConsoleCommand.class, MakeTest.class);
+
     @Bean
     @ConditionalOnMissingBean
     public CommandRegistry jaravelCommandRegistry(
@@ -56,9 +84,7 @@ public class JaravelConsoleAutoConfiguration {
         var registry = new CommandRegistry();
 
         // 框架自带的 make:*。无参构造,直接注册
-        registry.register(MakeModel.class)
-                .register(MakeController.class)
-                .register(MakeMigration.class);
+        BUILT_IN.forEach(registry::register);
 
         // 应用自己的命令:每次向容器要一个新实例
         applicationCommands.stream().forEach(command -> {

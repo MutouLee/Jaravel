@@ -44,9 +44,16 @@ public abstract class GeneratorCommand extends ConsoleCommand {
         return Stub.of(name, projectRoot);
     }
 
+    /** 测试源码根。{@code make:test} 覆盖它 */
+    public static final String TEST_SOURCE_ROOT = "src/test/java";
+
+    protected String sourceRoot() {
+        return SOURCE_ROOT;
+    }
+
     /** {@code app.models} + {@code Post} → {@code src/main/java/app/models/Post.java} */
     protected Path fileFor(String packageName, String className) {
-        return projectRoot.resolve(SOURCE_ROOT)
+        return projectRoot.resolve(sourceRoot())
                 .resolve(packageName.replace('.', '/'))
                 .resolve(className + ".java");
     }

@@ -1,0 +1,36 @@
+package {{ pkg }};
+
+import java.util.Map;
+
+import io.jaravel.validation.FormRequest;
+
+public class {{ class }} extends FormRequest {
+
+    @Override
+    public Map<String, String> rules() {
+        return Map.of(
+                // TODO "title", "required|string|max:200"
+        );
+    }
+
+    /**
+     * 自定义错误消息。键是 "字段.规则"。
+     *
+     * <p>不覆盖也可以 —— 默认消息已经是中文的。
+     */
+    @Override
+    public Map<String, String> messages() {
+        return Map.of();
+    }
+
+    /**
+     * 授权。返回 false → 403。
+     *
+     * <p>⚠ 这里**不是**校验:它决定「这个人能不能提交这个请求」。
+     * 与模型相关的规则写 Policy(docs/08 §5.2)。
+     */
+    @Override
+    public boolean authorize() {
+        return true;
+    }
+}

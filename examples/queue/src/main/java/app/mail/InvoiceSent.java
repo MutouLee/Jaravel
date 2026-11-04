@@ -36,7 +36,7 @@ public class InvoiceSent extends Mailable {
     @Override
     public Envelope envelope() {
         return Envelope.of()
-                .withSubject("发票 " + invoice.orderNo + " 已发送")
+                .subject("发票 " + invoice.orderNo + " 已发送")
                 .tags("invoice", "transactional")
                 .metadata("invoice_id", invoice.id);
     }

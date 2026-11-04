@@ -1,0 +1,22 @@
+package {{ pkg }};
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+/**
+ * 单元测试:不起容器、不碰数据库。
+ *
+ * <p>⚠ 类与类之间的**接线**问题单元测试一律报绿
+ * (docs/10 里 examples/queue 那段记了 18 个这样的缺陷)。
+ * 涉及路由、中间件、容器、数据库的,写功能测试:make:test Xxx
+ */
+class {{ class }} {
+
+    @Test
+    @DisplayName("TODO 这个测试验证什么")
+    void todo() {
+        assertThat(true).isTrue();
+    }
+}

@@ -1,0 +1,26 @@
+package {{ pkg }};
+
+import io.jaravel.queue.ShouldQueue;
+
+public class {{ class }} implements ShouldQueue {
+
+    /**
+     * ★ 字段只存**主键**,不存整个模型。
+     *
+     * <p>payload 要小,而且模型在任务真正执行时可能已经变了 ——
+     * 存快照会让任务按一份过期的数据干活。
+     */
+    private final Long id;
+
+    public {{ class }}(Long id) {
+        this.id = id;
+    }
+
+    @Override public String queue() { return "default"; }
+    @Override public int tries()    { return 3; }
+
+    /** 参数从容器注入 */
+    public void handle() {
+        // TODO
+    }
+}

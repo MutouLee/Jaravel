@@ -1,0 +1,47 @@
+package {{ pkg }};
+
+import java.util.List;
+import java.util.Map;
+
+import io.jaravel.mail.Mailable;
+import io.jaravel.notifications.HasDatabase;
+import io.jaravel.notifications.HasMail;
+import io.jaravel.notifications.Notifiable;
+import io.jaravel.notifications.Notification;
+
+/**
+ * ★ 字段只存**主键**(与队列任务同理,但与 Mailable 不同)。
+ *
+ * <p>排队的通知,通知对象本身要进 payload —— 各渠道的 toMail /
+ * toDatabase 产出的是不同类型的东西,没有一个统一的「渲染结果」
+ * 可以像邮件那样提前渲染掉。
+ */
+public class {{ class }} extends Notification implements HasMail, HasDatabase {
+
+    /**
+     * 走哪些渠道。
+     *
+     * <p>这里是固定的;真实项目里它会看收件人的偏好 ——
+     * {@code via()} 是运行时决定的,正是为此。
+     *
+     * <p>⚠ 返回的渠道要有对应的 HasXxx 接口,否则渠道找不到实现时报错。
+     */
+    @Override
+    public List<String> via(Notifiable notifiable) {
+        return List.of("mail", "database");
+    }
+
+    @Override
+    public Mailable toMail(Notifiable notifiable) {
+        // 通知的 toMail 几乎总是「几行字 + 一个按钮」,
+        // 为它建一个模板文件是多余的
+        return Mailable.simple()
+                .subject("TODO 主题")
+                .line("TODO 正文");
+    }
+
+    @Override
+    public Map<String, Object> toDatabase(Notifiable notifiable) {
+        return Map.of("TODO", "站内通知的数据");
+    }
+}

@@ -1,0 +1,24 @@
+package {{ pkg }};
+
+import java.util.function.Function;
+
+import org.springframework.stereotype.Component;
+
+import io.jaravel.http.Middleware;
+import io.jaravel.http.Request;
+import io.jaravel.http.Response;
+
+@Component
+public class {{ class }} implements Middleware {
+
+    @Override
+    public Response handle(Request request, Function<Request, Response> next) {
+        // 前置:在这里做检查,要拦就直接返回一个 Response 而不调 next
+
+        Response response = next.apply(request);
+
+        // 后置:next 之后还能改 response
+
+        return response;
+    }
+}

@@ -1,0 +1,23 @@
+package {{ pkg }};
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import io.jaravel.testing.FeatureTest;
+
+/**
+ * 功能测试:走**真实管道**(路由 → 中间件 → 绑定 → 控制器 → 异常处理),
+ * 只是不经过 Tomcat。
+ *
+ * <p>每个测试方法结束后数据库自动回滚。
+ */
+class {{ class }} extends FeatureTest {
+
+    @Test
+    @DisplayName("TODO 这个测试验证什么")
+    void todo() {
+        assertThat(get("/").status()).isEqualTo(200);
+    }
+}

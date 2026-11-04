@@ -1,0 +1,28 @@
+package {{ pkg }};
+
+import io.jaravel.mail.Content;
+import io.jaravel.mail.Envelope;
+import io.jaravel.mail.Mailable;
+
+/**
+ * ⚠ 与队列任务、通知相反:**Mailable 的字段可以随便放**。
+ *
+ * <p>理由是它从不进 payload —— 排队的邮件在投递时就渲染完了,
+ * 进队列的是渲染结果。(那三条规矩放在一起记:ShouldQueue 的字段只存
+ * 主键、Notification 的字段只存主键、Mailable 的字段随便放。)
+ */
+public class {{ class }} extends Mailable {
+
+    @Override
+    public Envelope envelope() {
+        return Envelope.of().subject("TODO 主题");
+    }
+
+    @Override
+    public Content content() {
+        // 用模板:Content.view("mail.xxx").with("key", value)
+        //   框架自带的邮件组件见 docs/11 §1.4:<x-mail::message>
+        // 不想建模板文件:Mailable.simple() 那条路更省事
+        return Content.html("<p>TODO</p>");
+    }
+}

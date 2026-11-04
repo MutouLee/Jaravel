@@ -2,7 +2,7 @@
 
 `php artisan` 是 Laravel 体验的半壁江山。Java 侧没有等价物(`mvn spring-boot:run` 不是同一个东西)。本模块补齐这块,目标是**让 `jaravel` 命令的手感与 `artisan` 一致**。
 
-> ### v0.5 实现状态:内核 + stub 机制 + 前三个 make:* + starter 装配(46 个测试)
+> ### v0.5 实现状态:内核 + stub 机制 + 14 条 make:* + starter 装配(68 个测试)
 >
 > **已实现(`jaravel-console`)**
 >
@@ -14,9 +14,11 @@
 > | 程序化调用 `Artisan.call` / `output()` | `Artisan`(§3.3) |
 > | stub 机制 + 项目覆盖 | `Stub`(§4) |
 > | `make:model`(含 `-mcr`)· `make:migration` · `make:controller` | §2.2 |
+> | `make:request` · `make:job` · `make:middleware` · `make:event` · `make:listener` · `make:policy` · `make:seeder` · `make:mail` · `make:notification` · `make:command` · `make:test` | §2.2 |
 >
 > **未实现**:`jaravel-cli`(picocli + native 二进制 + 本地命令通道)、
-> 其余 `make:*`、数据库/运行时/检视命令、`tinker`、`doctor`、
+> 数据库/运行时/检视命令、`tinker`、`doctor`、
+> 其余 `make:*`(见下面那条注记)、
 > `@Command` 的 APT 索引(应用的命令靠 Spring 扫到,框架自带的仍要显式
 > `register`)、§4.3 的生成后处理。
 >
@@ -173,6 +175,45 @@ jaravel make:record UserDto
 > (用户在那个文件里写的代码,一句 `make:model` 就能让它变回空壳);
 > `--api` 自己就意味着资源控制器,不必再写 `--resource`
 > (那是个一定会被漏掉的组合,而漏掉的结果是一个只有 index 的空壳)。
+
+> ### 关于 stub 的内容:每一个都是照仓库里真实存在的用例写的
+>
+> `request` 照 `StorePostRequest`、`job` 照 `ArchiveInvoice`、
+> `seeder` 照 `BlogSeeder`、`listener` 照 `AuthAudit`、
+> `policy` 照 `NotePolicy`、`notification` 照 `WelcomeAboard`、
+> `test.feature` 照 `AuthFeatureTest` —— 不是凭印象编的。
+>
+> **一个教错 API 的 stub 比没有这条命令更糟**,因为它会被照抄:
+> 用户第一反应是「框架给我的代码编译不过」,而不是「这个 API 名字错了」。
+> 写 `make:mail` 的 stub 时就当场撞出一个真陷阱(`Envelope` 的静态
+> `subject` 快捷方式会让链式写法静默丢掉前面所有设置),那个 API 已经改掉。
+>
+> 另有一条测试把**每个生成出来的文件喂给 javac 做语法检查** ——
+> 少一个括号的 stub、被替换坏的占位符都会在 CI 上失败。
+> (只查语法:生成的代码引用的是应用自己的类,在控制台模块的 classpath
+> 上一个都没有,真编译只会得到一堆与 stub 对不对无关的「找不到符号」。)
+>
+> **三条有意为之的选择**
+>
+> 1. `make:listener` 没给 `--event` 时生成 `handle(Object event)`,
+>    而不是填一个不存在的 `ExampleEvent` —— 后者生成出来的是编译不过的文件。
+>    生成的代码必须能编译,否则用户第一件事是修框架给他的报错。
+> 2. `make:policy` 推不出模型时**报错要 `--model`**。这与
+>    `make:migration` 猜不出表名仍然生成**刚好相反**:那里缺的是 stub 里
+>    一个一眼能看见的空字符串,这里缺的是「这个类会不会生效」——
+>    `@Policy(X.class)` 的那个 X 是注册键,没有它的策略永远不会被调用,
+>    而症状是「授权规则没生效」。
+> 3. `make:command` 的默认命令名带 `app:` 前缀
+>    (`SyncInventory` → `app:sync-inventory`,与 Laravel 一致):
+>    应用里一条叫 `migrate` 的命令会悄悄遮住框架那条,
+>    而那种冲突在运行时表现为「migrate 的行为变了」。
+>
+> **还没有的几条,各有原因**:`make:resource` 要 `jaravel-api`
+> (模块还不存在);`make:factory` 的「工厂类」在仓库里还没有先例
+> (`BlogSeeder` 是在 seeder 里就地 `Factory.of(...)`),
+> 给它一个 stub 等于凭空发明一个约定;`make:view` / `make:component`
+> 生成的是 jblade 模板而不是 Java,落点与后处理都不同,
+> 单独一批做。
 
 ### 2.3 数据库
 

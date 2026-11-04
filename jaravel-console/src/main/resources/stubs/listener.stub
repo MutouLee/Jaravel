@@ -1,0 +1,26 @@
+package {{ pkg }};
+
+import org.springframework.stereotype.Component;
+
+import io.jaravel.events.Listener;
+
+/**
+ * ★ {@code @Listener} 与 {@code @Component} 两个都要。
+ *
+ * <p>前者让 APT 生成绑定,后者让容器能建出它(依赖从构造器注入)。
+ * 只标 @Listener 的后果是启动时报「无法实例化监听器」。
+ */
+@Component
+@Listener
+public class {{ class }} {
+
+    /**
+     * TODO 把参数类型换成要监听的事件 —— **方法名必须是 handle**,
+     * 事件类型就是参数类型。
+     *
+     * <p>下次可以直接给:make:listener {{ class }} --event=OrderPaid
+     */
+    public void handle(Object event) {
+        // TODO
+    }
+}

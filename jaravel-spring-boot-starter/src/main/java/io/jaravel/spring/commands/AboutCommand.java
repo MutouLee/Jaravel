@@ -52,7 +52,7 @@ public final class AboutCommand extends ConsoleCommand {
         twoColumnDetail("已注册", routes.get().size() + " 条");
 
         newLine();
-        line("某一项配置解析后的完整值:config:show <键>(还没实现)");
+        line("某一项配置解析后的完整值:config:show <键> · 库里有什么:db:show");
         return 0;
     }
 }

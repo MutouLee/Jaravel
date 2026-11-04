@@ -49,6 +49,9 @@ import io.jaravel.routing.RouteCollection;
 import io.jaravel.scheduler.Scheduler;
 import io.jaravel.spring.commands.AboutCommand;
 import io.jaravel.spring.commands.DbSeedCommand;
+import io.jaravel.spring.commands.DbTableCommand;
+import io.jaravel.spring.commands.DbShowCommand;
+import io.jaravel.spring.commands.ConfigShowCommand;
 import io.jaravel.spring.commands.DoctorCheck;
 import io.jaravel.spring.commands.DoctorCommand;
 import io.jaravel.spring.commands.FrameworkChecks;
@@ -194,7 +197,21 @@ public class JaravelConsoleAutoConfiguration {
                 .register(DbSeedCommand.class, () -> new DbSeedCommand(seeders))
                 .register(RouteListCommand.class, () -> new RouteListCommand(routes))
                 .register(AboutCommand.class,
-                        () -> new AboutCommand(beans.getBean(ConfigRepository.class), routes));
+                        () -> new AboutCommand(beans.getBean(ConfigRepository.class), routes))
+                .register(ConfigShowCommand.class,
+                        () -> new ConfigShowCommand(beans.getBean(ConfigRepository.class)));
+
+        // db:show / db:table 要的是 DataSource,而不是 Connection ——
+        // 它们读 JDBC 的元数据(DatabaseMetaData),那样就只有一条代码路径,
+        // 而不是「SQLite 查 sqlite_master、MySQL 用 SHOW TABLES」三份方言
+        // (其中两份在这台机器上永远不会被执行,于是会悄悄腐坏)。
+        // Connection 那个契约故意只有 SQL,不暴露底层连接
+        Supplier<javax.sql.DataSource> dataSource = () -> beans.getBean(javax.sql.DataSource.class);
+        registry.register(DbShowCommand.class,
+                        () -> new DbShowCommand(dataSource.get(), connection.get(),
+                                beans.getBean(ConfigRepository.class)))
+                .register(DbTableCommand.class,
+                        () -> new DbTableCommand(dataSource.get(), connection.get()));
 
         // 队列与调度:能力早就在模块里了,这里只是接上 CLI 入口。
         // 同样惰性 —— 一个没有队列驱动的应用不该在注册时就炸

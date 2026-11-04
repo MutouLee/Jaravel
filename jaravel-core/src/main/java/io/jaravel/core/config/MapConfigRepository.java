@@ -22,9 +22,6 @@ public class MapConfigRepository implements ConfigRepository {
     /** ${NAME} / ${NAME:default} —— default 部分允许包含 : 与 / (如 URL) */
     private static final Pattern PLACEHOLDER = Pattern.compile("\\$\\{([A-Za-z0-9_.]+)(?::([^}]*))?}");
 
-    private static final List<String> SENSITIVE =
-            List.of("password", "secret", "key", "token", "credential", "dsn");
-
     private final Map<String, Object> tree;
     private final java.util.function.Function<String, String> envResolver;
 
@@ -94,13 +91,9 @@ public class MapConfigRepository implements ConfigRepository {
     @Override
     public Map<String, Object> all() {
         Map<String, Object> out = new LinkedHashMap<>();
-        Arr.dot(tree).forEach((k, v) -> out.put(k, isSensitive(k) ? "********" : v));
+        Arr.dot(tree).forEach((k, v) ->
+                out.put(k, ConfigRepository.isSensitive(k) ? ConfigRepository.MASK : v));
         return out;
-    }
-
-    private static boolean isSensitive(String key) {
-        String lower = key.toLowerCase();
-        return SENSITIVE.stream().anyMatch(lower::contains);
     }
 
     /**

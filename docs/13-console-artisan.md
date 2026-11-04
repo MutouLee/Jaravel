@@ -2,7 +2,7 @@
 
 `php artisan` 是 Laravel 体验的半壁江山。Java 侧没有等价物(`mvn spring-boot:run` 不是同一个东西)。本模块补齐这块,目标是**让 `jaravel` 命令的手感与 `artisan` 一致**。
 
-> ### v0.5 实现状态:内核 + 16 条生成命令 + 通道 + 启动器 + 包装脚本 + doctor + tinker(197 个测试)
+> ### v0.5 实现状态:内核 + 16 条生成命令 + 通道 + 启动器 + 包装脚本 + 检视 + doctor + tinker(211 个测试)
 >
 > **已实现(`jaravel-console`)**
 >
@@ -20,6 +20,8 @@
 > | **本地命令通道**:在线命令在已跑着的应用进程里执行 | `ChannelServer` / `ChannelClient`(§1.2) |
 > | `migrate` · `migrate:status` · `migrate:rollback` · `migrate:fresh` · `db:seed` | §2.3 |
 > | `route:list`(带 `--method` / `--path` / `--name` 过滤)· `about` | §2.5 |
+> | **`config:show`**(解析后的值,敏感键打码)| §2.5 |
+> | **`db:show`** · **`db:table`**(JDBC 元数据) | §2.5 |
 > | `queue:work` · `queue:failed` · `queue:retry` · `queue:flush` | §2.4 |
 > | `schedule:list` · `schedule:run` · `schedule:test` · `schedule:clear-mutexes` | §2.4 |
 > | **`doctor`**(7 项检查 + `--fix`) | §2.6 |
@@ -29,8 +31,10 @@
 > | **一次性命令模式** `-Djaravel.command=…` | starter(§1 下方) |
 > | **`wrapper:install`**:生成 `jaravelw` / `jaravelw.cmd` | §1.1 下方 |
 >
-> **未实现**:native 二进制、`db:show` / `db:table` / `config:show` /
-> `optimize` 这一批、`queue:restart` / `queue:monitor` /
+> **未实现**:native 二进制、`optimize` 这一批(它要 config / route /
+> view / event 四种缓存,而那四种缓存本身都还没有 —— 一条
+> 「什么都缓存了」而实际什么都没做的命令比没有这条命令更糟)、
+> `queue:restart` / `queue:monitor` /
 > `schedule:work`、`analyze:*`、
 > 其余 `make:*`(见下面那条注记)、
 > `@Command` 的 APT 索引(应用的命令靠 Spring 扫到,框架自带的仍要显式
@@ -239,7 +243,8 @@ jaravel <command>
 > 强塞只是把乱码换个方向。猜错了用 `JARAVEL_ENCODING` / `JARAVEL_JVM_ARGS` 覆盖。
 >
 > **行尾不能交给平台**:`jaravelw` 必须是 LF —— CRLF 会让 `#!/bin/sh`
-> 变成 `#!/bin/sh`,症状是 `bad interpreter: No such file or directory`,
+> 变成 `#!/bin/sh
+`,症状是 `bad interpreter: No such file or directory`,
 > 而那条报错指着一个明明存在的路径,极难查。`.cmd` 反过来要 CRLF。
 > 两条测试各钉一边。
 >
@@ -606,6 +611,80 @@ jaravel inspire                         # 彩蛋,保留 Laravel 传统
 > `about` 报的是**配置解析之后**的实际值。一半的「为什么不生效」最后都是
 > .env 没被读到、或者被另一个配置源覆盖了,而那件事只有解析完才看得出来 ——
 > 看 yml 文件是看不出来的。没配的驱动显示「(未配置)」而不是空白。
+
+> ### v0.5:config:show / db:show / db:table
+>
+> ```
+> $ jaravel config:show app
+> app.debug           true
+> app.env             local
+> app.key             ********
+> app.name            Jaravel Blog
+> 5 项,其中 1 项已打码(--show-secrets 看真值)
+>
+> $ jaravel db:show --counts
+> 表(6)
+>   posts               10 列 · 13 行
+>   comments            7 列 · 31 行
+>
+> $ jaravel db:table posts
+> ┌────────────┬──────────────┬──────┬──────┐
+> │ 列         │ 类型         │ 可空 │ 默认 │
+> │ id (主键)  │ INTEGER      │ 可空 │ —    │
+> │ title      │ VARCHAR(200) │ 非空 │ —    │
+> 索引(2)
+>   posts_slug_unique   slug(唯一)
+> ```
+>
+> (以上是 `examples/blog` 上的真实输出。)
+>
+> **`config:show` 要回答的是「这个键最后是什么值」。** 看 yml 看不出来 ——
+> 一个值要经过 `${ENV:默认值}` 解析和多个配置源的叠加。
+> 实现上有个关键区别:键的集合取自 `all()`(它已经扁平化),
+> 但**值不从那里拿** —— `all()` 返回的是配置树里的原样值,没过占位符解析。
+> 拿它直接打,输出会是 `${DB_URL:jdbc:sqlite:…}`:一个**看起来像配置文件**
+> 的结果,而用户要的恰恰是「文件之后变成了什么」。所以值走 `raw(path)`。
+>
+> **★ 敏感键默认打码**,因为这条命令通过通道和启动器可达 ——
+> 也就是说它可能在一台生产机器上执行,而输出可能落进 CI 日志。
+> 密码进日志是不可逆的(日志会被归档、检索、转发)。
+> 要真值得显式 `--show-secrets`,生产环境下还要过一道确认。
+>
+> 判据只有一份:`ConfigRepository.isSensitive`。它原先是
+> `MapConfigRepository` 的私有方法(只给 `all()` 用),这次提到了接口上 ——
+> 复制一份到命令里的话,将来往那张表里加一个词时只有一处会改,
+> 而**漏掉的那一处的后果是密码被打到终端里**。
+>
+> **没解析掉的占位符会被点出来**:环境变量没设且没有默认值时
+> `interpolate` 保留原样(那是故意的,好让 `doctor` 发现)。
+> 那意味着应用正拿着 `"${DB_PASSWORD}"` 这个字面量去连库 ——
+> 而报错会是「认证失败」,离真正的原因很远。
+>
+> **`db:show` / `db:table` 用 JDBC 的元数据,不写三份方言 SQL。**
+> 「列出所有表」在 SQLite / MySQL / Postgres 里各不相同,
+> 按方言分支意味着三条代码路径,而其中两条在这台开发机上
+> **永远不会被执行** —— 它们会悄悄腐坏。`DatabaseMetaData` 是驱动自己
+> 实现的同一套接口,所以只有一条路径。(这也是这两条命令要
+> `DataSource` 而不是 `Connection` 的原因:后者那个契约故意只有 SQL。)
+>
+> **`db:table` 读的是库里的现状,不是迁移文件。** 那正是它的用处:
+> 迁移文件说「应该变成什么」,它说「现在是什么」。两者不一致很常见
+> (某条迁移没跑、有人手动改过、回滚回滚到一半),
+> 而症状通常是「列不存在」这类运行时错误 —— 看迁移文件是看不出来的。
+>
+> **三处「错了很难查」的细节,都有测试钉着**
+>
+> | | 不处理的话 |
+> |---|---|
+> | 行数默认**不**统计(`--counts` 才数) | 一条「看看库里有什么」的命令会顺手给生产库来一遍全表扫描 |
+> | 表名大小写不敏感 | `db:table Posts` 会输出「这张表没有列」—— 看起来像表是空的,其实是名字没对上 |
+> | 复合索引聚成一行 | 元数据里每列一行,`(a, b)` 会显示成两个单列索引 —— 让人以为复合索引没建上,然后去加一个重复的 |
+>
+> 还有两件如实处理的:
+> **JDBC URL 里的密码单独脱敏**(`config:show` 按键名判断,
+> 而这里的密码藏在一个叫 `url` 的值**里面** —— 两种判据都要);
+> **SQLite 把 `INTEGER` 主键报成「可空」**,照驱动说的显示但加一句注 ——
+> 而且 SQLite 是对的(rowid 别名,插 NULL 会自动填值)。
 
 ### 2.6 诊断(Jaravel 特有)
 

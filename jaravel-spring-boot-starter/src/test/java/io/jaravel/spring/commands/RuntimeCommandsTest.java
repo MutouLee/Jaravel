@@ -41,6 +41,8 @@ class RuntimeCommandsTest {
 
     private java.sql.Connection jdbc;
     private Connection connection;
+    private javax.sql.DataSource dataSource;
+    private MapConfigRepository config;
     private CommandRegistry registry;
     private final List<Migration> migrations = new ArrayList<>();
     private final List<Seeder> seeders = new ArrayList<>();
@@ -49,18 +51,26 @@ class RuntimeCommandsTest {
     @BeforeEach
     void setUp() throws SQLException {
         jdbc = DriverManager.getConnection("jdbc:sqlite::memory:");
-        connection = new JdbcConnection(nonClosing(jdbc), new SqliteGrammar());
+        dataSource = nonClosing(jdbc);
+        connection = new JdbcConnection(dataSource, new SqliteGrammar());
         Schema.useConnection(connection);
         Application.setEnvironment("local");
 
-        var config = new MapConfigRepository(ConfigLoader.parse("""
+        // ${...} 的解析器在测试里是一张表 —— 真的环境变量设不了,
+        // 而「解析之后是什么」恰恰是 config:show 的全部内容
+        config = new MapConfigRepository(ConfigLoader.parse("""
                 app:
                   name: 测试应用
+                  key: base64:超级机密
                 database:
-                  default: sqlite
+                  default: ${DB_CONNECTION:sqlite}
+                  connections:
+                    main:
+                      url: ${DB_URL:jdbc:sqlite::memory:}
+                      password: ${DB_PASSWORD}
                 cache:
                   default: array
-                """, "test"));
+                """, "test"), name -> name.equals("DB_CONNECTION") ? "sqlite" : null);
 
         registry = new CommandRegistry()
                 .register(() -> new MigrateCommand(() -> connection, () -> migrations))
@@ -69,7 +79,10 @@ class RuntimeCommandsTest {
                 .register(() -> new MigrateFreshCommand(() -> connection, () -> migrations))
                 .register(() -> new DbSeedCommand(() -> seeders))
                 .register(() -> new RouteListCommand(() -> routes))
-                .register(() -> new AboutCommand(config, () -> routes));
+                .register(() -> new AboutCommand(config, () -> routes))
+                .register(() -> new ConfigShowCommand(config))
+                .register(() -> new DbShowCommand(dataSource, connection, config))
+                .register(() -> new DbTableCommand(dataSource, connection));
         Artisan.use(registry);
     }
 
@@ -475,6 +488,175 @@ class RuntimeCommandsTest {
         @DisplayName("没配的驱动显示「未配置」,而不是空白")
         void unconfiguredDriversAreExplicit() {
             assertThat(run("about")).contains("(未配置)");
+        }
+    }
+
+    @Nested
+    @DisplayName("config:show")
+    class ConfigShow {
+
+        @Test
+        @DisplayName("★ 打的是解析之后的值,不是配置文件里那行 ${...}")
+        void showsResolvedValues() {
+            String out = run("config:show", "database");
+
+            assertThat(out)
+                    .as("""
+                            这是这条命令的全部意义:配置文件里写的是
+                            ${DB_CONNECTION:sqlite},而应用读到的是 sqlite。
+                            拿 all() 的值直接打会显示前者 —— 一个**看起来像配置文件**
+                            的输出,而用户要的恰恰是「文件之后变成了什么」。""")
+                    .contains("database.default")
+                    .contains("sqlite")
+                    .doesNotContain("${DB_CONNECTION");
+        }
+
+        @Test
+        @DisplayName("★ 敏感键默认打码 —— 这条命令可能跑在生产机器上")
+        void secretsAreMaskedByDefault() {
+            String out = run("config:show", "app");
+
+            assertThat(out)
+                    .as("""
+                            输出会被贴进工单、落进 CI 日志,而密码进日志是不可逆的:
+                            日志会被归档、被检索、被转发。""")
+                    .contains("********")
+                    .doesNotContain("超级机密");
+            assertThat(out).contains("已打码");
+        }
+
+        @Test
+        @DisplayName("--show-secrets 才给真值")
+        void secretsCanBeRevealed() {
+            assertThat(run("config:show", "app", "--show-secrets"))
+                    .contains("超级机密");
+        }
+
+        @Test
+        @DisplayName("★ 没解析掉的 ${...} 要被点出来")
+        void unresolvedPlaceholdersAreFlagged() {
+            String out = run("config:show", "database", "--show-secrets");
+
+            assertThat(out)
+                    .as("""
+                            环境变量没设且没有默认值时,interpolate 保留原样(故意的,
+                            好让 doctor 能发现)。那意味着应用正拿着 "${DB_PASSWORD}"
+                            这个字面量去连库 —— 而报错会是「认证失败」,
+                            离真正的原因很远。""")
+                    .contains("未解析")
+                    .contains("DB_PASSWORD");
+        }
+
+        @Test
+        @DisplayName("前缀匹配:给一段就列出它下面所有的叶子")
+        void prefixListsTheWholeSubtree() {
+            assertThat(run("config:show", "database"))
+                    .contains("database.connections.main.url");
+        }
+
+        @Test
+        @DisplayName("不存在的键 → 退出码 1 + 相近的键")
+        void unknownKey() {
+            assertThat(Artisan.call("config:show", "databse")).isEqualTo(1);
+            assertThat(Artisan.output()).contains("没有 databse");
+        }
+
+        @Test
+        @DisplayName("不带参数时列出配置段,而不是把全部配置打出来")
+        void withoutAKeyItListsSections() {
+            String out = run("config:show");
+
+            assertThat(out).contains("app").contains("database").contains("配置段");
+            assertThat(out)
+                    .as("一个「什么都给你」的默认行为在这条命令里不是好默认")
+                    .doesNotContain("超级机密");
+        }
+    }
+
+    @Nested
+    @DisplayName("db:show / db:table")
+    class DatabaseInspection {
+
+        @org.junit.jupiter.api.BeforeEach
+        void createSchema() {
+            migrations.add(new CreatePosts());
+            run("migrate");
+            connection.statement("create index posts_title_body_index on posts (title, id)");
+        }
+
+        @Test
+        @DisplayName("★ 表清单来自 JDBC 元数据 —— 不写三份方言 SQL")
+        void listsTables() {
+            String out = run("db:show");
+
+            assertThat(out)
+                    .as("""
+                            「列出所有表」在每个库里都不一样。按方言分支意味着三条代码路径,
+                            而其中两条在这台机器上永远不会被执行 —— 它们会悄悄腐坏。""")
+                    .contains("posts")
+                    .contains("SQLite")
+                    .contains("jaravel_migrations");
+        }
+
+        @Test
+        @DisplayName("★ 行数默认不统计 —— 那在大表上是一次全表扫描")
+        void rowCountsAreOptIn() {
+            assertThat(run("db:show"))
+                    .as("一条「看看库里有什么」的命令不该顺手给生产库来一遍全扫")
+                    .contains("行数没有统计");
+
+            assertThat(run("db:show", "--counts")).contains("0 行");
+        }
+
+        @Test
+        @DisplayName("db:table 给出列、主键与索引")
+        void describesATable() {
+            String out = run("db:table", "posts");
+
+            assertThat(out).contains("title").contains("主键").contains("索引");
+        }
+
+        @Test
+        @DisplayName("★ 复合索引聚成一行,而不是看起来像两个单列索引")
+        void compositeIndexesAreGrouped() {
+            String out = run("db:table", "posts");
+
+            assertThat(out)
+                    .as("""
+                            元数据里一个索引的每一列是一行。不聚起来的话,
+                            一个 (a, b) 的复合索引会显示成两个单列索引 ——
+                            而那会让人以为复合索引没建上,然后去加一个重复的。""")
+                    .contains("title, id");
+        }
+
+        @Test
+        @DisplayName("★ 表名大小写不敏感 —— 否则「这张表没有列」会骗人")
+        void tableNamesAreCaseInsensitive() {
+            assertThat(Artisan.call("db:table", "Posts")).isZero();
+            assertThat(Artisan.output()).contains("title");
+        }
+
+        @Test
+        @DisplayName("不存在的表 → 退出码 1 + 库里有哪些表")
+        void unknownTable() {
+            assertThat(Artisan.call("db:table", "pots")).isEqualTo(1);
+            assertThat(Artisan.output())
+                    .contains("没有叫 pots 的表")
+                    .contains("posts");
+        }
+
+        @Test
+        @DisplayName("★ JDBC URL 里的密码要脱掉 —— config:show 按键名判断,挡不住它")
+        void jdbcUrlCredentialsAreScrubbed() {
+            assertThat(DbShowCommand.scrub("jdbc:mysql://root:hunter2@localhost/app"))
+                    .as("""
+                            config:show 那边按**键名**判断敏感(password / secret / …),
+                            而这里的密码藏在一个叫 url 的值**里面**。
+                            两种判据都需要。""")
+                    .doesNotContain("hunter2")
+                    .contains("root");
+            assertThat(DbShowCommand.scrub("jdbc:postgresql://h/db?user=a&password=hunter2"))
+                    .doesNotContain("hunter2");
         }
     }
 }

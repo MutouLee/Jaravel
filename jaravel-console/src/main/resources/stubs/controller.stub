@@ -1,0 +1,15 @@
+package {{ pkg }};
+
+import org.springframework.stereotype.Component;
+
+import io.jaravel.http.Request;
+
+@Component
+public class {{ class }} {
+
+    // TODO 处理方法。路由在 routes/WebRoutes.java 里登记:
+    //      r.get("/path", {{ class }}::index);
+    public Object index(Request request) {
+        return null;
+    }
+}

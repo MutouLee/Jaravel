@@ -1,0 +1,166 @@
+package io.jaravel.console;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Supplier;
+
+import io.jaravel.support.Str;
+
+/**
+ * 命令注册表 —— docs/13 §6 里的 {@code ConsoleKernel} 的那一半。
+ *
+ * <h2>为什么存的是工厂而不是实例</h2>
+ * <p>命令对象**带状态**:解析出来的参数就写在它的字段上。
+ * 存实例的话第二次调用会看到第一次留下的 {@code --force},
+ * 而那是一个「只在连着跑两条命令时出现」的错。
+ * 所以每次运行都新建一个,参数绑定到一个干净的对象上。
+ *
+ * <p>工厂同时是依赖注入的接缝:{@code register("inventory:sync",
+ * () -> new SyncInventory(container.get(SupplierClient.class)))}。
+ * 这样这个模块不需要知道容器的存在(它只依赖 support)。
+ */
+public final class CommandRegistry {
+
+    private final Map<String, Supplier<? extends ConsoleCommand>> factories = new LinkedHashMap<>();
+    private final Map<String, String> descriptions = new LinkedHashMap<>();
+    private final List<java.util.function.Consumer<ConsoleCommand>> configurers = new ArrayList<>();
+
+    /**
+     * 每个新建出来的命令都过一遍这些钩子。
+     *
+     * <h2>★ 为什么需要它:子命令</h2>
+     * <p>{@code make:model Post -m} 会 {@code call("make:migration", …)},
+     * 而那是从注册表**新建**的一个实例 —— 它拿不到父命令身上的东西。
+     * 最要紧的是项目根({@code inProject}):不传下去的话,
+     * 父命令往临时目录写模型,子命令往当前工作目录写迁移,
+     * 而那在测试里表现为「迁移没生成」、在 {@code jaravel new} 里
+     * 表现为「文件生成到了错误的项目」。
+     *
+     * <p>做成通用钩子而不是在 {@code call} 里拷字段:
+     * 将来的依赖注入(从容器取构造参数)走的也是这个接缝。
+     */
+    public CommandRegistry configure(java.util.function.Consumer<ConsoleCommand> configurer) {
+        configurers.add(configurer);
+        return this;
+    }
+
+    /** 用无参构造的命令 */
+    public CommandRegistry register(Class<? extends ConsoleCommand> type) {
+        return register(() -> {
+            try {
+                var constructor = type.getDeclaredConstructor();
+                constructor.setAccessible(true);
+                return constructor.newInstance();
+            } catch (ReflectiveOperationException e) {
+                throw new ConsoleException(type.getSimpleName()
+                        + " 没有可用的无参构造。带依赖的命令用 register(name, factory)"
+                        + " 把依赖传进去。", e);
+            }
+        });
+    }
+
+    public CommandRegistry register(Supplier<? extends ConsoleCommand> factory) {
+        ConsoleCommand probe = factory.get();   // 名字与说明在注解上,要一个实例才能读
+        factories.put(probe.name(), factory);
+        descriptions.put(probe.name(), probe.description());
+        return this;
+    }
+
+    public boolean has(String name) {
+        return factories.containsKey(name);
+    }
+
+    public List<String> names() {
+        return List.copyOf(factories.keySet());
+    }
+
+    public String descriptionOf(String name) {
+        return descriptions.getOrDefault(name, "");
+    }
+
+    /**
+     * 跑一条命令。返回退出码。
+     *
+     * <p>{@link ConsoleException} 被就地处理成「打印消息 + 返回 1」——
+     * 用错命令不该得到一屏与原因无关的栈帧(见那个异常的注释)。
+     * 其他异常原样抛出:那是真的失败了,调用方(CLI 或测试)
+     * 要能看到完整的栈。
+     */
+    public int run(String name, List<String> args, ConsoleIo io) {
+        Supplier<? extends ConsoleCommand> factory = factories.get(name);
+        if (factory == null) {
+            io.writeError(unknownCommand(name) + "\n");
+            return 1;
+        }
+
+        ConsoleCommand command = factory.get();
+        command.bind(io, this);
+        configurers.forEach(configurer -> configurer.accept(command));
+        try {
+            ArgumentBinder.applyDefaults(command);
+            ArgumentBinder.bind(command, args);
+            return command.handle();
+        } catch (ConsoleException e) {
+            io.writeError(e.getMessage() + "\n");
+            return 1;
+        }
+    }
+
+    /**
+     * 「没有这条命令」要给出最接近的那个。
+     *
+     * <p>{@code make:modle} 这种手误在 CLI 上太常见,而一句
+     * 「Command not found」留给用户的下一步是去翻命令清单 ——
+     * 而正确答案就在一个字母之外。
+     */
+    private String unknownCommand(String name) {
+        var message = new StringBuilder("没有命令 \"" + name + "\"");
+
+        String closest = null;
+        int best = Integer.MAX_VALUE;
+        for (String candidate : factories.keySet()) {
+            int distance = distance(name, candidate);
+            if (distance < best) {
+                best = distance;
+                closest = candidate;
+            }
+        }
+        // 阈值:名字长度的三分之一。再松就会把 make:model 推给 db:seed
+        if (closest != null && best <= Math.max(1, name.length() / 3)) {
+            message.append("\n  是否想写 \"").append(closest).append("\" ?");
+        }
+
+        String group = Str.before(name, ":");
+        var sameGroup = new ArrayList<String>();
+        if (!group.isEmpty() && !group.equals(name)) {
+            factories.keySet().stream().filter(n -> n.startsWith(group + ":")).forEach(sameGroup::add);
+        }
+        if (!sameGroup.isEmpty()) {
+            message.append("\n  ").append(group).append(": 下有:")
+                   .append(String.join(" ", sameGroup));
+        }
+        return message.toString();
+    }
+
+    /** 编辑距离。命令名很短,O(n·m) 的朴素实现足够 */
+    private static int distance(String a, String b) {
+        int[] previous = new int[b.length() + 1];
+        int[] current = new int[b.length() + 1];
+        for (int j = 0; j <= b.length(); j++) previous[j] = j;
+
+        for (int i = 1; i <= a.length(); i++) {
+            current[0] = i;
+            for (int j = 1; j <= b.length(); j++) {
+                int cost = a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1;
+                current[j] = Math.min(Math.min(current[j - 1] + 1, previous[j] + 1),
+                                      previous[j - 1] + cost);
+            }
+            int[] swap = previous;
+            previous = current;
+            current = swap;
+        }
+        return previous[b.length()];
+    }
+}

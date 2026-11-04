@@ -1,0 +1,27 @@
+package {{ pkg }};
+
+import io.jaravel.migration.Migration;
+import io.jaravel.migration.schema.Schema;
+
+public class {{ class }} implements Migration {
+
+    @Override
+    public void up() {
+        Schema.table("{{ table }}", t -> {
+            // TODO t.string("slug").nullable();
+        });
+    }
+
+    /**
+     * down() 必须把 up() 做的事**逐项撤销**。
+     *
+     * <p>留空的 down() 会让 migrate:rollback 看起来成功而表结构没变 ——
+     * 下一次 migrate 就会撞上「列已存在」。
+     */
+    @Override
+    public void down() {
+        Schema.table("{{ table }}", t -> {
+            // TODO t.dropColumn("slug");
+        });
+    }
+}

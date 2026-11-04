@@ -1,0 +1,14 @@
+package {{ pkg }};
+
+import io.jaravel.eloquent.annotations.Id;
+import io.jaravel.eloquent.annotations.Model;
+
+@Model(table = "{{ table }}")
+public class {{ class }} extends {{ class }}Base {
+
+    @Id public Long id;
+
+    // TODO 字段按数据库列来写:public String title;
+    //      标量列就是 public 字段(ADR-010),不需要 getter。
+    //      访问器与类型化查询器由 APT 生成到 {{ class }}Base。
+}

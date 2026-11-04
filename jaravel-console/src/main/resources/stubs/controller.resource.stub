@@ -1,0 +1,52 @@
+package {{ pkg }};
+
+import org.springframework.stereotype.Component;
+
+import io.jaravel.http.Redirect;
+import io.jaravel.http.Request;
+import io.jaravel.http.View;
+
+/**
+ * {{ model }} 的 CRUD 控制器。
+ *
+ * <p>路由在 routes/WebRoutes.java 里登记:
+ * {@code r.resource("/{{ route }}", {{ class }}.class);}
+ */
+@Component
+public class {{ class }} {
+
+    /** GET /{{ route }} */
+    public View index(Request request) {
+        return View.of("{{ route }}.index");
+    }
+
+    /** GET /{{ route }}/create */
+    public View create() {
+        return View.of("{{ route }}.form");
+    }
+
+    /** POST /{{ route }} */
+    public Redirect store(Request request) {
+        return Redirect.to("/{{ route }}");
+    }
+
+    /** GET /{{ route }}/{id} */
+    public View show(Long id) {
+        return View.of("{{ route }}.show");
+    }
+
+    /** GET /{{ route }}/{id}/edit */
+    public View edit(Long id) {
+        return View.of("{{ route }}.form");
+    }
+
+    /** PUT /{{ route }}/{id} */
+    public Redirect update(Long id, Request request) {
+        return Redirect.to("/{{ route }}");
+    }
+
+    /** DELETE /{{ route }}/{id} */
+    public Redirect destroy(Long id) {
+        return Redirect.to("/{{ route }}");
+    }
+}

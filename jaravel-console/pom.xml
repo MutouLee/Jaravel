@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.jaravel</groupId>
+    <artifactId>jaravel-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>jaravel-console</artifactId>
+  <name>Jaravel :: Artisan 控制台</name>
+  <description>命令内核、输出/交互/进度条 API、Artisan 门面、make:* 代码生成与 stub 机制</description>
+
+  <dependencies>
+    <!-- Str 的命名推断(studly / snake / plural)是 make:* 的地基 -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-support</artifactId>
+    </dependency>
+
+    <!--
+      注意这里**没有** jaravel-view 的依赖。
+
+      stub 是模板,照 docs/13 §4.1 本该用 jblade 渲染(「自举」)。
+      但 make:* 是**离线命令**:docs/13 的头号设计目标是它在 100ms 内跑完,
+      而将来它跑在 GraalVM native 的 jaravel-cli 里 —— 那里既没有
+      javac 也没有 jte 的运行时编译,而 jblade 的预编译要等 v0.9。
+
+      所以 stub 用一个只认 {{ 变量 }} 的渲染器(Stub 类),
+      它刚好够用:docs/13 自己就是用「每个变体一个 stub 文件」
+      (controller.resource / controller.api / migration.create)
+      来避免模板里的条件分支的。
+      这条取舍与 jaravel-mail 不依赖 jaravel-view 是同一类决定。
+    -->
+  </dependencies>
+</project>

@@ -694,8 +694,12 @@ public class ConsoleKernel extends Kernel {
 > 几小时后落在上一分钟的第 59 秒上 —— 那时一个 `dailyAt("03:00")`
 > 的任务会跑两遍或一遍不跑,取决于漂移方向。
 >
-> **`s.command(...)` 尚不可用** —— 它需要 `jaravel-console`,而 CLI 在 v0.5。
+> **`s.command(...)` 仍不可用** —— 它需要 `jaravel-console`,而 CLI 在 v0.5。
 > 调它会报一条说明这一点的错,而不是静默什么都不做。
+> (v0.5 的控制台**内核**已经有了:`ConsoleCommand` 与命令注册表,
+> 见 docs/13 的实现状态。接上调度器要的是「从调度器那边按名字找到一条
+> 命令并跑它」—— 注册表已经能做这件事,缺的是 scheduler → console
+> 的那条装配线,而它按模块依赖方向应当由 starter 接。)
 > 同样,`schedule:list` / `schedule:run` / `schedule:test` 这几条命令
 > 的**能力**都已实现(`Scheduler.list` / `runDue` / `runNow` /
 > `clearMutexes`),只是还没有 CLI 入口。

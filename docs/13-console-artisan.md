@@ -2,6 +2,31 @@
 
 `php artisan` 是 Laravel 体验的半壁江山。Java 侧没有等价物(`mvn spring-boot:run` 不是同一个东西)。本模块补齐这块,目标是**让 `jaravel` 命令的手感与 `artisan` 一致**。
 
+> ### v0.5 实现状态:内核 + stub 机制 + 前三个 make:*(38 个测试)
+>
+> **已实现(`jaravel-console`)**
+>
+> | 能力 | 位置 |
+> |---|---|
+> | 命令基类:输出 / 交互 / 表格 / 进度条 | `ConsoleCommand`(§3.1) |
+> | 参数绑定:`@Argument` / `@Option`、`-mcr` 合并短开关 | `ArgumentBinder`(§3) |
+> | 命令注册表 + 「是否想写」提示 | `CommandRegistry`(§6) |
+> | 程序化调用 `Artisan.call` / `output()` | `Artisan`(§3.3) |
+> | stub 机制 + 项目覆盖 | `Stub`(§4) |
+> | `make:model`(含 `-mcr`)· `make:migration` · `make:controller` | §2.2 |
+>
+> **未实现**:`jaravel-cli`(picocli + native 二进制 + 本地命令通道)、
+> 其余 `make:*`、数据库/运行时/检视命令、`tinker`、`doctor`、
+> `@Command` 的 APT 索引(现在要显式 `register`)、§4.3 的生成后处理。
+>
+> 也就是说:**命令还只能从进程内调用**(`Artisan.call(...)`),
+> 终端上的 `jaravel xxx` 要等 CLI 那一片。先做内核的理由是它在下面 ——
+> CLI、tinker、每一条在线命令都站在 `ConsoleCommand` 与注册表上。
+>
+> 两处与下文设计不同的地方,各自在原处标了:
+> **§4.1 的 stub 不用 jblade 渲染**(与 100ms / native 目标冲突),
+> **迁移的时间戳在包名上而不是类名上**(Java 的类名不能以数字开头)。
+
 ---
 
 ## 设计目标
@@ -110,6 +135,26 @@ jaravel make:enum UserStatus
 jaravel make:interface PaymentGateway
 jaravel make:record UserDto
 ```
+
+> **迁移的时间戳在包名上,不在类名上**(已实现的那三个之一):
+> `database/migrations/m2026_11_04_123000/CreatePostsTable.java`
+>
+> Laravel 是文件名带时间戳(`2026_11_04_123000_create_posts_table.php`),
+> Java 不行:类名不能以数字开头,而且同名类不能共存 ——
+> 两次 `add_slug_to_posts` 会撞车。
+> 每个迁移一个带时间戳的包同时解决这两件事,执行顺序由包名字典序决定,
+> 与 Laravel 的文件名排序等价。这个形态 `examples/blog` 已经在用。
+>
+> 建表还是改表由名字认出来(`create_x_table` / `add_y_to_x`),
+> 显式的 `--create` / `--table` 优先。**猜不出来时不拒绝生成**:
+> 名字是用户起的,不该为了迁就命名约定而拒绝写文件 ——
+> 此时表名留空并提示一句,因为没填表名的 stub 一眼就能看出要改,
+> 而一个被拒绝的 `make:migration` 只会让人去搜命名规则。
+>
+> 另外两件已实现的小事:生成目标**已存在时拒绝覆盖**并提示 `--force`
+> (用户在那个文件里写的代码,一句 `make:model` 就能让它变回空壳);
+> `--api` 自己就意味着资源控制器,不必再写 `--resource`
+> (那是个一定会被漏掉的组合,而漏掉的结果是一个只有 index 的空壳)。
 
 ### 2.3 数据库
 
@@ -269,39 +314,55 @@ Artisan.queue("inventory:sync");                // 作为队列任务执行
 
 ## 4. Stub(代码模板)机制
 
-### 4.1 stub 本身用 jblade 渲染
+### 4.1 stub 只做变量替换(**与原设计的偏差**)
 
 ```
 jaravel-console/src/main/resources/stubs/
-├── model.jblade.java
-├── model.pivot.jblade.java
-├── controller.jblade.java
-├── controller.resource.jblade.java
-├── controller.api.jblade.java
-├── migration.create.jblade.java
-├── request.jblade.java
-├── job.jblade.java
+├── model.stub
+├── controller.stub
+├── controller.resource.stub
+├── controller.api.stub
+├── migration.create.stub
+├── migration.update.stub
 └── ...
 ```
 
 ```java
-{{-- stubs/model.jblade.java --}}
-@params(String pkg, String className, String tableName)
 package {{ pkg }};
 
-import io.jaravel.eloquent.Model;
-import io.jaravel.eloquent.annotations.*;
+import io.jaravel.eloquent.annotations.Id;
+import io.jaravel.eloquent.annotations.Model;
 
-@Model(table = "{{ tableName }}")
-public class {{ className }} extends Model<{{ className }}> {
+@Model(table = "{{ table }}")
+public class {{ class }} extends {{ class }}Base {
 
-    @Id Long id;
+    @Id public Long id;
 
-    // TODO: 定义字段
+    // TODO 字段按数据库列来写:public String title;
 }
 ```
 
-**自举**:用 jblade 渲染 jblade 框架自己的 stub,顺带给模板引擎提供了持续的真实用例测试。
+> ### 原设计是「用 jblade 渲染 stub(自举)」—— 实现时放弃了
+>
+> 它与本模块的**头号设计目标**冲突:`make:*` 是离线命令,
+> 要在 100ms 内跑完,而且终将跑在 GraalVM native 的 `jaravel-cli` 里 ——
+> **那里没有 javac**,jte 的运行时编译根本不可用,
+> 而 jblade 的预编译排在 v0.9(docs/04)。
+>
+> 「自举能顺带给模板引擎提供真实用例」是真的收益,但它换不来
+> 「`make:model` 要么慢 500ms、要么在 native 下直接不可用」。
+>
+> 所以 `Stub` 只认 `{{ 变量 }}`。它够用,因为这一节自己就是用
+> **每个变体一个 stub 文件**(`controller.resource` / `controller.api` /
+> `migration.create`)来避免模板里的条件分支的 —— 真正需要的只有插值。
+> 代价:stub 里写不了循环与条件。真需要时的出路是再加一个 stub 文件。
+>
+> 这条由 `jaravel-archunit-rules` 把住:`io.jaravel.console` 依赖
+> `io.jaravel.view` 会让 CI 失败 —— 而不是某天打 native 镜像时才发现。
+>
+> ⚠ 没替换掉的变量**报错**。留着那串 `{{ x }}` 字面量的话,生成出来的是
+> 一个编译不过的 Java 文件,而 javac 的报错会指向用户的新文件,
+> 与真正的原因(stub 的参数少给了一个)无关。
 
 ### 4.2 用户覆盖
 
@@ -310,7 +371,14 @@ jaravel stub:publish              # 复制全部 stub 到项目的 stubs/ 目录
 jaravel stub:publish --only=model
 ```
 
-项目 `stubs/model.jblade.java` 存在时优先使用。团队可定制:加公司版权头、加默认审计字段、加 Lombok 注解、改包结构约定。
+项目 `stubs/model.stub` 存在时优先使用。团队可定制:加公司版权头、加默认审计字段、加 Lombok 注解、改包结构约定。
+
+查找顺序(项目目录优先、再 classpath)与 jblade 的视图查找**刻意一致** ——
+同一件事在两个地方有两种顺序,是个没人记得住的规则。
+
+> `stub:publish` 本身还没实现(它属于 §2 的命令清单)。在那之前,
+> 手动在项目里放一个同名 `.stub` 就是它的效果 ——
+> 覆盖机制本身已经生效,`stub:publish` 只是帮你把文件拷过去。
 
 ### 4.3 生成后处理
 

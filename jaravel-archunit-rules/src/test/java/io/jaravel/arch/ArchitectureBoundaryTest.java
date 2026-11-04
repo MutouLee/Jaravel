@@ -40,6 +40,7 @@ class ArchitectureBoundaryTest {
             "io.jaravel.cache..",
             "io.jaravel.session..",
             "io.jaravel.auth..",
+            "io.jaravel.console..",
     };
 
     /**
@@ -236,7 +237,30 @@ class ArchitectureBoundaryTest {
                         "io.jaravel.routing..", "io.jaravel.database..", "io.jaravel.spring..")
                 .because("视图引擎不该知道路由与数据库 —— 它只负责『模板 + 数据 → 字符串』");
 
+        /*
+         * v0.5 新增:控制台只依赖 support。
+         *
+         * 它看起来「应该」能用 view 渲染 stub(docs/13 §4.1 原本就是那么写的),
+         * 但 make:* 是离线命令 —— 要在 100ms 内跑完,而且终将跑在 GraalVM
+         * native 的 jaravel-cli 里,那里没有 javac、jte 的运行时编译不可用。
+         * 所以 stub 用一个只认 {{ 变量 }} 的渲染器。这条规则把那个决定钉住:
+         * 「顺手 import 一下 JbladeEngine」会在 CI 上失败,而不是在某天
+         * 打出 native 镜像时才发现 make:model 跑不了。
+         *
+         * 数据库与 ORM 同理:migrate / db:seed 这些在线命令的实现将来放在
+         * starter 侧的桥接里(与 jaravel-mail 的 ViewRenderer SPI 同一个做法),
+         * 而不是让控制台把整个数据层拖进离线命令的依赖里。
+         */
+        ArchRule consoleDependsOnlyOnSupport = noClasses()
+                .that().resideInAPackage("io.jaravel.console..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "io.jaravel.view..", "io.jaravel.http..", "io.jaravel.routing..",
+                        "io.jaravel.database..", "io.jaravel.eloquent..", "io.jaravel.spring..")
+                .because("make:* 是离线命令:它要在没有模板引擎、没有数据库连接、"
+                       + "甚至没有 javac(native 镜像)的环境里跑完");
+
         supportDependsOnNothing.check(jaravelClasses);
+        consoleDependsOnlyOnSupport.check(jaravelClasses);
         coreDependsOnlyOnSupport.check(jaravelClasses);
         httpDoesNotDependOnRouting.check(jaravelClasses);
         databaseIsIndependentOfWeb.check(jaravelClasses);

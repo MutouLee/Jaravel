@@ -1,0 +1,21 @@
+package {{ pkg }};
+
+import io.jaravel.migration.Migration;
+import io.jaravel.migration.schema.Schema;
+
+public class {{ class }} implements Migration {
+
+    @Override
+    public void up() {
+        Schema.create("{{ table }}", t -> {
+            t.id();
+            // TODO 列:t.string("title"); t.text("body").nullable();
+            t.timestamps();
+        });
+    }
+
+    @Override
+    public void down() {
+        Schema.dropIfExists("{{ table }}");
+    }
+}

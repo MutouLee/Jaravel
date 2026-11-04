@@ -53,6 +53,27 @@
     <module>jaravel-security-bridge</module>
     <module>jaravel-spring-boot-starter</module>
     <module>jaravel-archunit-rules</module>
+
+    <!--
+      ★ 示例也进 reactor。
+
+      它们此前不在构建里,后果是实测过的:examples/blog 与 examples/todo
+      按提交的样子**起不来** —— auth 模块(v0.3)之后 app.key 变成
+      启动即校验的饿加载 bean,而那两个示例写在那之前、配置里没有那一行。
+      没有任何一条测试会发现,因为没有任何东西跑它们。
+
+      而 auth 与 queue 各自带着真实的验收测试(91 + N 条)却同样不被跑 ——
+      也就是说这里本来就有一批已经写好的测试在白白腐坏。
+
+      代价:构建变长(四个示例各要起一次真的 Spring 上下文)。
+      值:reactor 里解析的是**当前这棵树**的 artifact,
+      而不是本地仓库里上一次 install 的那份 —— 后者会让烟雾测试
+      在框架已经坏掉时照样通过,那比没有测试更糟。
+    -->
+    <module>examples/todo</module>
+    <module>examples/blog</module>
+    <module>examples/auth</module>
+    <module>examples/queue</module>
   </modules>
 
   <properties>

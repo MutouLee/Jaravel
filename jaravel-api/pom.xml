@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.jaravel</groupId>
+    <artifactId>jaravel-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>jaravel-api</artifactId>
+  <name>Jaravel :: API 资源</name>
+  <description>JsonResource / 资源集合 / 输出形状(docs/12)</description>
+
+  <!--
+    ★ 它必须同时依赖 http 与 eloquent,而那正是它要单独成一个模块的理由。
+
+    资源要 Request(条件字段按当前用户决定)和 Rel(判断关联有没有预加载)。
+    放 jaravel-http 里的话 http 就得依赖 eloquent;放 eloquent 里的话
+    eloquent 就得依赖 http —— 两者都会把一个「可以不要数据库的 HTTP 层」
+    和一个「可以不要 HTTP 的数据层」焊死在一起。
+  -->
+  <dependencies>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-http</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-eloquent</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

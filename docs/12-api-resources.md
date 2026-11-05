@@ -103,6 +103,61 @@ public Coll<UserDto> index() {
 
 这是对 Laravel 的改进(PHP 没有 record,所以 Laravel 只有 Resource 一条路)。
 
+> ### v0.5:资源已实现(21 个测试,`jaravel-api` 模块)
+>
+> `JsonResource<M>` · `ResourceCollection<M,R>` · 字段构建器 · `data` 包裹 ·
+> 与分页结合。两个真实响应把这一节最重要的那条规则摆在一起
+> (`examples/blog`,真 HTTP):
+>
+> ```
+> GET /api/posts/resources   列表(预加载 author,**没有**预加载 comments)
+>   data[0] = { id, title, slug, views, published_at, author: {id, name} }
+>                                      ↑ 没有 comment_count
+>
+> GET /api/posts/1           详情(两个都预加载了)
+>   { "data": { …, "author": {…}, "comment_count": 3 }, "meta": {"version":"1.0"} }
+> ```
+>
+> **★ 字段缺失是「没预加载」的可见提示。** 列表接口里没有 `comment_count`,
+> 不是 bug —— 资源层绝不触发懒加载。一个列表返回 50 条、资源里碰一下
+> 没预加载的关联就是 51 条查询,而那个 bug 在开发期的三条测试数据上
+> **完全看不出来**,它只在生产的分页列表上出现。
+> 前端拿不到那个字段,就知道这个接口没预加载它。
+>
+> 配套的一条区分:**「加载了但是空的」输出 `null`,而不是跳过**。
+> 「没预加载」是接口的实现细节(跳过),「加载了但没有」是数据的事实(null)。
+>
+> #### 四处与本节原文的偏差,都有具体原因
+>
+> | 原文 | 实现 | 原因 |
+> |---|---|---|
+> | `Json.map().put(...)` | `map(req).put(...)`(父类上的静态方法) | 框架里已经有两个用户会碰到的 `Json`(`@Cast(Json.class)`、缓存那个)。第三个同名类会让「我 import 的是哪个 Json」变成真实困惑。顺带不用 import |
+> | `UserResource.collection(users)` | `collection(users, UserResource::new)` | **Java 的静态方法不是多态的** —— `UserResource.collection` 实际调用基类那个,而基类不知道要 new 哪个子类。反射找构造器能绕过去,代价是运行时才炸 + native 要配反射。显式传方法引用换来编译期检查 |
+> | `putWhenPivotLoaded` / `putWhenCounted` | **没有** | 它们依赖的东西不存在:`withCount` 聚合、以及 pivot 数据的访问器。不做一个永远返回空的方法 |
+> | 条件字段 `putWhen(cond, name, value)` | 值是 `Supplier` | 条件字段的取值常常有代价或有前提(解密、再查一次)。直接传值会让它**无论条件成不成立都被求值一次** —— 而「只给管理员看」的字段恰恰不该为普通用户去算 |
+>
+> #### ★ 一个在测试里撞出来的设计修正
+>
+> 第一版把嵌套的资源**对象**原样放进字段里,让序列化器到那一层再展开。
+> 能工作 —— 直到测试去断言 `toArray(req)` 的内容:那个 Map 里躺着一个
+> `UserResource`,于是**那个方法的返回值不是 JSON 的形状**,只是中间态。
+>
+> 后果不只是测试难写:任何不经过 Jackson 的用途都坏了 ——
+> 把响应体写进日志、存成快照做契约测试、在命令里打印一个资源。
+> 而「这个方法返回这个接口的形状」是资源类唯一该有的契约。
+> 所以 `Fields` 现在**递归摊平**嵌套的资源 / 资源集合 / 分页器,
+> 代价是 `map()` 要知道当前 `Request`(于是变成 `map(req)`)。
+>
+> #### `data` 包裹只在根位置加一次
+>
+> 一个资源既可能是整个响应体,也可能是分页 `data` 数组里的一个元素、
+> 或者另一个资源的嵌套字段 —— 只有第一种该包裹,否则会出现
+> `{"data":[{"data":{…}},…]}`。
+>
+> Laravel 的做法是让分页器主动拆包(每一种容器都要记得拆)。
+> 这里换了个判据:序列化器问 Jackson「我现在在根位置吗」
+> (`getOutputContext().inRoot()`)—— 只问一次,而且对将来任何容器都成立。
+
 ---
 
 ## 2. 分页
@@ -449,10 +504,28 @@ r.post("/payments", PaymentController::store).middleware("idempotent");
 
 ## 7. 内部架构
 
+> ### v0.5:`jaravel-api` 模块已建,但**分页不在里面**
+>
+> `JsonResource` / `ResourceCollection` / `Fields` 在 `jaravel-api`
+> (它同时依赖 http 与 eloquent —— 那正是它要单独成一个模块的理由:
+> 资源要 `Request` 判断条件字段,要 `Rel` 判断关联有没有预加载)。
+>
+> **但 `Paginated` 在 `jaravel-support`,不在这里** —— 下面这张图画的位置
+> **结构上不可能**:`Query.paginate()` 在 `jaravel-eloquent` 里,
+> 而 `jaravel-api` 依赖 `jaravel-eloquent`。分页器放进 api 就意味着
+> eloquent 要依赖 api,而 api 又依赖 eloquent —— 一个环。
+>
+> 所以它落在零依赖的 `jaravel-support`:查询层造它、HTTP 层序列化它、
+> 视图层(将来)渲染它的链接,三者都够不到彼此,只够得到 support。
+> 代价是它不知道当前请求,靠静态 resolver 补(与 Laravel 同一个结构)。
+>
+> `exceptions/` · `openapi/` · `negotiation/` · `middleware/` ·
+> `conditional/` 这几个子包还没有。
+
 ```
 jaravel-api
-├── JsonResource<M> · ResourceCollection<M,R> · Json.map() builder
-├── pagination/  Paginated<T> · SimplePaginated<T> · Cursored<T> · PaginationRenderer
+├── JsonResource<M> · ResourceCollection<M,R> · Fields(字段构建器)
+├── pagination/  ⚠ 实际在 jaravel-support —— 理由见上
 ├── exceptions/
 │   ├── ExceptionHandler (可覆写)
 │   ├── DefaultExceptionMapper       异常 → 状态码 + 响应体

@@ -25,6 +25,11 @@
   <dependencies>
     <dependency>
       <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-api</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.jaravel</groupId>
       <artifactId>jaravel-eloquent</artifactId>
     </dependency>
     <dependency>

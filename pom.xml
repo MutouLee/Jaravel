@@ -40,6 +40,7 @@
     <module>jaravel-mail</module>
     <module>jaravel-console</module>
     <module>jaravel-cli</module>
+    <module>jaravel-api</module>
     <module>jaravel-http-client</module>
     <module>jaravel-notifications</module>
     <module>jaravel-storage</module>
@@ -133,6 +134,7 @@
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-mail</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-console</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-cli</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-api</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-http-client</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-notifications</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-storage</artifactId><version>${project.version}</version></dependency>

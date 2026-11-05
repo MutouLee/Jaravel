@@ -22,6 +22,7 @@ public class WebRoutes implements RouteDefinition {
 
         r.get("/api/posts", PostController::apiIndex);
         r.get("/api/posts/paged", PostController::apiPaged);
+        r.get("/api/posts/resources", PostController::apiResources);
         r.get("/api/posts/{id}", PostController::apiShow).whereNumber("id");
     }
 }

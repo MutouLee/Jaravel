@@ -86,8 +86,28 @@ public class PostController {
         return Post.query().published().withAuthor().paginate(5);
     }
 
-    /** GET /api/posts/{id} */
+    /**
+     * GET /api/posts/resources —— 分页 + 资源(docs/12 §2.3)。
+     *
+     * <p>注意响应里**没有** {@code comment_count}:这个接口预加载了 author、
+     * 没有预加载 comments。资源层绝不触发懒加载,所以那个字段直接不输出 ——
+     * 一个可见的提示,而不是一次看不见的 N+1。
+     */
+    public Object apiResources() {
+        return app.http.resources.PostResource.collection(
+                Post.query().published().withAuthor().paginate(5),
+                app.http.resources.PostResource::new);
+    }
+
+    /**
+     * GET /api/posts/{id} —— 单个资源(docs/12 §1)。
+     *
+     * <p>这个接口预加载了 author **与** comments,所以两个字段都在。
+     * 最外层会包一层 {@code data},并带上资源自己的 {@code with}
+     * ({@code meta.version})—— 那个包裹只在根位置加一次。
+     */
     public Object apiShow(Long id) {
-        return Post.query().withAuthor().withComments().whereId(id).firstOrFail();
+        return new app.http.resources.PostResource(
+                Post.query().withAuthor().withComments().whereId(id).firstOrFail());
     }
 }

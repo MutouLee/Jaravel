@@ -74,6 +74,44 @@ class ApplicationSmokeTest extends FeatureTest {
     }
 
     @Test
+    @DisplayName("★ 资源层绝不触发懒加载 —— 列表接口里**没有** comment_count")
+    void listEndpointOmitsUnloadedRelations() throws Exception {
+        var json = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(get("/api/posts/resources?page=1").assertOk().content());
+
+        var first = json.get("data").get(0);
+        assertThat(first.has("author"))
+                .as("这个接口预加载了 author")
+                .isTrue();
+        assertThat(first.has("comment_count"))
+                .as("""
+                        而它没有预加载 comments,所以资源**跳过**那个字段 ——
+                        而不是去查一次库。一个列表接口返回 50 条、资源里碰一下
+                        没预加载的关联就是 51 条查询,而那个 bug 在开发期的
+                        三条测试数据上完全看不出来。
+
+                        字段缺失是一个**可见的**提示:前端拿不到
+                        comment_count 就知道这个接口没预加载它。""")
+                .isFalse();
+        assertThat(first.get("author").has("data"))
+                .as("嵌套的资源不带 data 包裹 —— 包裹只在最外层加一次")
+                .isFalse();
+    }
+
+    @Test
+    @DisplayName("★ 单个资源在根位置:包一层 data,并带上 with 的 meta")
+    void singleResourceIsWrappedAtRoot() throws Exception {
+        var json = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(get("/api/posts/1").assertOk().content());
+
+        assertThat(json.has("data")).isTrue();
+        assertThat(json.get("meta").get("version").asText()).isEqualTo("1.0");
+        assertThat(json.get("data").has("comment_count"))
+                .as("这个接口**预加载了** comments —— 与上面那条列表接口正好相反")
+                .isTrue();
+    }
+
+    @Test
     @DisplayName("★ ?page=2 真的翻页 —— 页码由 starter 装的 resolver 读")
     void pageParameterIsHonoured() throws Exception {
         var first = new com.fasterxml.jackson.databind.ObjectMapper()

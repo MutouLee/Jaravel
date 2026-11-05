@@ -20,7 +20,7 @@ import io.jaravel.http.RequestScope;
 import io.jaravel.support.Paginated;
 
 /**
- * 把分页接到 HTTP 上(docs/12 §2)。
+ * 把分页与 API 资源接到 HTTP 上(docs/12 §1 / §2)。
  *
  * <p>两件事:
  * <ul>
@@ -137,7 +137,56 @@ public class JaravelPaginationAutoConfiguration {
     public SimpleModule jaravelPaginationJacksonModule() {
         var module = new SimpleModule("jaravel-pagination");
         module.addSerializer(Paginated.class, new PaginatedSerializer());
+        module.addSerializer(io.jaravel.api.JsonResource.class, new ResourceSerializer());
+        module.addSerializer(io.jaravel.api.ResourceCollection.class,
+                new ResourceCollectionSerializer());
         return module;
+    }
+
+    /** 序列化时「当前请求」从哪来 —— 不在请求里时是 null(命令、队列、测试) */
+    private static io.jaravel.http.Request requestOrNull() {
+        return RequestScope.isActive() ? RequestScope.tryRequest().orElse(null) : null;
+    }
+
+    /**
+     * 资源 → JSON(docs/12 §1.3)。
+     *
+     * <h2>★ {@code data} 包裹只在**根位置**加</h2>
+     * <p>一个资源既可能是整个响应体,也可能是分页 {@code data} 数组里的一个元素,
+     * 或者另一个资源的嵌套字段。只有第一种该包裹 —— 否则会出现
+     * {@code {"data":[{"data":{…}},…]}} 这种双层。
+     *
+     * <p>判据是 Jackson 自己的输出上下文:{@code getOutputContext().inRoot()}。
+     * Laravel 的做法是让分页器主动拆包,而那要求**每一种容器**都记得去拆;
+     * 问「我现在在根上吗」只需要问一次,而且对将来任何容器都成立。
+     */
+    public static final class ResourceSerializer
+            extends JsonSerializer<io.jaravel.api.JsonResource> {
+
+        @Override
+        @SuppressWarnings("unchecked")
+        public void serialize(io.jaravel.api.JsonResource value, JsonGenerator generator,
+                              SerializerProvider serializers) throws IOException {
+
+            var request = requestOrNull();
+            boolean root = generator.getOutputContext().inRoot();
+            generator.writeObject(root ? value.toRootBody(request) : value.toArray(request));
+        }
+    }
+
+    /** 资源集合 → JSON。根位置可能是一个**裸数组**(关掉包裹时) */
+    public static final class ResourceCollectionSerializer
+            extends JsonSerializer<io.jaravel.api.ResourceCollection> {
+
+        @Override
+        @SuppressWarnings("unchecked")
+        public void serialize(io.jaravel.api.ResourceCollection value, JsonGenerator generator,
+                              SerializerProvider serializers) throws IOException {
+
+            var request = requestOrNull();
+            boolean root = generator.getOutputContext().inRoot();
+            generator.writeObject(root ? value.toRootBody(request) : value.toArray(request));
+        }
     }
 
     /**

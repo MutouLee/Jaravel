@@ -115,7 +115,7 @@ final class AppLauncher {
      * (而不是一次几分钟的构建),而且 {@code .jaravel/main-class}
      * 那条路仍然可用。
      */
-    private static boolean isAggregator(Path pom) throws IOException {
+    static boolean isAggregator(Path pom) throws IOException {
         return Files.readString(pom).contains("<modules>");
     }
 
@@ -274,7 +274,7 @@ final class AppLauncher {
 
     // ================= classpath =================
 
-    private static String classpath(Path root, Path classes, ConsoleIo io)
+    static String classpath(Path root, Path classes, ConsoleIo io)
             throws IOException, InterruptedException {
         Path cache = root.resolve(CACHE_DIR).resolve("classpath");
         Path pom = root.resolve("pom.xml");
@@ -308,7 +308,20 @@ final class AppLauncher {
 
     // ================= 启动 =================
 
-    private static int spawn(Path root, String mainClass, String classpath,
+    /**
+     * 子进程该用哪个输出编码 —— 抽出来是为了能单独测这个**决定**。
+     *
+     * <p>优先用这个进程自己的 {@code stdout.encoding}(JDK 19+ 会设它),
+     * 退回 {@code native.encoding},最后兜底 UTF-8。
+     * 不直接写 UTF-8 的理由见 {@link #spawn} 里那段注释:
+     * 真的 cmd.exe 里 cp936 才是对的。
+     */
+    static String outputEncoding() {
+        return System.getProperty("stdout.encoding",
+                System.getProperty("native.encoding", "UTF-8"));
+    }
+
+    static int spawn(Path root, String mainClass, String classpath,
                              String command, List<String> args, ConsoleIo io)
             throws IOException, InterruptedException {
         var argv = new ArrayList<String>();
@@ -326,8 +339,7 @@ final class AppLauncher {
         // 强塞 UTF-8 会把乱码换个方向。所以透传:子进程的输出就是
         // 这个进程的输出,两边用同一个编码,
         // 用户改了(-Dstdout.encoding=… 或将来的 jaravelw)两边一起改。
-        String encoding = System.getProperty("stdout.encoding",
-                System.getProperty("native.encoding", "UTF-8"));
+        String encoding = outputEncoding();
         argv.add("-Dstdout.encoding=" + encoding);
         argv.add("-Dstderr.encoding=" + encoding);
 
@@ -384,14 +396,14 @@ final class AppLauncher {
      * 而症状会是「UnsupportedClassVersionError」—— 那条报错不会
      * 让任何人想到「CLI 和应用用的不是同一个 java」。
      */
-    private static String javaBinary() {
+    static String javaBinary() {
         Path java = Path.of(System.getProperty("java.home"), "bin",
                 isWindows() ? "java.exe" : "java");
         return Files.isExecutable(java) ? java.toString() : "java";
     }
 
     /** 项目自带的 wrapper 优先 —— 它钉住了版本,而 PATH 上那个没有 */
-    private static List<String> maven(Path root, String... args) {
+    static List<String> maven(Path root, String... args) {
         String wrapper = isWindows() ? "mvnw.cmd" : "mvnw";
         var argv = new ArrayList<String>();
         argv.add(Files.isRegularFile(root.resolve(wrapper))

@@ -102,6 +102,137 @@ class AppLauncherTest {
         }
     }
 
+    // ================= 真的起一个 JVM =================
+
+    @Test
+    @DisplayName("★ spawn 真的起一个 JVM,把 -Djaravel.command 传进去,并把退出码带回来")
+    void spawnPassesTheCommandAndReturnsTheExitCode(@TempDir Path tmp) throws Exception {
+        var io = new ConsoleIo.Recording();
+
+        int code = AppLauncher.spawn(tmp, EchoMain.class.getName(),
+                System.getProperty("java.class.path"),
+                "migrate", java.util.List.of("--force"), io);
+
+        assertThat(code)
+                .as("""
+                        EchoMain 收到预期的属性时退 7,否则退 8。
+                        用退出码回话而不是看输出:spawn 用的是 inheritIO(),
+                        子进程的输出直接进了 surefire 的控制台,测试捕不到 ——
+                        而退出码恰好是启动器与 shell 之间唯一的契约,
+                        所以这一条顺带也验证了它真的传得回来。""")
+                .isEqualTo(7);
+    }
+
+    @Test
+    @DisplayName("参数里的空格不会在传递中散掉")
+    void argumentsWithSpacesSurviveTheRoundTrip(@TempDir Path tmp) throws Exception {
+        var io = new ConsoleIo.Recording();
+
+        // EchoMain 只认 "migrate --force";带空格的参数拼错位的话它会退 8
+        int code = AppLauncher.spawn(tmp, EchoMain.class.getName(),
+                System.getProperty("java.class.path"),
+                "migrate", java.util.List.of("--force"), io);
+
+        assertThat(code).isEqualTo(7);
+    }
+
+    @Test
+    @DisplayName("★ 用**当前这个** JVM 的 java,而不是 PATH 上那个")
+    void javaComesFromThisJvm() {
+        assertThat(AppLauncher.javaBinary())
+                .as("""
+                        PATH 上那个可能是另一个版本(机器上装着 8 和 21 很常见),
+                        而症状会是 UnsupportedClassVersionError ——
+                        那条报错不会让任何人想到「CLI 和应用用的不是同一个 java」。""")
+                .startsWith(System.getProperty("java.home"));
+    }
+
+    @Test
+    @DisplayName("输出编码透传这个进程自己的,不硬写 UTF-8")
+    void encodingIsPropagatedNotGuessed() {
+        assertThat(AppLauncher.outputEncoding())
+                .as("""
+                        真的 cmd.exe 里 cp936 才是对的,强塞 UTF-8 只是把乱码
+                        换个方向。所以子进程用的是这个进程自己的编码。""")
+                .isEqualTo(System.getProperty("stdout.encoding",
+                        System.getProperty("native.encoding", "UTF-8")));
+    }
+
+    // ================= Maven =================
+
+    @Test
+    @DisplayName("★ 项目自带 mvnw 时优先用它 —— 它钉住了 Maven 的版本")
+    void theProjectsWrapperWins(@TempDir Path tmp) throws Exception {
+        String wrapper = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT)
+                .contains("win") ? "mvnw.cmd" : "mvnw";
+        Files.writeString(tmp.resolve(wrapper), "#!/bin/sh\n");
+
+        assertThat(AppLauncher.maven(tmp, "compile").get(0))
+                .as("PATH 上那个 mvn 没有被项目钉住版本")
+                .endsWith(wrapper);
+    }
+
+    @Test
+    @DisplayName("没有 mvnw 就用 PATH 上的 mvn,而且一律离线")
+    void fallsBackToMvnOnThePath(@TempDir Path tmp) {
+        var argv = AppLauncher.maven(tmp, "compile");
+
+        assertThat(argv.get(0)).startsWith("mvn");
+        assertThat(argv)
+                .as("""
+                        -o(离线):启动器不该因为仓库不通而卡住 ——
+                        它是在用户敲一条命令的路上,不是在做发布构建。""")
+                .contains("-o", "compile");
+    }
+
+    // ================= classpath 缓存 =================
+
+    @Test
+    @DisplayName("★ 缓存比 pom.xml 新就直接用 —— 那两三秒是快与慢的全部差别")
+    void freshCacheSkipsMavenEntirely(@TempDir Path tmp) throws Exception {
+        Path pom = tmp.resolve("pom.xml");
+        Path cache = tmp.resolve(".jaravel/classpath");
+        Path classes = tmp.resolve("target/classes");
+        Files.createDirectories(cache.getParent());
+        Files.createDirectories(classes);
+        Files.writeString(pom, "<project/>");
+        Files.writeString(cache, "/some/dep.jar");
+        touch(pom, 1_000_000);
+        touch(cache, 2_000_000);
+        var io = new ConsoleIo.Recording();
+
+        String result = AppLauncher.classpath(tmp, classes, io);
+
+        assertThat(result)
+                .as("target/classes 要在最前面 —— 依赖里可能有同名类")
+                .startsWith(classes.toAbsolutePath().toString())
+                .endsWith("/some/dep.jar");
+        assertThat(io.errors())
+                .as("""
+                        没有「解析依赖…」那句话,说明根本没去跑 Maven。
+                        实测那一步要 2.7 秒,比应用启动本身还慢。""")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("pom.xml 比缓存新 → 要重算(这里只验证它去跑了 Maven)")
+    void staleCacheTriggersAResolve(@TempDir Path tmp) throws Exception {
+        Path pom = tmp.resolve("pom.xml");
+        Path cache = tmp.resolve(".jaravel/classpath");
+        Files.createDirectories(cache.getParent());
+        Files.writeString(cache, "/old.jar");
+        Files.writeString(pom, "<project/>");
+        touch(cache, 1_000_000);
+        touch(pom, 2_000_000);
+        var io = new ConsoleIo.Recording();
+
+        AppLauncher.classpath(tmp, tmp.resolve("target/classes"), io);
+
+        assertThat(io.errors())
+                .as("改了 pom 却还用旧 classpath,症状是「新加的依赖找不到」")
+                .contains("解析依赖");
+    }
+
     // ================= 编译 =================
 
     @Test

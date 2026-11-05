@@ -69,11 +69,17 @@ public class JaravelPaginationAutoConfiguration {
             Paginated.queryResolver(() -> currentRequest()
                     .map(PaginationResolvers::queryWithoutPage)
                     .orElse(Map.of()));
+
+            // 游标分页用 ?cursor=…(docs/12 §2.1)
+            io.jaravel.support.Cursored.cursorResolver(() -> currentRequest()
+                    .flatMap(request -> request.query("cursor"))
+                    .orElse(null));
         }
 
         @PreDestroy
         void uninstall() {
             Paginated.reset();
+            io.jaravel.support.Cursored.reset();
         }
 
         /**
@@ -137,6 +143,7 @@ public class JaravelPaginationAutoConfiguration {
     public SimpleModule jaravelPaginationJacksonModule() {
         var module = new SimpleModule("jaravel-pagination");
         module.addSerializer(Paginated.class, new PaginatedSerializer());
+        module.addSerializer(io.jaravel.support.Cursored.class, new CursoredSerializer());
         module.addSerializer(io.jaravel.api.JsonResource.class, new ResourceSerializer());
         module.addSerializer(io.jaravel.api.ResourceCollection.class,
                 new ResourceCollectionSerializer());
@@ -146,6 +153,39 @@ public class JaravelPaginationAutoConfiguration {
     /** 序列化时「当前请求」从哪来 —— 不在请求里时是 null(命令、队列、测试) */
     private static io.jaravel.http.Request requestOrNull() {
         return RequestScope.isActive() ? RequestScope.tryRequest().orElse(null) : null;
+    }
+
+    /**
+     * 游标分页的一页 → JSON。
+     *
+     * <p>与 {@link PaginatedSerializer} 同一条理由:{@code next_cursor} /
+     * {@code prev_cursor} 为 null 时那个键**必须还在** ——
+     * 客户端靠 {@code next_cursor === null} 判断「到底了」,
+     * 而应用的「不输出 null 字段」策略会让那个键整个消失。
+     *
+     * <p>这里**整份都是信封**(没有用户数据混在同层),所以逐字段显式写;
+     * 只有 {@code data} 里的元素走应用自己的 mapper。
+     */
+    public static final class CursoredSerializer
+            extends JsonSerializer<io.jaravel.support.Cursored> {
+
+        @Override
+        @SuppressWarnings("unchecked")
+        public void serialize(io.jaravel.support.Cursored value, JsonGenerator generator,
+                              SerializerProvider serializers) throws IOException {
+
+            Map<String, Object> shape = value.toMap();
+            generator.writeStartObject();
+            for (var entry : shape.entrySet()) {
+                generator.writeFieldName(entry.getKey());
+                if (entry.getValue() == null) {
+                    generator.writeNull();
+                } else {
+                    generator.writeObject(entry.getValue());
+                }
+            }
+            generator.writeEndObject();
+        }
     }
 
     /**

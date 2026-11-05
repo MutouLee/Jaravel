@@ -203,4 +203,35 @@ class ApplicationSmokeTest extends FeatureTest {
         assertThat(response.header("Access-Control-Allow-Origin"))
                 .contains("https://app.example.com");
     }
+
+    @Test
+    @DisplayName("★ 游标分页:带着 next_cursor 回来能翻到不同的一页")
+    void cursorPaginationWalks() throws Exception {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var first = mapper.readTree(get("/api/posts/cursor").assertOk().content());
+
+        assertThat(first.get("next_cursor").asText()).isNotBlank();
+        assertThat(first.get("prev_cursor").isNull())
+                .as("""
+                        第一页没有上一页。而这个键**必须还在**(值是 null)——
+                        客户端靠 prev_cursor === null 判断「到头了」,
+                        而应用的「不输出 null 字段」策略会让那个键整个消失。""")
+                .isTrue();
+
+        var second = mapper.readTree(
+                get("/api/posts/cursor?cursor=" + first.get("next_cursor").asText())
+                        .assertOk().content());
+
+        assertThat(second.get("data").get(0).get("id").asInt())
+                .as("翻页了就该是另一批数据")
+                .isNotEqualTo(first.get("data").get(0).get("id").asInt());
+        assertThat(second.get("prev_cursor").asText())
+                .as("第二页能往回翻")
+                .isNotBlank();
+        assertThat(first.has("total"))
+                .as("""
+                        游标分页**不知道**总数(那要数过前面所有行,正是它要避免的)。
+                        输出一个编出来的值会让前端渲染出点不动的页码。""")
+                .isFalse();
+    }
 }

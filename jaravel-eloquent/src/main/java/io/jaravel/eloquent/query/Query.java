@@ -10,6 +10,7 @@ import java.util.function.Consumer;
 
 import io.jaravel.database.Row;
 import io.jaravel.database.query.QueryBuilder;
+import io.jaravel.database.query.QueryState;
 import io.jaravel.database.query.QueryState.Op;
 import io.jaravel.eloquent.Eloquent;
 import io.jaravel.eloquent.Model;
@@ -19,6 +20,8 @@ import io.jaravel.eloquent.meta.ModelMeta;
 import io.jaravel.eloquent.meta.RelPath;
 import io.jaravel.eloquent.relations.RelationLoader;
 import io.jaravel.support.Coll;
+import io.jaravel.support.Cursor;
+import io.jaravel.support.Cursored;
 import io.jaravel.support.Paginated;
 
 /**
@@ -477,6 +480,176 @@ public class Query<M extends Model<M>> {
      * (而且按 ADR-001 也不该认识)。
      */
     private <T> Paginated<T> withResolvedLinks(Paginated<T> page) {
+        return page.withPath(Paginated.resolvePath()).withQuery(Paginated.resolveQuery());
+    }
+
+    // ================= 执行:游标分页 =================
+
+    /**
+     * 游标分页(docs/12 §2.1 的第三种)—— 大表与无限滚动用这个。
+     *
+     * <pre>{@code
+     * Cursored<Post> page = Post.query().orderByDesc(Post_.createdAt).cursorPaginate(15);
+     * }</pre>
+     *
+     * <p>游标从 resolver 取({@code ?cursor=…});不在请求里时是第一页。
+     */
+    public Cursored<M> cursorPaginate(int perPage) {
+        return cursorPaginate(perPage, Cursored.resolveCursor());
+    }
+
+    /**
+     * 指定游标的分页。
+     *
+     * <h2>★ 排序必须是确定的,所以主键会被追加进去</h2>
+     * <p>游标分页的翻页条件是「排序列的字典序比较」。如果排序列上有**重复值**
+     * (比如按 {@code created_at} 排,而同一秒里有三条),那么
+     * {@code where created_at > '…'} 会把那一秒里剩下的两条**整个跳过**;
+     * 反过来用 {@code >=} 又会把它们重复给出。
+     *
+     * <p>所以这里总是把主键追加为最后一级排序 —— 它唯一,于是
+     * (排序列…, 主键)这个组合唯一,字典序比较就不会跳行也不会重复。
+     * 一个排序都没写时就只按主键排。
+     *
+     * <p>这不是防御性编程:「列表里偶尔少一条」是游标分页最常见的 bug,
+     * 而它只在有重复排序值的真实数据上出现 —— 开发期的几条测试数据上
+     * 完全看不见。
+     *
+     * @param encodedCursor 上一次给出的游标;null 表示第一页
+     */
+    public Cursored<M> cursorPaginate(int perPage, String encodedCursor) {
+        if (perPage <= 0) {
+            throw new IllegalArgumentException("perPage 必须大于 0,收到 " + perPage);
+        }
+        prepare();
+
+        List<QueryState.Order> orders = effectiveOrders();
+        Cursor cursor = encodedCursor == null ? null : Cursor.decode(encodedCursor);
+        boolean backwards = cursor != null && !cursor.pointsToNext();
+
+        if (cursor != null) {
+            applyCursorConstraint(cursor, orders, backwards);
+        }
+        applyOrders(orders, backwards);
+
+        // 多取一条探路 —— 与 simplePaginate 同一个办法
+        List<M> fetched = new ArrayList<>(limit(perPage + 1).get().toList());
+        boolean hasMore = fetched.size() > perPage;
+        if (hasMore) fetched.remove(fetched.size() - 1);
+
+        if (backwards) {
+            // 往回翻时查询是**反着排**的,结果要翻回来才是用户看到的顺序
+            java.util.Collections.reverse(fetched);
+        }
+
+        return withResolvedCursorLinks(buildPage(fetched, perPage, orders, cursor, hasMore, backwards));
+    }
+
+    /**
+     * 实际用于游标的排序:用户写的 + 追加主键。
+     *
+     * <p>主键已经在里面(用户自己按它排了)时不重复追加 ——
+     * 重复的 ORDER BY 列虽然无害,但会让生成的 SQL 变难读,
+     * 而那是排查「为什么翻页不对」时第一个要看的东西。
+     */
+    private List<QueryState.Order> effectiveOrders() {
+        var orders = new ArrayList<>(builder.orders());
+        boolean hasKey = orders.stream().anyMatch(o -> o.column().equals(meta.keyName()));
+        if (!hasKey) {
+            // 跟随最后一级的方向:按 created_at 倒序时,同一秒内也该倒序,
+            // 否则「同值内的顺序」与整体方向相反,读起来很怪
+            boolean descending = !orders.isEmpty() && orders.get(orders.size() - 1).descending();
+            orders.add(new QueryState.Order(meta.keyName(), descending));
+        }
+        return orders;
+    }
+
+    /**
+     * 字典序比较条件。
+     *
+     * <p>对 {@code order by a asc, b desc} 与游标 {@code (a0, b0)},往后翻是:
+     * <pre>
+     * (a > a0) or (a = a0 and b &lt; b0)
+     * </pre>
+     * 往前翻把每个比较反过来。
+     *
+     * <p>⚠ 不能简单写成 {@code (a, b) > (a0, b0)}:SQL 的行值比较
+     * ({@code ROW(...)})不是所有方言都支持,而且混用升降序时它的语义
+     * 根本不对 —— 行值比较要求所有列同向。
+     */
+    private void applyCursorConstraint(Cursor cursor, List<QueryState.Order> orders,
+                                       boolean backwards) {
+        builder.where(outer -> {
+            for (int level = 0; level < orders.size(); level++) {
+                final int depth = level;
+                outer.orWhere(branch -> {
+                    // 前 depth 级相等
+                    for (int i = 0; i < depth; i++) {
+                        var order = orders.get(i);
+                        branch.where(order.column(), cursor.valueOf(order.column()));
+                    }
+                    // 第 depth 级严格大于/小于
+                    var pivot = orders.get(depth);
+                    boolean ascending = pivot.descending() == backwards;
+                    branch.where(pivot.column(), ascending ? ">" : "<",
+                            cursor.valueOf(pivot.column()));
+                });
+            }
+        });
+    }
+
+    private void applyOrders(List<QueryState.Order> orders, boolean backwards) {
+        builder.reorder();
+        for (QueryState.Order order : orders) {
+            boolean descending = order.descending() != backwards;
+            if (descending) {
+                builder.orderByDesc(order.column());
+            } else {
+                builder.orderBy(order.column());
+            }
+        }
+    }
+
+    /**
+     * 本页两端的游标。
+     *
+     * <p>「有没有上一页」这件事**无法从本页数据判断** —— 只能看
+     * 「我是不是带着游标来的」。第一页(没带游标)一定没有上一页;
+     * 带着游标来的一定有(即便往回翻之后是空的)。
+     */
+    private Cursored<M> buildPage(List<M> items, int perPage, List<QueryState.Order> orders,
+                                  Cursor incoming, boolean hasMore, boolean backwards) {
+        if (items.isEmpty()) {
+            return Cursored.empty(perPage);
+        }
+
+        Cursor next = null;
+        Cursor previous = null;
+
+        boolean moreAhead = backwards ? incoming != null : hasMore;
+        boolean moreBehind = backwards ? hasMore : incoming != null;
+
+        if (moreAhead) next = cursorFor(items.get(items.size() - 1), orders, true);
+        if (moreBehind) previous = cursorFor(items.get(0), orders, false);
+
+        return Cursored.of(items, perPage, next, previous);
+    }
+
+    /** 某一行在排序列上的值 —— 用生成的访问器读,不反射 */
+    private Cursor cursorFor(M model, List<QueryState.Order> orders, boolean pointsToNext) {
+        var position = new java.util.LinkedHashMap<String, Object>();
+        for (QueryState.Order order : orders) {
+            Col<M, ?> col = meta.column(order.column()).orElseThrow(
+                    () -> new IllegalStateException("""
+                            按 %s 排序,但模型 %s 没有这一列 —— 游标分页读不到它的值。
+                              出路:按模型声明过的列排序,或者改用 paginate(…)。"""
+                            .formatted(order.column(), meta.type().getSimpleName())));
+            position.put(order.column(), col.get(model));
+        }
+        return Cursor.at(position, pointsToNext);
+    }
+
+    private Cursored<M> withResolvedCursorLinks(Cursored<M> page) {
         return page.withPath(Paginated.resolvePath()).withQuery(Paginated.resolveQuery());
     }
 

@@ -265,6 +265,21 @@ public class QueryBuilder {
         return this;
     }
 
+    /**
+     * 当前的排序 —— **只读**。
+     *
+     * <h2>为什么要暴露它</h2>
+     * <p>游标分页(docs/12 §2.1)必须知道「按什么排的」:游标里存的就是
+     * 排序列在最后一行上的值,而翻页条件是那些列的字典序比较。
+     *
+     * <p>返回不可变副本而不是 {@code state.orders} 本身:调用方拿到可变的
+     * 内部列表就能在构造器之外改查询,而那种改动绕过了所有的
+     * 「加排序时顺带做什么」的逻辑 —— 症状是「我明明 orderBy 了,SQL 里没有」。
+     */
+    public List<QueryState.Order> orders() {
+        return List.copyOf(state.orders);
+    }
+
     public QueryBuilder limit(int n) {
         state.limit = n;
         return this;

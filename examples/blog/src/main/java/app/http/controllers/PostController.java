@@ -100,6 +100,15 @@ public class PostController {
     }
 
     /**
+     * GET /api/posts/cursor?cursor=… —— 游标分页(docs/12 §2.1)。
+     *
+     * <p>无限滚动用这个:它不数总行数、翻页期间有人插入新行也不会跳行。
+     */
+    public Object apiCursor() {
+        return Post.query().published().orderByDesc(Post_.createdAt).cursorPaginate(3);
+    }
+
+    /**
      * GET /api/posts/cached —— 条件请求(docs/12 §6.1)。
      *
      * <p>{@code .etag()} 让框架按**最终字节**算摘要;客户端带着

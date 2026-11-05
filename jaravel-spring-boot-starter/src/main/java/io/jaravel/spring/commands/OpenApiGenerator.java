@@ -26,7 +26,8 @@ import io.jaravel.routing.RouteCollection;
  *   <tr><td>路径参数类型</td><td>控制器方法签名 + 路由约束</td><td>✅(有限,见下)</td></tr>
  *   <tr><td>安全要求</td><td>{@code auth:*} 中间件</td><td>✅</td></tr>
  *   <tr><td>operationId / tags</td><td>控制器#方法</td><td>✅</td></tr>
- *   <tr><td>请求体 schema</td><td>FormRequest 的 rules()</td><td>❌</td></tr>
+ *   <tr><td>请求体 schema</td><td>FormRequest 的 rules()</td><td>✅</td></tr>
+ *   <tr><td>请求体校验约束</td><td>规则 → maxLength / maximum / enum / pattern</td><td>✅</td></tr>
  *   <tr><td>响应 schema</td><td>JsonResource 的 toArray</td><td>❌(要 APT 做 AST 分析)</td></tr>
  *   <tr><td>描述与示例</td><td>javadoc + {@code @ApiDoc}</td><td>❌(javadoc 要 APT)</td></tr>
  * </table>
@@ -88,6 +89,8 @@ final class OpenApiGenerator {
 
         List<Map<String, Object>> parameters = parametersOf(route);
         if (!parameters.isEmpty()) operation.put("parameters", parameters);
+
+        requestBodyOf(route).ifPresent(body -> operation.put("requestBody", body));
 
         boolean secured = requiresAuth(route);
         if (secured) {
@@ -199,6 +202,55 @@ final class OpenApiGenerator {
         // 其它一律 string:路径参数在 HTTP 上就是字符串,
         // 而猜一个 object schema 出来会让客户端生成器产出一个空类
         return "string";
+    }
+
+    /**
+     * 请求体 —— 从控制器参数里那个 {@code FormRequest} 的 {@code rules()} 来。
+     *
+     * <h2>★ 这一行不需要 APT</h2>
+     * <p>{@code rules()} 返回 {@code Map<String, String>},而这条命令跑在
+     * 应用进程里(在线命令)—— 直接实例化那个 FormRequest 调一下就有了。
+     * 用的是与 {@code ArgumentBinder} 相同的约定:**无参构造**
+     * (那是 FormRequest 的既有契约,框架每次请求都这么建它)。
+     *
+     * <p>⚠ 不调 {@code bind(request)}:那会跑鉴权与校验,而这里没有请求。
+     * 只要 {@code rules()}。
+     *
+     * <h2>实例化失败不让整份文档失败</h2>
+     * <p>一个 {@code rules()} 依赖实例状态的 FormRequest(比如读了路由参数)
+     * 在这里会抛异常。那时**跳过这一个请求体**并继续 ——
+     * 因为「十个接口里有一个的请求体缺失」远好过「整份文档生成不出来」。
+     */
+    private java.util.Optional<Map<String, Object>> requestBodyOf(Route route) {
+        for (Class<?> type : route.parameterTypes()) {
+            if (!io.jaravel.validation.FormRequest.class.isAssignableFrom(type)) continue;
+
+            Map<String, String> rules;
+            try {
+                var constructor = type.getDeclaredConstructor();
+                constructor.setAccessible(true);
+                var form = (io.jaravel.validation.FormRequest) constructor.newInstance();
+                rules = form.rules();
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                skipped.add(route.method() + " " + route.uri()
+                        + "(" + type.getSimpleName() + ":" + e.getClass().getSimpleName() + ")");
+                continue;
+            }
+            if (rules == null || rules.isEmpty()) continue;
+
+            return java.util.Optional.of(Map.of(
+                    "required", true,
+                    "content", Map.of("application/json",
+                            Map.of("schema", RuleSchema.of(rules)))));
+        }
+        return java.util.Optional.empty();
+    }
+
+    /** 请求体没能生成出来的那些接口 —— 命令会把它们报出来,而不是静默少几个字段 */
+    private final List<String> skipped = new ArrayList<>();
+
+    List<String> skippedRequestBodies() {
+        return List.copyOf(skipped);
     }
 
     /**

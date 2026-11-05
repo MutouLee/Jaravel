@@ -37,6 +37,22 @@ class OpenApiTest {
 
     /** 控制器替身 —— 只需要有方法可以被方法引用指住 */
     public static class PostController {
+
+        /** 一个真的 FormRequest:无参构造是框架的既有契约 */
+        public static class StorePostRequest extends io.jaravel.validation.FormRequest {
+            @Override
+            public Map<String, String> rules() {
+                return Map.of(
+                        "title", "required|string|max:200",
+                        "age", "nullable|integer|min:18|max:99",
+                        "role", "required|in:admin,user",
+                        "email", "required|email",
+                        "password", "required|min:8|confirmed",
+                        "tags", "array|max:5",
+                        "slug", "required|regex:/^[a-z0-9-]+$/");
+            }
+        }
+
         public Object index() {
             return "all";
         }
@@ -51,6 +67,10 @@ class OpenApiTest {
 
         public Object store(Request request) {
             return "created";
+        }
+
+        public Object storeValidated(StorePostRequest form) {
+            return "created " + form.validated().string("title");
         }
     }
 
@@ -225,6 +245,154 @@ class OpenApiTest {
             var document = document(routes(r -> r.get("/posts", PostController::index)));
 
             assertThat(operation(document, "/posts", "get")).doesNotContainKey("parameters");
+        }
+    }
+
+    // ================= 请求体 =================
+
+    @Nested
+    @DisplayName("请求体(FormRequest.rules())")
+    class RequestBodies {
+
+        @SuppressWarnings("unchecked")
+        private Map<String, Object> bodySchema(String uri, String verb) {
+            var operation = operation(document(routes(r ->
+                    r.post(uri, PostController::storeValidated))), uri, verb);
+            var requestBody = (Map<String, Object>) operation.get("requestBody");
+            var content = (Map<String, Object>) requestBody.get("content");
+            var json = (Map<String, Object>) content.get("application/json");
+            return (Map<String, Object>) json.get("schema");
+        }
+
+        @Test
+        @DisplayName("★ rules() 变成 schema:类型、约束、required 都在")
+        void rulesBecomeSchema() {
+            var schema = bodySchema("/posts", "post");
+
+            assertThat(schema.get("type")).isEqualTo("object");
+            assertThat(schema.get("required"))
+                    .as("required 来自规则串里的 required(排过序,好让 diff 逐字节稳定)")
+                    .isEqualTo(List.of("email", "password", "password_confirmation",
+                            "role", "slug", "title"));
+            @SuppressWarnings("unchecked")
+            var properties = (Map<String, Object>) schema.get("properties");
+
+            @SuppressWarnings("unchecked")
+            var title = (Map<String, Object>) properties.get("title");
+            assertThat(title).containsEntry("type", "string")
+                    .as("""
+                            max:200 要变成 **maxLength**,不是 maximum ——
+                            前者限长度,后者限大小。写反了的话前端的表单校验
+                            会允许一个 200 字的标题,然后在提交时得到 422。""")
+                    .containsEntry("maxLength", 200L);
+
+            @SuppressWarnings("unchecked")
+            var age = (Map<String, Object>) properties.get("age");
+            assertThat(age.get("type"))
+                    .as("nullable → OpenAPI 3.1 的 type 数组")
+                    .isEqualTo(List.of("integer", "null"));
+            assertThat(age).containsEntry("minimum", 18L).containsEntry("maximum", 99L);
+
+            @SuppressWarnings("unchecked")
+            var role = (Map<String, Object>) properties.get("role");
+            assertThat(role.get("enum")).isEqualTo(List.of("admin", "user"));
+        }
+
+        @Test
+        @DisplayName("格式:email / confirmed 的确认字段 / regex 的定界符剥掉")
+        void formatsAndSpecials() {
+            var schema = bodySchema("/posts", "post");
+            @SuppressWarnings("unchecked")
+            var properties = (Map<String, Object>) schema.get("properties");
+
+            @SuppressWarnings("unchecked")
+            var email = (Map<String, Object>) properties.get("email");
+            assertThat(email).containsEntry("format", "email");
+
+            @SuppressWarnings("unchecked")
+            var confirmation = (Map<String, Object>) properties.get("password_confirmation");
+            assertThat(confirmation)
+                    .as("""
+                            Laravel 的 confirmed 意味着请求里还有 password_confirmation ——
+                            不写进 schema 的话,前端照文档发请求会得到 422,
+                            而文档上看不出为什么。""")
+                    .isNotNull();
+
+            @SuppressWarnings("unchecked")
+            var slug = (Map<String, Object>) properties.get("slug");
+            assertThat(slug.get("pattern"))
+                    .as("""
+                            regex:/^[a-z0-9-]+$/ 里那对斜杠是 PHP 的定界符。
+                            留着它的话客户端生成器会把 / 当成模式的一部分 ——
+                            于是那个校验永远不通过。""")
+                    .isEqualTo("^[a-z0-9-]+$");
+        }
+
+        @Test
+        @DisplayName("没有类型规则时是 string —— HTTP 表单的值本来就是字符串")
+        void untypedMeansString() {
+            @SuppressWarnings("unchecked")
+            var properties = (Map<String, Object>) bodySchema("/posts", "post")
+                    .get("properties");
+            @SuppressWarnings("unchecked")
+            var tags = (Map<String, Object>) properties.get("tags");
+
+            assertThat(tags.get("type")).isEqualTo("array");
+            assertThat(tags).containsEntry("maxItems", 5L);
+        }
+
+        @Test
+        @DisplayName("没有 FormRequest 的路由不输出 requestBody")
+        void noBodyWithoutFormRequest() {
+            var operation = operation(document(routes(r ->
+                    r.post("/posts", PostController::store))), "/posts", "post");
+
+            assertThat(operation).doesNotContainKey("requestBody");
+        }
+
+        @Test
+        @DisplayName("★ rules() 抛异常的 FormRequest:跳过它,并把那个接口报出来")
+        void brokenFormRequestIsSkippedAndReported() {
+            var router = new Router();
+            router.post("/weird", WeirdController::store);
+            var generator = new OpenApiGenerator("t", "1", null);
+
+            Map<String, Object> document = generator.generate(router.compile());
+
+            @SuppressWarnings("unchecked")
+            var paths = (Map<String, Object>) document.get("paths");
+            @SuppressWarnings("unchecked")
+            var weird = (Map<String, Object>) paths.get("/weird");
+            @SuppressWarnings("unchecked")
+            var post = (Map<String, Object>) weird.get("post");
+            assertThat(post)
+                    .as("""
+                            十个接口里有一个的请求体缺失,远好过整份文档生成不出来。""")
+                    .doesNotContainKey("requestBody");
+            assertThat(generator.skippedRequestBodies())
+                    .as("静默少一个字段会让人照不完整的文档写请求")
+                    .hasSize(1)
+                    .first().asString().contains("/weird");
+        }
+    }
+
+    /** rules() 依赖实例状态的 FormRequest —— 生成文档时没有请求可读 */
+    public static class WeirdController {
+        public Object store(WeirdForm form) {
+            return "x";
+        }
+    }
+
+    public static class WeirdForm extends io.jaravel.validation.FormRequest {
+        public WeirdForm() {
+            // 没有无参构造的实质 —— 与 ArgumentBinder 的实例化约定冲突,
+            // 于是 OpenAPI 生成器在反射时失败(应该被跳过并报告)
+            throw new IllegalStateException("需要请求上下文");
+        }
+
+        @Override
+        public Map<String, String> rules() {
+            return Map.of("x", "required");
         }
     }
 

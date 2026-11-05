@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 
@@ -62,6 +63,10 @@ public final class OpenApiGenerateCommand extends RuntimeCommand {
         Map<String, Object> document = generator.generate(table);
         String json = encode(document);
 
+        // 有请求体没生成出来就说出来 —— 静默少几个字段的话,
+        // 前端会照着一份不完整的文档写请求,然后在 422 上卡住
+        List<String> skipped = generator.skippedRequestBodies();
+
         if (toStdout) {
             // ★ 只有这一份 JSON 进 stdout:人看的那几行统计走 stderr。
             // 与 route:list --json 同一条规矩 —— 多一行就是 jq: parse error
@@ -73,11 +78,24 @@ public final class OpenApiGenerateCommand extends RuntimeCommand {
         write(target, json);
 
         success("已写入 " + target + "(" + table.size() + " 条路由)");
+
+        if (!skipped.isEmpty()) {
+            newLine();
+            failure(skipped.size() + " 个接口的请求体没能生成:");
+            skipped.forEach(entry -> line("  " + entry));
+            line("""
+                      原因通常是那个 FormRequest 的 rules() 依赖实例状态
+                      (读了路由参数之类)—— 生成文档时没有请求可读。""");
+        }
+
         newLine();
         line("""
-                ⚠ 这一版的文档里**没有**请求体与响应体的 schema:
-                  它们要从 FormRequest 的 rules() 与 JsonResource 的 toArray 提取,
-                  而后者需要 APT 做 AST 分析(docs/12 §5)。
+                ⚠ 这一版的文档里**没有响应体的 schema**:它要从 JsonResource 的
+                  toArray 提取,而那需要 APT 做 AST 分析(docs/12 §5)。
+
+                  请求体有了(来自 FormRequest 的 rules()),但要注意:
+                  exists / unique / after 这类**语义**规则在 schema 里没有
+                  表达方式,所以「schema 校验通过」不等于「服务端会接受」。
 
                   没有的字段不写进文档也不编 —— 一个带着假 schema 的 OpenAPI
                   会让前端生成出字段名全错的模型类,而那种错要等到联调才发现。""");

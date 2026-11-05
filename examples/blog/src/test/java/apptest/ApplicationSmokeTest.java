@@ -127,4 +127,26 @@ class ApplicationSmokeTest extends FeatureTest {
                 .as("两页的内容不该一样 —— 一样就说明 offset 没生效")
                 .isNotEqualTo(second.get("data").get(0).get("id").asInt());
     }
+
+    @Test
+    @DisplayName("★ 路径存在但方法不对 → 405 + Allow,而不是 404")
+    void wrongMethodGives405WithAllowHeader() {
+        // GET /api/posts 存在;POST 不存在
+        var response = post("/api/posts", java.util.Map.of());
+
+        assertThat(response.status())
+                .as("""
+                        404 说的是「这个地址不存在」,405 说的是「这个地址存在,
+                        但你不能用 POST 访问它」—— 对调用方是两件完全不同的事:
+                        前者去查 URL 拼错了没,后者去查自己用的动词。
+
+                        这条路径此前不存在:未命中就落进 Spring 的默认处理、
+                        最终是 404。而 RouteCollection.allowedMethods 这个方法
+                        就是为 405 写的,一直只有单元测试在用。""")
+                .isEqualTo(405);
+        assertThat(response.header("Allow"))
+                .as("RFC 9110 要求 405 必须带 Allow —— 它直接告诉调用方该用什么动词")
+                .isPresent();
+        assertThat(response.header("Allow").orElseThrow()).contains("GET");
+    }
 }

@@ -386,7 +386,15 @@ public abstract class FeatureTest {
                                routeList()));
         }
 
-        var handler = (JaravelHandlerMapping.Handler) chain.getHandler();
+        // ★ 不要在这里按具体类型强转。
+        //
+        // 这个方法与 JaravelHandlerAdapter 是同一件事的两处实现,而适配器
+        // 现在认两种 handler(正常命中、以及「路径存在但方法不对」那个 405 标记)。
+        // 第一版这里写死了 (Handler) 强转,于是一条 405 的测试拿到的是
+        // ClassCastException —— 症状与「405 没实现」完全无关。
+        //
+        // 适配器自己会按类型分支,所以这里原样交给它。
+        Object handler = chain.getHandler();
 
         if (!skippedMiddleware.isEmpty()) {
             // 请求属性 —— 随请求消失,不会泄漏给后面的测试

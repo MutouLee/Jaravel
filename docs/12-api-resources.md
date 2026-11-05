@@ -374,6 +374,76 @@ api:
 
 两种格式通过配置切换,错误定义代码不变。这是对 Laravel 的增强(Java 企业场景的实际需求)。
 
+> ### v0.5:§3 收口(10 个测试)
+>
+> 这一节此前**已经实现了一大半** —— 内容协商、开发/生产错误页、状态码映射、
+> `report` / `renderCustom` 覆写点都在(`JaravelExceptionHandler`,446 行)。
+> 这一轮补的是缺的三块:
+>
+> | 补了什么 | 之前 |
+> |---|---|
+> | **Problem JSON**(`api.error-format: problem-json`) | 没有 |
+> | `dontReport` / `dontFlash` / `context` 三个钩子(§3.1) | 没有 |
+> | **405 + `Allow`**(§3.2 那张表里的一行) | 返回的是 **404** |
+>
+> #### §3.2 那张表与现实的对账
+>
+> 表里点名的六个异常类型里,**四个并不存在** —— 但对应的行为是对的:
+> `AuthorizationException`(403)与 `TokenMismatchException`(419)
+> 直接**继承 `HttpException`**,而 401 / 429 是
+> `new HttpException(401/429, …, headers)` 抛出来的
+> (429 连 `Retry-After` 都带着)。
+>
+> 也就是说那张表描述的是**状态码与响应体**,而实现选择了「少几个类型、
+> 多用一个带状态码的异常」。这个取舍是对的:为每个状态码造一个类
+> 只是在重复 `HttpException` 已经表达的事。
+> 表里剩下的 `RouteNotFoundException` / `MethodNotAllowedException`
+> 同理不存在 —— 405 现在由路由层直接产出一个 `HttpException(405)`。
+>
+> #### ★ 405 这条路径查出两个真 bug
+>
+> **① 它此前根本不存在。** 路径存在但方法不对时,`JaravelHandlerMapping`
+> 返回 `null`,于是落进 Spring 的默认处理、最终是 **404**。
+> 而 `RouteCollection.allowedMethods(path)` 这个方法就是为 405 写的
+> (注释里写着「用于 405 与 Allow 头」),一直**只有单元测试在用**。
+>
+> 404 说的是「这个地址不存在」,405 说的是「这个地址存在,但你不能用 POST
+> 访问它」—— 对调用方是两件完全不同的事:前者去查 URL 拼错了没,
+> 后者去查自己用的动词。而 `Allow` 头直接给出答案(RFC 9110 要求它必须带)。
+>
+> **② 第一版 `throw` 在错误的位置。** 适配器的 `try` 只包着
+> `runPipeline`,而 405 是在那之前判出来的 —— 于是那个异常会一路冒到
+> Spring,**绕过整个统一异常处理**(内容协商、Problem JSON、错误页模板)。
+> 第一次跑真 HTTP 测试拿到的就是一个裸的 `HttpException` 冒出来。
+> 现在它走与正常路径同一套收尾。
+>
+> 顺带暴露第三处:**`jaravel-testing` 的 `FeatureTest.execute` 是适配器派发
+> 逻辑的第二份实现**,它把 handler 强转成具体类型,于是新加的那种
+> handler 让它抛 `ClassCastException` —— 症状与「405 没实现」毫无关系。
+> 改成原样交给适配器去分支。
+>
+> #### ★ Problem JSON 也查出一个真 bug:媒体类型到不了客户端
+>
+> 第一版用 `header("Content-Type", "application/problem+json")` 设的。
+> 那是**死代码**:`ResponseWriter` 用的是 `response.contentType()`,
+> 而且它那里就写着「Tomcat 对 Content-Type 做了特判,`setHeader` 不管用」。
+>
+> 后果:响应体是 RFC 7807 的形状,而 `Content-Type` 还说它是普通 JSON ——
+> 而中间层与客户端**就是靠那个媒体类型**认出一份 problem document 的。
+>
+> 另一处:`title` 用 Spring 的状态码短语表,而它在 **419** 上会说错话 ——
+> 给的是 WebDAV 的老含义「Insufficient Space On Resource」,
+> 而在 Laravel 里 419 是 CSRF 令牌不匹配。`title` 恰恰是给人读的那一行,
+> 说错话比没有更糟,所以那一个码单独覆盖。
+>
+> `type` 默认 `about:blank`(RFC 7807 §4.2 的规定)——
+> 编一个 `https://example.com/problems/500` 出来反而是错的:
+> 规范说那个 URI 应当可解引用,而那个 URL 不存在。
+>
+> #### 还没有的
+>
+> §4 版本化 · §5 OpenAPI · §6 的条件请求 / CORS / 请求 ID / 幂等性。
+
 ---
 
 ## 4. 版本化

@@ -69,7 +69,7 @@ public class JaravelAutoConfiguration {
             "app.yml", "database.yml", "view.yml", "jaravel.yml",
             "auth.yml", "cache.yml", "session.yml", "hashing.yml", "queue.yml",
             "events.yml", "schedule.yml", "mail.yml", "notifications.yml",
-            "filesystems.yml", "uploads.yml");
+            "filesystems.yml", "uploads.yml", "api.yml");
 
     // ================= 容器与应用 =================
 
@@ -232,10 +232,19 @@ public class JaravelAutoConfiguration {
         return new JaravelHandlerMapping(routes);
     }
 
+    /**
+     * 统一异常处理(docs/12 §3)。
+     *
+     * <p>{@code api.error-format} 选 {@code laravel}(默认)还是
+     * {@code problem-json}(RFC 7807)。格式在渲染末端转换,
+     * 所以抛异常的代码一个字都不用改(理由写在 {@code problemBody} 上)。
+     */
     @Bean
     @ConditionalOnMissingBean
-    public JaravelExceptionHandler jaravelExceptionHandler() {
-        return new JaravelExceptionHandler();
+    public JaravelExceptionHandler jaravelExceptionHandler(ConfigRepository config) {
+        var handler = new JaravelExceptionHandler();
+        handler.useErrorFormat(config.string("api.error-format", "laravel"));
+        return handler;
     }
 
     @Bean

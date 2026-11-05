@@ -47,18 +47,74 @@ public class JaravelExceptionHandler {
         return null;
     }
 
+    /**
+     * 不上报的异常类型(docs/12 §3.1 的 {@code dontReport})。
+     *
+     * <p>默认把**预期中的** 4xx 挡掉:校验失败、认证失败、找不到资源。
+     * 它们是正常的业务流程,报进 Sentry 只会把真问题埋掉 ——
+     * 一个每天刷出两万条「校验失败」的告警面板等于没有告警。
+     *
+     * <p>⚠ 这里只列默认值;子类覆写时记得**把它们也带上**,
+     * 否则一次改动会顺带打开两万条噪音。所以签名返回 List 而不是
+     * 让子类往一个集合里 add:返回值是完整的那份,看得见自己在替换什么。
+     */
+    protected List<Class<? extends Throwable>> dontReport() {
+        return List.of(
+                io.jaravel.validation.ValidationException.class,
+                io.jaravel.eloquent.ModelNotFoundException.class,
+                HttpException.class);
+    }
+
+    /**
+     * 不进日志上下文的字段(docs/12 §3.1 的 {@code dontFlash})。
+     *
+     * <p>与 {@code formInput} 排除密码是同一条理由,而这里管的是**日志**:
+     * 一个把请求参数原样写进日志的上报器,会把明文密码留在日志服务里 ——
+     * 而日志会被归档、被检索、被转发,一旦进去就得当作已泄露。
+     */
+    protected List<String> dontFlash() {
+        return List.of("password", "password_confirmation", "token", "secret");
+    }
+
+    /**
+     * 附加到所有异常上报的上下文(docs/12 §3.1 的 {@code context})。
+     *
+     * <p>默认带上请求的方法与路径 —— 一条没有「在哪个接口上发生」的异常
+     * 日志,排查时第一件事就是去翻时间戳对日志。
+     */
+    protected Map<String, Object> context(Request request) {
+        if (request == null) return Map.of();
+        var out = new LinkedHashMap<String, Object>();
+        out.put("method", request.method());
+        out.put("path", request.path());
+        return out;
+    }
+
     /** 用户覆写点:上报到日志 / Sentry */
     protected void report(Throwable t) {
-        if (t instanceof HttpException) return;   // 4xx 是预期的,不值得报警
         System.err.println("[jaravel] 未处理的异常:" + t);
         t.printStackTrace();
+    }
+
+    /** 这个异常要上报吗 —— {@link #dontReport} 的判断在这里,包含子类匹配 */
+    protected final boolean shouldReport(Throwable t) {
+        for (Class<? extends Throwable> ignored : dontReport()) {
+            if (ignored.isInstance(t)) return false;
+        }
+        return true;
     }
 
     public final Response render(Request request, Throwable t) {
         Response custom = renderCustom(request, t);
         if (custom != null) return custom;
 
-        report(t);
+        if (shouldReport(t)) {
+            Map<String, Object> context = context(request);
+            if (!context.isEmpty()) {
+                System.err.println("[jaravel] 异常上下文:" + redact(context));
+            }
+            report(t);
+        }
 
         // 校验失败对表单与 API 的正确响应完全不同,单独分流
         if (t instanceof io.jaravel.validation.ValidationException v) {
@@ -116,6 +172,24 @@ public class JaravelExceptionHandler {
     }
 
     protected Response renderJson(Request request, Throwable t, int status) {
+        // ⚠ 必须用 contentType(...) 而不是 header("Content-Type", ...)。
+        //
+        // 后者是**死代码**:ResponseWriter 用的是 response.contentType(),
+        // 而且它那里写着「Tomcat 对 Content-Type 做了特判,setHeader 不管用」。
+        // 第一版就是那么写的,于是 problem+json 这个媒体类型**永远到不了客户端** ——
+        // 响应体是 RFC 7807 的形状,而 Content-Type 还说它是普通 JSON。
+        // 中间层与客户端就是靠那个媒体类型认出 problem document 的。
+        var response = problemJson()
+                ? Response.json(problemBody(request, t, status))
+                        .status(status).contentType(PROBLEM_CONTENT_TYPE)
+                : Response.json(laravelBody(t, status)).status(status);
+
+        if (t instanceof HttpException h) h.headers().forEach(response::header);
+        return response;
+    }
+
+    /** Laravel 同构的错误体(默认) */
+    private Map<String, Object> laravelBody(Throwable t, int status) {
         var body = new LinkedHashMap<String, Object>();
         body.put("message", userMessage(t, status));
 
@@ -123,10 +197,110 @@ public class JaravelExceptionHandler {
             body.put("exception", t.getClass().getName());
             body.put("trace", topFrames(t, 10));
         }
+        return body;
+    }
 
-        var response = Response.json(body).status(status);
-        if (t instanceof HttpException h) h.headers().forEach(response::header);
-        return response;
+    /**
+     * RFC 7807 Problem Details(docs/12 §3.4)。
+     *
+     * <pre>
+     * api:
+     *   error-format: problem-json      # 默认 laravel
+     * </pre>
+     *
+     * <h2>★ 为什么是一个开关,而不是两套错误定义</h2>
+     * <p>企业/对外 API 常被要求 RFC 7807,而内部项目用 Laravel 那套更顺手。
+     * 如果让两种格式各走一条渲染路径,那么**每一个自定义异常**都要写两遍
+     * (而第二遍一定会漏)。所以格式是渲染末端的一次转换,
+     * 抛异常的代码一个字都不用改。
+     *
+     * <p>{@code type} 的默认值用 {@code about:blank} —— RFC 7807 §4.2 的
+     * 规定:没有具体的问题类型 URI 时就该是它。编一个
+     * {@code https://example.com/problems/500} 出来反而是错的,
+     * 因为那个 URL 不存在、而规范说它应当可解引用。
+     */
+    protected Map<String, Object> problemBody(Request request, Throwable t, int status) {
+        var body = new LinkedHashMap<String, Object>();
+        body.put("type", "about:blank");
+        body.put("title", reasonPhrase(status));
+        body.put("status", status);
+        body.put("detail", userMessage(t, status));
+        if (request != null) body.put("instance", request.path());
+
+        if (t instanceof io.jaravel.validation.ValidationException v) {
+            // 校验错误放在扩展成员里 —— RFC 7807 §3.2 明确允许扩展,
+            // 而把它塞进 detail 会让前端去解析一段人话
+            body.put("errors", v.errors().messages());
+        }
+        if (Application.isDebug()) {
+            body.put("exception", t.getClass().getName());
+            body.put("trace", topFrames(t, 10));
+        }
+        return body;
+    }
+
+    static final String PROBLEM_CONTENT_TYPE = "application/problem+json;charset=UTF-8";
+
+    /**
+     * 状态码的标准短语(RFC 7807 的 {@code title})。
+     *
+     * <p>用 Spring 的那张表而不是自己写一份:它跟着 RFC 更新,
+     * 而一份手抄的表会在某个冷门状态码上说错话
+     * (而 {@code title} 恰恰是给人读的那一行)。
+     * starter 本来就依赖 Spring,这里不多一个依赖。
+     */
+    private static String reasonPhrase(int status) {
+        String override = LARAVEL_PHRASES.get(status);
+        if (override != null) return override;
+        try {
+            return org.springframework.http.HttpStatus.valueOf(status).getReasonPhrase();
+        } catch (IllegalArgumentException e) {
+            return "Error " + status;
+        }
+    }
+
+    /**
+     * ★ Spring 的表在 419 上会说错话。
+     *
+     * <p>Spring 认得 419,但它给的是 WebDAV 的老含义
+     * 「Insufficient Space On Resource」—— 而在 Laravel(以及这个框架)里
+     * 419 是 **CSRF 令牌不匹配**(docs/12 §3.2 的那张表)。
+     *
+     * <p>这一条是测试撞出来的:原本以为 419 不在标准表里、会走
+     * 「Error 419」那条退路,结果拿到了一句与实际情况无关的英文。
+     * 而 {@code title} 恰恰是给人读的那一行 —— 它说错话比没有更糟。
+     */
+    private static final Map<Integer, String> LARAVEL_PHRASES =
+            Map.of(419, "CSRF Token Mismatch");
+
+    /** 配置里选了 problem-json 吗 */
+    protected boolean problemJson() {
+        return "problem-json".equalsIgnoreCase(errorFormat);
+    }
+
+    /**
+     * 配置值在构造时读一次。
+     *
+     * <p>不每次渲染都读:错误渲染这条路径上**可能连容器都已经坏了**
+     * (一个装配失败的应用照样要给出错误页),那时去碰 ConfigRepository
+     * 会在异常处理里再抛一个异常 —— 而那会把真正的报错吞掉。
+     */
+    private String errorFormat = "laravel";
+
+    public void useErrorFormat(String format) {
+        this.errorFormat = format == null || format.isBlank() ? "laravel" : format;
+    }
+
+    /** 日志上下文里的敏感字段打码 —— {@link #dontFlash} 列的那些 */
+    private Map<String, Object> redact(Map<String, Object> context) {
+        var out = new LinkedHashMap<String, Object>();
+        var hidden = dontFlash();
+        context.forEach((key, value) -> {
+            boolean sensitive = hidden.stream()
+                    .anyMatch(word -> key.toLowerCase(java.util.Locale.ROOT).contains(word));
+            out.put(key, sensitive ? "********" : value);
+        });
+        return out;
     }
 
     protected Response renderHtml(Request request, Throwable t, int status) {

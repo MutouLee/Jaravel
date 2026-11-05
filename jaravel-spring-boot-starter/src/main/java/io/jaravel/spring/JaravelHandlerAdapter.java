@@ -13,6 +13,7 @@ import io.jaravel.core.container.Container;
 import io.jaravel.core.pipeline.Pipeline;
 import io.jaravel.http.BasicRequest;
 import io.jaravel.http.Middleware;
+import io.jaravel.http.HttpException;
 import io.jaravel.http.Request;
 import io.jaravel.http.RequestScope;
 import io.jaravel.http.Response;
@@ -48,7 +49,8 @@ public class JaravelHandlerAdapter implements HandlerAdapter {
 
     @Override
     public boolean supports(Object handler) {
-        return handler instanceof JaravelHandlerMapping.Handler;
+        return handler instanceof JaravelHandlerMapping.Handler
+                || handler instanceof JaravelHandlerMapping.MethodNotAllowed;
     }
 
     /** 最终 {@link Response} 的请求属性名 */
@@ -71,6 +73,10 @@ public class JaravelHandlerAdapter implements HandlerAdapter {
     public ModelAndView handle(HttpServletRequest servletRequest,
                                HttpServletResponse servletResponse,
                                Object handler) throws Exception {
+        if (handler instanceof JaravelHandlerMapping.MethodNotAllowed notAllowed) {
+            return renderMethodNotAllowed(servletRequest, servletResponse, notAllowed);
+        }
+
         var match = ((JaravelHandlerMapping.Handler) handler).match();
         Route route = match.route();
 
@@ -137,6 +143,40 @@ public class JaravelHandlerAdapter implements HandlerAdapter {
 
         writer.flush(body, servletResponse);
         return null;   // 已自行写出,不交给 ViewResolver
+    }
+
+    /**
+     * 405:路径存在但方法不对。
+     *
+     * <h2>★ 为什么不直接 throw</h2>
+     * <p>第一版就是 {@code throw new HttpException(405, …)},而那是错的:
+     * 这个位置在下面那个 {@code try} **之外**(它只包着 runPipeline),
+     * 于是异常会一路冒到 Spring —— 绕过整个统一异常处理
+     * (内容协商、Problem JSON、错误页模板)。
+     *
+     * <p>第一次跑真 HTTP 测试时拿到的是一个裸的 {@code HttpException} 冒出来,
+     * 而不是 405 响应。所以这里走与正常路径同一套收尾:
+     * 在请求作用域里渲染、附加排队的 cookie、挂上请求属性、交给 writer。
+     */
+    private ModelAndView renderMethodNotAllowed(
+            HttpServletRequest servletRequest, HttpServletResponse servletResponse,
+            JaravelHandlerMapping.MethodNotAllowed notAllowed) throws Exception {
+
+        BasicRequest request = ServletRequestAdapter.adapt(servletRequest);
+        var failure = new HttpException(405,
+                "这个地址不接受 " + servletRequest.getMethod()
+                        + " —— 它只接受 " + String.join(" / ", notAllowed.allowed()) + "。",
+                java.util.Map.of("Allow", String.join(", ", notAllowed.allowed())));
+
+        byte[] body = RequestScope.runIn(request, () -> {
+            Response response = io.jaravel.http.PendingCookies.applyTo(
+                    exceptionHandler.render(request, failure));
+            servletRequest.setAttribute(RESPONSE_ATTRIBUTE, response);
+            return writer.serialize(response, servletResponse);
+        });
+
+        writer.flush(body, servletResponse);
+        return null;
     }
 
     private Response runPipeline(Request request, Route route) {

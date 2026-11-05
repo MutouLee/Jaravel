@@ -41,6 +41,7 @@ import io.jaravel.spring.commands.DoctorCheck;
 import io.jaravel.spring.commands.DoctorCommand;
 import io.jaravel.spring.commands.FrameworkChecks;
 import io.jaravel.spring.commands.MigrateCommand;
+import io.jaravel.spring.commands.OpenApiGenerateCommand;
 import io.jaravel.spring.commands.MigrateFreshCommand;
 import io.jaravel.spring.commands.MigrateRollbackCommand;
 import io.jaravel.spring.commands.MigrateStatusCommand;
@@ -188,7 +189,10 @@ public class JaravelConsoleAutoConfiguration {
                 .register(AboutCommand.class,
                         () -> new AboutCommand(beans.getBean(ConfigRepository.class), routes))
                 .register(ConfigShowCommand.class,
-                        () -> new ConfigShowCommand(beans.getBean(ConfigRepository.class)));
+                        () -> new ConfigShowCommand(beans.getBean(ConfigRepository.class)))
+                .register(OpenApiGenerateCommand.class,
+                        () -> new OpenApiGenerateCommand(routes,
+                                beans.getBean(ConfigRepository.class)));
 
         // db:show / db:table 要的是 DataSource,而不是 Connection ——
         // 它们读 JDBC 的元数据(DatabaseMetaData),那样就只有一条代码路径,

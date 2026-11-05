@@ -568,6 +568,84 @@ public JsonResource store(StorePostRequest req) { ... }
 
 **附带收益**:`jaravel openapi:diff` 可在 CI 中对比上一版 schema,检测破坏性 API 变更。这是企业场景的强需求,Laravel 生态里没有开箱方案。
 
+> ### v0.5:`openapi:generate` 的第一刀 —— 路由那一半(16 个测试)
+>
+> ```bash
+> jaravel openapi:generate                  # → public/openapi.json
+> jaravel openapi:generate --stdout | jq
+> ```
+>
+> 实测(`examples/blog` 14 条路径 / `examples/auth` 17 个受保护接口):
+>
+> ```json
+> "/posts/{id}": { "post": {
+>    "operationId": "PostController.destroy", "tags": ["Post"],
+>    "parameters": [{ "name":"id", "in":"path", "required":true,
+>                     "schema":{"type":"integer"} }],
+>    "responses": { "200": {"description":"成功"} } }}
+>
+> // examples/auth 里受保护的接口:
+> "security": [{"bearerAuth": []}],  "responses": {"200":…, "401":…}
+> "components": {"securitySchemes": {"bearerAuth": {"type":"http","scheme":"bearer"}}}
+> ```
+>
+> #### 上面那张表,这一版填了哪几行
+>
+> | 字段 | 这一版 |
+> |---|---|
+> | 路径与方法 | ✅ 来自**编译后的路由表**(与 `route:list` 同源) |
+> | 路径参数类型 | ✅ 有限 —— 见下 |
+> | 安全要求 | ✅ `auth:*` 中间件 → `security` + 401 |
+> | operationId / tags / summary | ✅ 控制器#方法 / 控制器名 / 路由名 |
+> | 请求体 schema | ❌ 要从 `FormRequest.rules()` 提取 |
+> | 响应 schema | ❌ 要 APT 对 `toArray` 做 AST 分析 |
+> | 描述与示例 | ❌ javadoc 要 APT;`@ApiDoc` 注解还不存在 |
+>
+> **没填上的行不写进文档,也不编。** 一个带着假 schema 的 OpenAPI 会让前端
+> 生成出字段名全错的模型类,而那种错要等到联调才发现;
+> 文档里缺一个 `requestBody` 至少是**明显**的缺失。
+> 命令跑完会把「还缺什么」打出来 —— 否则用户以为「文档生成好了」,
+> 而里面没有任何 schema 时他会去怀疑自己的注解或者 Swagger UI。
+>
+> #### ★ 路径参数的类型:两个来源,以及什么时候放弃
+>
+> 1. **路由约束**:`whereNumber("id")` 直接给出 `type: integer`
+>    (它是作者**明确表达**的意图,优先于 Java 类型 ——
+>     后者可能因为模型绑定而是一个实体类);
+> 2. **控制器方法签名** —— 但只在**能对上**的时候用:先滤掉 `Request`
+>    类型的参数,剩下的个数与路径参数个数相等时才按位置配对。
+>
+> 对不上就退回 `string`。为什么这么保守:真正的参数绑定规则在
+> `ArgumentBinder` 与 `SubstituteBindings` 里(模型绑定、FormRequest 注入、
+> 可选参数…)。在生成器里把那套规则**再实现一遍**就是第二份会漂的实现,
+> 而漂掉的后果是「文档上的类型与实际接受的类型不同」——
+> 那比没有类型更糟。路径参数在 HTTP 上本来就是字符串,这个退路不说谎。
+>
+> #### 三处为 `openapi:diff` 做的准备
+>
+> `diff` 还没做,但它的前提现在就得立住,否则将来每次 diff 都是噪音:
+>
+> - **路径按字典序** —— 哈希序的话 diff 里会出现一堆与 API 无关的变化,
+>   而那会训练人忽略 diff;
+> - **输出缩进** —— 一份全在一行的 JSON,任何改动的 diff 都是整个文件;
+> - **用独立的 `ObjectMapper`** —— 不复用应用那个:它可能配了
+>   「不输出 null 字段」(`examples/blog` 就配了),而那会悄悄改变文档形状。
+>   同一条教训在 `route:list --json` 与分页信封上各出现过一次,这是第三次。
+>
+> #### 一处简化,记在这里
+>
+> guard 名(api / web / sanctum)到安全方案的映射是**简化的**:一律声明为
+> HTTP bearer。对 token / JWT guard 是对的,对 session guard 不对
+> (那应该是 cookie)。别让读文档的人以为它精确。
+>
+> #### 为什么生成器在 starter 而不是 `jaravel-api`
+>
+> §7 把 `openapi/` 画在 `jaravel-api` 下。但它要 `RouteCollection`
+> (jaravel-routing),而 `jaravel-api` 不依赖 routing ——
+> 与那一节里分页的位置是同一类问题(见 §7 的注记)。
+> 所以它与 `route:list` 放在一起:都在 starter 的 `commands` 包里,
+> 因为它们要的东西在那里。
+
 ---
 
 ## 6. 其他 API 能力

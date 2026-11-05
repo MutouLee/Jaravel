@@ -127,6 +127,20 @@ public final class Jaravel {
             default -> { }
         }
 
+        // ★ list / help:应用跑着时问应用,它那张表是**超集**
+        //
+        // CLI 自己的注册表里只有离线命令,于是本地跑 list 看不到
+        // migrate、queue:work,也看不到**应用自己定义的任何命令** ——
+        // 而 list 正是「有哪些命令」的那个入口。一个列不全的清单
+        // 比没有清单更糟:用户会得出「这个框架没有 migrate」的结论。
+        //
+        // 通道在本机、开销可忽略(实测整条 ./jaravelw list 0.27 秒),
+        // 连不上就回落到本地那张表 —— 那时下面那条脚注会说清少了什么。
+        if (first.equals("list") || first.equals("help")) {
+            var throughChannel = ChannelClient.tryRun(projectRoot, first, rest, io);
+            if (throughChannel.isPresent()) return throughChannel.get();
+        }
+
         if (registry.has(first)) {
             if (first.startsWith("make:") && !OfflineCommands.looksLikeProject(projectRoot)) {
                 // 提示而不是拒绝:在空目录里 make:model 很可能是「忘了 cd」,

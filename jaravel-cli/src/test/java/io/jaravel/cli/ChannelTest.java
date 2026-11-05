@@ -64,7 +64,9 @@ class ChannelTest {
     }
 
     private CommandRegistry serverRegistry() {
-        return new CommandRegistry().register(FakeMigrate.class);
+        return new CommandRegistry()
+                .register(FakeMigrate.class)
+                .register(io.jaravel.console.ListCommands.class);
     }
 
     private record Result(int code, String out, String err) {}
@@ -76,6 +78,38 @@ class ChannelTest {
     }
 
     // ================= 端到端 =================
+
+    @Test
+    @DisplayName("★ list 优先问应用 —— 它那张表是超集")
+    void listPrefersTheApplicationsRegistry(@TempDir Path tmp) throws Exception {
+        try (var ignored = new ChannelServer(serverRegistry(), tmp).start()) {
+            var result = cli(tmp, "list");
+
+            assertThat(result.out())
+                    .as("""
+                            CLI 自己的注册表里只有离线命令,于是本地跑 list
+                            看不到 migrate、也看不到应用自己定义的任何命令。
+                            而 list 正是「有哪些命令」的那个入口。""")
+                    .contains("migrate")
+                    .as("走的是应用那张表,所以不该带「这张清单不全」的脚注")
+                    .doesNotContain("不全");
+        }
+    }
+
+    @Test
+    @DisplayName("★ 没有通道时本地列,但要说清少了什么")
+    void withoutAChannelTheListSaysItIsIncomplete(@TempDir Path tmp) {
+        var result = cli(tmp, "list");
+
+        assertThat(result.out())
+                .as("""
+                        一句不加说明的清单会让用户得出
+                        「这个框架没有 migrate」的结论。""")
+                .contains("make:model")
+                .contains("不全")
+                .contains("命令通道");
+    }
+
 
     @Test
     @DisplayName("★ 应用跑着时,在线命令走通道在那个进程里执行")

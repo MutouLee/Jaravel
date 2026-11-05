@@ -18,26 +18,11 @@ import io.jaravel.core.Application;
 import io.jaravel.core.config.ConfigRepository;
 
 import io.jaravel.console.Artisan;
+import io.jaravel.console.BuiltInCommands;
 import io.jaravel.console.CommandRegistry;
 import io.jaravel.console.ConsoleCommand;
 import io.jaravel.console.channel.ChannelServer;
 import io.jaravel.console.generators.GeneratorCommand;
-import io.jaravel.console.generators.KeyGenerateCommand;
-import io.jaravel.console.generators.MakeConsoleCommand;
-import io.jaravel.console.generators.MakeController;
-import io.jaravel.console.generators.MakeEvent;
-import io.jaravel.console.generators.MakeJob;
-import io.jaravel.console.generators.MakeListener;
-import io.jaravel.console.generators.MakeMail;
-import io.jaravel.console.generators.MakeMiddleware;
-import io.jaravel.console.generators.MakeMigration;
-import io.jaravel.console.generators.MakeModel;
-import io.jaravel.console.generators.MakeNotification;
-import io.jaravel.console.generators.MakePolicy;
-import io.jaravel.console.generators.MakeRequest;
-import io.jaravel.console.generators.MakeSeeder;
-import io.jaravel.console.generators.MakeTest;
-import io.jaravel.console.generators.WrapperInstallCommand;
 import io.jaravel.database.Connection;
 import io.jaravel.migration.Migration;
 import io.jaravel.migration.Seeder;
@@ -110,13 +95,18 @@ public class JaravelConsoleAutoConfiguration {
      * <p>加一条命令 = 写类 + 写 stub + 在这里加一行。第三行是暂时的:
      * APT 索引做完之后它会消失。
      */
-    static final List<Class<? extends ConsoleCommand>> BUILT_IN = List.of(
-            MakeModel.class, MakeController.class, MakeMigration.class,
-            MakeRequest.class, MakeJob.class, MakeMiddleware.class,
-            MakeEvent.class, MakeListener.class, MakePolicy.class,
-            MakeSeeder.class, MakeMail.class, MakeNotification.class,
-            MakeConsoleCommand.class, MakeTest.class,
-            KeyGenerateCommand.class, WrapperInstallCommand.class);
+    /**
+     * 框架自带的离线命令 + list / help。
+     *
+     * <p>表在 {@link BuiltInCommands} —— 与 {@code jaravel-cli} 共用一份。
+     * 此前两边各写了一遍,而且已经漂了:CLI 侧有 list / help,
+     * 这边一条都没有,于是 {@code jaravel list} 看不到任何在线命令。
+     */
+    static final List<Class<? extends ConsoleCommand>> BUILT_IN =
+            java.util.stream.Stream.concat(
+                            BuiltInCommands.DISCOVERY.stream(),
+                            BuiltInCommands.GENERATORS.stream())
+                    .toList();
 
     @Bean
     @ConditionalOnMissingBean

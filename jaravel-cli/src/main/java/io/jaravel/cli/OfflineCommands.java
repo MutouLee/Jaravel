@@ -4,27 +4,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
+import io.jaravel.console.BuiltInCommands;
 import io.jaravel.console.CommandRegistry;
 import io.jaravel.console.ConsoleCommand;
-import io.jaravel.console.HelpCommand;
-import io.jaravel.console.ListCommands;
 import io.jaravel.console.generators.GeneratorCommand;
-import io.jaravel.console.generators.KeyGenerateCommand;
-import io.jaravel.console.generators.MakeConsoleCommand;
-import io.jaravel.console.generators.MakeController;
-import io.jaravel.console.generators.MakeEvent;
-import io.jaravel.console.generators.MakeJob;
-import io.jaravel.console.generators.MakeListener;
-import io.jaravel.console.generators.MakeMail;
-import io.jaravel.console.generators.MakeMiddleware;
-import io.jaravel.console.generators.MakeMigration;
-import io.jaravel.console.generators.MakeModel;
-import io.jaravel.console.generators.MakeNotification;
-import io.jaravel.console.generators.MakePolicy;
-import io.jaravel.console.generators.MakeRequest;
-import io.jaravel.console.generators.MakeSeeder;
-import io.jaravel.console.generators.MakeTest;
-import io.jaravel.console.generators.WrapperInstallCommand;
 
 /**
  * CLI 能**不启动容器**就跑完的那些命令(docs/13 §1)。
@@ -42,14 +25,21 @@ final class OfflineCommands {
     private OfflineCommands() {
     }
 
-    static final List<Class<? extends ConsoleCommand>> ALL = List.of(
-            ListCommands.class, HelpCommand.class,
-            MakeModel.class, MakeController.class, MakeMigration.class,
-            MakeRequest.class, MakeJob.class, MakeMiddleware.class,
-            MakeEvent.class, MakeListener.class, MakePolicy.class,
-            MakeSeeder.class, MakeMail.class, MakeNotification.class,
-            MakeConsoleCommand.class, MakeTest.class,
-            KeyGenerateCommand.class, WrapperInstallCommand.class);
+    /**
+     * 这个进程里能跑的全部命令。
+     *
+     * <p>表本身在 {@link BuiltInCommands} —— 此前 CLI 与 starter 各写了
+     * 一遍,而漏掉一处的症状是「这条命令在应用里有、在 CLI 上没有」。
+     *
+     * <p>⚠ 这里列的每一条都必须带 {@code @Command(offline = true)} ——
+     * 有一条测试核对这件事。漏标的后果是 {@code jaravel-cli} 在一个
+     * 没有容器的进程里跑一条需要容器的命令。
+     */
+    static final List<Class<? extends ConsoleCommand>> ALL =
+            java.util.stream.Stream.concat(
+                            BuiltInCommands.DISCOVERY.stream(),
+                            BuiltInCommands.GENERATORS.stream())
+                    .toList();
 
     static CommandRegistry registry() {
         return registry(Path.of("").toAbsolutePath());
@@ -59,6 +49,11 @@ final class OfflineCommands {
         var registry = new CommandRegistry();
         ALL.forEach(registry::register);
         registry.configure(command -> {
+            // list 要说清「这张清单不全」—— 这个进程里没有应用,
+            // 所以在线命令与应用自己的命令都不在表里
+            if (command instanceof io.jaravel.console.ListCommands list) {
+                list.withoutApplication();
+            }
             if (command instanceof GeneratorCommand generator) generator.inProject(projectRoot);
         });
         return registry;

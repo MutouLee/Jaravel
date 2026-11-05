@@ -56,7 +56,15 @@ public class MigrationRunner {
         try {
             migrator.migrate(migrations, options);
         } finally {
-            migrator.output().forEach(line -> System.out.println("[jaravel migrate] " + line));
+            // ★ 走 **stderr**,与通道、调度器那两条启动提示一致。
+            //
+            // 它是「应用正在启动」的诊断信息,不是用户要的某条命令的结果。
+            // 打在 stdout 上会污染管道:冷启动那条路上,应用的启动输出
+            // 和命令的输出共用一个 stdout,于是
+            //   jaravel route:list --json | jq
+            // 拿到的第一行是「[jaravel migrate] 没有待执行的迁移。」——
+            // jq 直接 parse error。(实测撞到,而 --json 刚实现。)
+            migrator.output().forEach(line -> System.err.println("[jaravel migrate] " + line));
         }
     }
 
@@ -82,7 +90,8 @@ public class MigrationRunner {
         var runner = new Seeder.Runner();
         for (Seeder seeder : seeders) {
             runner.run(seeder);
-            System.out.println("[jaravel seed] 已执行 " + seeder.getClass().getSimpleName());
+            // 同上:启动期的诊断信息走 stderr,别污染管道
+            System.err.println("[jaravel seed] 已执行 " + seeder.getClass().getSimpleName());
         }
     }
 

@@ -2,7 +2,7 @@
 
 `php artisan` 是 Laravel 体验的半壁江山。Java 侧没有等价物(`mvn spring-boot:run` 不是同一个东西)。本模块补齐这块,目标是**让 `jaravel` 命令的手感与 `artisan` 一致**。
 
-> ### v0.5 实现状态:内核 + 16 条生成命令 + 通道 + 启动器 + 包装脚本 + 检视 + doctor + tinker(214 个测试)
+> ### v0.5 实现状态:内核 + 16 条生成命令 + 通道 + 启动器 + 包装脚本 + 检视 + doctor + tinker(221 个测试)
 >
 > **已实现(`jaravel-console`)**
 >
@@ -21,6 +21,7 @@
 > | `migrate` · `migrate:status` · `migrate:rollback` · `migrate:fresh` · `db:seed` | §2.3 |
 > | `route:list`(带 `--method` / `--path` / `--name` 过滤)· `about` | §2.5 |
 > | **`config:show`**(解析后的值,敏感键打码)| §2.5 |
+> | `route:list --json`(给脚本用) | §2.5 |
 > | **`db:show`** · **`db:table`**(JDBC 元数据) | §2.5 |
 > | `queue:work` · `queue:failed` · `queue:retry` · `queue:flush` | §2.4 |
 > | `schedule:list` · `schedule:run` · `schedule:test` · `schedule:clear-mutexes` | §2.4 |
@@ -738,6 +739,35 @@ jaravel inspire                         # 彩蛋,保留 Laravel 传统
 > 而触发它的只是一个敲错目录的命令。(而且就算编完也没用:
 > 哪个模块是应用,启动器无从得知。)
 
+> ### v0.5:`route:list --json` —— 它此前被当作理由引用,但没实现
+>
+> `route:list --json | jq` 这条管道在 `ConsoleCommand` 的注释里被当作
+> 「报错要走 stderr」的理由**反复引用**,而 `--json` 本身从没实现过。
+> 这是文档↔现实对账查出来的一处脱节。
+>
+> 实现上三条规矩,全是为了那条管道:
+>
+> | | 不这样的话 |
+> |---|---|
+> | stdout 上只有那一个 JSON 文档(人看的「共 N 条」不打) | 多一行就是 `jq: parse error` |
+> | 一条都没匹配时输出 `[]`、退出码 0 | 一个 `| jq length` 的脚本要的是 0,不是解析失败 |
+> | 每条路由用 `LinkedHashMap` | `Map.of` 的键是哈希序,两次输出的字段顺序不同 —— `> routes.json` 的 diff 全是噪音 |
+>
+> **★ 刻意不用应用的 `ObjectMapper`。** 第一版用的是容器里那个
+> (想着「转义交给它」),而第一次拿真项目跑管道就炸了:`examples/blog`
+> 的 mapper 配了「不输出 null 字段」(API 响应的常见设置),于是没有名字的
+> 路由**整个 `name` 键都消失了** —— 一个 `r["name"]` 的脚本直接 KeyError。
+>
+> 也就是说:复用应用的 mapper 等于让**应用的 HTTP 序列化策略**决定 CLI 的
+> 机器可读契约。`spring.jackson.default-property-inclusion` 一改,所有读这份
+> 输出的脚本一起坏,而那条配置看起来与 CLI 毫无关系。所以用一个专属的。
+>
+> **顺带修掉一处管道污染**:框架的启动期自动迁移把
+> `[jaravel migrate] …` 打在 **stdout** 上,于是冷启动那条路上
+> `route:list --json | jq` 拿到的第一行是那句中文。
+> 它的同类(命令通道、调度器的启动提示)早就走 stderr 了 ——
+> 它是不一致的那一个。启动期的诊断信息不是用户要的某条命令的结果。
+
 ### 2.6 诊断(Jaravel 特有)
 
 ```bash
@@ -880,6 +910,49 @@ components().task("迁移数据库", () -> migrate())        // 带 ✓/✗ 标�
 ### 3.2 注册
 
 `@Command` 由 APT 生成索引,自动注册。无需手动在 Kernel 列表里加。
+
+> ### v0.5:应用的命令靠 Spring 发现;框架自带的那张表只有**一份**
+>
+> **应用自己的命令**不需要注册:写上 `@Command` + `@Component` 就行
+> (容器扫到它,注册表每次跑新造一个实例 —— 见下面那条关于
+> `@Scope("prototype")` 的注记)。这一点与文档承诺的效果一致。
+>
+> **框架自带的命令**仍然是一个显式的 `List.of(...)`,但它从两份变成了一份
+> (`BuiltInCommands`)。此前 `jaravel-cli` 与 starter 各写一遍,
+> 加一条命令要改两处 —— 而**漏掉一处的症状是「这条命令在应用里有、
+> 在 CLI 上没有」**,那看起来像装配出了问题,不像少写了一行。
+>
+> 做 `wrapper:install` 与那三条检视命令时,每次都要记着改两处。
+> 而且两张表当时**已经不一致了** —— 下面那条就是它造成的 bug。
+>
+> **APT 索引为什么还没做,而且暂时不做**:对框架自带的命令来说它在解决
+> 一个不存在的问题(它们本来就全在一个模块里,一个常量就够),
+> 而代价是一个新的 Maven 模块 + 一个处理器 + 一份索引解析器。
+> APT 真正不可替代的地方是 **native 镜像**:`ArgumentBinder` 靠反射读字段,
+> 打镜像需要一份穷尽的类名清单来生成 reflect-config。那件事排在 v0.9,
+> 到时候 `BuiltInCommands` 正好是它的一半输入。
+
+> ### ⚠ v0.5 修掉的一个 bug:`jaravel list` 以前列不全
+>
+> starter **一条 `list` / `help` 都没注册**。后果是 `jaravel list` 跑在
+> CLI 自己的注册表上 —— 那里只有离线命令,于是 `migrate`、`queue:work`、
+> `tinker`,以及**应用自己定义的所有命令**,在命令清单里一条都看不见。
+>
+> 而 `list` 正是「有哪些命令」的那个入口。**一个列不全的清单比没有清单
+> 更糟**:用户会得出「这个框架没有 migrate」的结论。
+>
+> 两处修法:
+>
+> 1. 应用这边也注册 `list` / `help`,于是应用那张表是**超集**;
+> 2. CLI 遇到 `list` / `help` 时**优先问应用**(通道在本机,开销可忽略 ——
+>    实测整条 `jaravel list` 0.19 秒),连不上才用本地那张。
+>
+> 用本地那张时会多一段脚注,说清少了什么、怎么看全 ——
+> 不加说明的话,那份清单本身就是在误导。
+>
+> 实测(`examples/queue` 跑着):`jaravel list` 列出了 `migrate` 系列、
+> `queue:*`、`tinker`,以及那个示例自己的 `invoice:send` /
+> `invoice:prune` / `invoice:report`。
 
 ### 3.3 程序化调用
 

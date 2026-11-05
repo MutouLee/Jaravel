@@ -466,6 +466,88 @@ class RuntimeCommandsTest {
         }
     }
 
+    /** route:list --json 要一个带处理器的路由 —— view 路由没有控制器 */
+    public static class PostsController {
+        public Object store() {
+            return "created";
+        }
+    }
+
+    @Nested
+    @DisplayName("route:list --json")
+    class RouteListJson {
+
+        @org.junit.jupiter.api.BeforeEach
+        void defineRoutes() {
+            var router = new Router();
+            router.view("/posts", "posts.index").name("posts.index").middleware("web");
+            router.post("/posts", PostsController::store);   // 没有名字 —— 下面要断言 null
+            routes = router.compile();
+        }
+
+        @Test
+        @DisplayName("★ stdout 上只有那一个 JSON 文档 —— 多一行就是 jq: parse error")
+        void stdoutCarriesNothingButJson() throws Exception {
+            String out = run("route:list", "--json");
+
+            var parsed = new com.fasterxml.jackson.databind.ObjectMapper()
+                    .readTree(out.trim());
+            assertThat(parsed.isArray()).as("输出:%s", out).isTrue();
+            assertThat(parsed).hasSize(2);
+            assertThat(out)
+                    .as("""
+                            人看的那行「共 N 条」在 --json 下不能打。
+                            route:list --json | jq 这条管道在 ConsoleCommand 的
+                            注释里被当作「报错要走 stderr」的理由反复引用,
+                            而 --json 本身此前根本没实现。""")
+                    .doesNotContain("共 ");
+        }
+
+        @Test
+        @DisplayName("★ 一条都没匹配时是 [] 且退出码 0,而不是一句人话")
+        void emptyResultIsAnEmptyArray() {
+            assertThat(Artisan.call("route:list", "--json", "--path=nope")).isZero();
+            assertThat(Artisan.output().trim())
+                    .as("一个 | jq length 的脚本要的是 0,不是解析失败")
+                    .isEqualTo("[]");
+        }
+
+        @Test
+        @DisplayName("字段顺序稳定 —— 否则两次输出的 diff 全是噪音")
+        void fieldOrderIsStable() {
+            String first = run("route:list", "--json");
+            String second = run("route:list", "--json");
+
+            assertThat(first)
+                    .as("Map.of 的键是哈希序,所以这里用 LinkedHashMap")
+                    .isEqualTo(second);
+            assertThat(first.indexOf("method")).isLessThan(first.indexOf("uri"));
+        }
+
+        @Test
+        @DisplayName("过滤器照样生效")
+        void filtersStillApply() throws Exception {
+            var parsed = new com.fasterxml.jackson.databind.ObjectMapper()
+                    .readTree(run("route:list", "--json", "--method=POST").trim());
+
+            assertThat(parsed).hasSize(1);
+            assertThat(parsed.get(0).get("method").asText()).isEqualTo("POST");
+            assertThat(parsed.get(0).has("name"))
+                    .as("""
+                            ★ 键必须在,值可以是 null。
+                            第一版复用了应用容器里的 ObjectMapper,而
+                            examples/blog 那个配了「不输出 null 字段」
+                            (API 响应的常见设置)—— 于是 name 键**整个消失**,
+                            一个 r["name"] 的脚本直接 KeyError(真跑管道时撞到)。
+                            复用应用的 mapper 等于让 HTTP 序列化策略
+                            决定 CLI 的机器可读契约。""")
+                    .isTrue();
+            assertThat(parsed.get(0).get("name").isNull())
+                    .as("没有名字的路由是 null,不是空字符串 —— 脚本分得清")
+                    .isTrue();
+        }
+    }
+
     @Nested
     @DisplayName("about")
     class About {

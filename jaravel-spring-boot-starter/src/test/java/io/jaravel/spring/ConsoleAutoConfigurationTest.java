@@ -104,6 +104,27 @@ class ConsoleAutoConfigurationTest {
     }
 
     @Test
+    @DisplayName("★ 应用这边也要注册 list / help —— 否则 jaravel list 看不到任何在线命令")
+    void discoveryCommandsAreRegisteredInTheApplicationToo(@TempDir Path tmp) {
+        var registry = registryFrom(
+                beansWith(SyncInventory.class, BeanDefinition.SCOPE_PROTOTYPE), tmp);
+
+        assertThat(registry.has("list"))
+                .as("""
+                        此前 starter 一条都没注册,于是 jaravel list 跑在 CLI
+                        自己的注册表上 —— 那里只有离线命令,migrate、queue:work
+                        以及应用自己定义的命令在清单里一条都看不见。
+                        而 list 正是「有哪些命令」的那个入口:
+                        一个列不全的清单比没有清单更糟。""")
+                .isTrue();
+        assertThat(registry.has("help")).isTrue();
+
+        assertThat(registry.names())
+                .as("应用自己的命令当然也要在那张表里")
+                .contains("inventory:sync");
+    }
+
+    @Test
     @DisplayName("★ 应用命令的依赖由容器注入 —— 注册表存工厂,正好填进这个接缝")
     void applicationCommandGetsItsDependencies(@TempDir Path tmp) {
         var registry = registryFrom(beansWith(SyncInventory.class, BeanDefinition.SCOPE_PROTOTYPE), tmp);

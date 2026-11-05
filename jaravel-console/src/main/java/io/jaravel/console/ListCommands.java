@@ -41,8 +41,35 @@ public final class ListCommands extends ConsoleCommand {
         });
         newLine();
         line("某条命令的详细用法:help <命令>");
+
+        if (withoutApplication) {
+            newLine();
+            warn("这张清单**不全**:只有不需要应用的命令。");
+            line("  migrate / db:* / queue:* / schedule:* / tinker,以及");
+            line("  **应用自己定义的命令**,都要问应用才知道。");
+            line("  出路:把应用跑起来(它会开一个命令通道),");
+            line("  再敲一次 list —— 那时拿到的是完整的一张。");
+        }
         return 0;
     }
+
+    /**
+     * 这张表是不是「只有离线命令」的那张。
+     *
+     * <h2>★ 为什么要由调用方告诉它,而不是自己判断</h2>
+     * <p>自己判断的办法是遍历注册表、看有没有非 offline 的命令 ——
+     * 而那要**把每条命令都实例化一遍**({@code isOffline} 要读实例上的注解)。
+     * 为了打一行脚注去构造所有命令(在应用里还会触发构造器注入)
+     * 不值当,而且有副作用。
+     *
+     * <p>{@code jaravel-cli} 在建注册表时直接说明这件事 ——
+     * 它是唯一知道答案的那个:它这个进程里根本没有应用。
+     */
+    public void withoutApplication() {
+        this.withoutApplication = true;
+    }
+
+    private boolean withoutApplication;
 
     private void describe(String name) {
         twoColumnDetail(name, commands().descriptionOf(name));

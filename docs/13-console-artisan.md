@@ -2,7 +2,15 @@
 
 `php artisan` 是 Laravel 体验的半壁江山。Java 侧没有等价物(`mvn spring-boot:run` 不是同一个东西)。本模块补齐这块,目标是**让 `jaravel` 命令的手感与 `artisan` 一致**。
 
-> ### v0.5 实现状态:内核 + 16 条生成命令 + 通道 + 启动器 + 包装脚本 + 检视 + doctor + tinker(221 个测试)
+> ### v0.5 实现状态:内核 + 16 条生成命令 + 通道 + 启动器 + 包装脚本 + 检视 + doctor + tinker
+>
+> 测试:`jaravel-console` **73** · `jaravel-cli` **42** ·
+> starter 里控制台相关的 **120**(`ArgumentBinder` 12 · `Doctor` 19 ·
+> `Queue/Schedule` 18 · `Runtime` 42 · `Tinker` 19 · `ConsoleAutoConfiguration` 10)。
+>
+> 报三个模块的数而不是一个总数:总数要手维护,而**手维护的数字会漂**——
+> 前几轮它就是每次 +N 累加上来的,到这次对账时已经对不上了。
+> 模块数跑一次 `mvn -pl <模块> test` 就能核。
 >
 > **已实现(`jaravel-console`)**
 >
@@ -38,8 +46,11 @@
 > `queue:restart` / `queue:monitor` /
 > `schedule:work`、`analyze:*`、
 > 其余 `make:*`(见下面那条注记)、
-> `@Command` 的 APT 索引(应用的命令靠 Spring 扫到,框架自带的仍要显式
-> `register`)、§4.3 的生成后处理。
+> `@Command` 的 APT 索引(理由见 §3.2 —— 它真正的用处是 native 的
+> reflect-config,排在 v0.9)、§4.3 的生成后处理、
+> `stub:publish`、§2.1 的 `jaravel new` / `install:*` 整组、
+> §7 的 `jaravel-maven-plugin` 整节、
+> §3.1 的 `spinner` 与 `components().task`、`Artisan.queue`。
 >
 > #### 两条路径都通了:通道(快)与冷启动(兜底)
 >
@@ -145,16 +156,21 @@
 > 应用自己的 `ConsoleCommand` bean 都登记进注册表,`Artisan` 门面可用。
 > 应用的命令是 Spring bean,所以**依赖直接由容器注入** —— 注册表存的是
 > 工厂而不是实例,这里正好填进那个接缝。
-> ⚠ 命令 bean 应当是 `prototype`:命令对象带状态(解析出来的参数就写在
-> 字段上),单例会让第二条命令看到第一条留下的选项。发现单例时会警告。
+> ~~⚠ 命令 bean 应当是 `prototype`……发现单例时会警告。~~
+> **这条过期了**:注册表现在每跑一次**新造一个实例**
+> (`createBean`),所以 `@Scope("prototype")` 不再是必须的,
+> 也没有那条警告了。原先那个做法要求每个用户在每条命令上
+> 重复一个仪式,而忘了的代价是一个极难查的 bug ——
+> 改动与理由见 §3.2(是 parity 切片 05 逼出来的)。
 >
 > 顺带把 docs/10 §3.3 挂了很久的 `s.command("cache:clear")` 接通了 ——
 > 那个 SPI(`TaskAction.CommandRunner`)早就在 scheduler 里,缺的只是
 > 一个实现,而按模块依赖方向它只能由 starter 提供。
 >
-> 也就是说:**命令还只能从进程内调用**(`Artisan.call(...)` 或计划任务),
-> 终端上的 `jaravel xxx` 要等 CLI 那一片。先做内核的理由是它在下面 ——
-> CLI、tinker、每一条在线命令都站在 `ConsoleCommand` 与注册表上。
+> (这段写在只有内核的时候,当时**命令只能从进程内调用**。
+> 现在终端上那条也通了:`jaravel-cli` + 通道 + 冷启动启动器 + `jaravelw`,
+> 见本节开头的状态块。先做内核的理由仍然成立 —— 它在下面,
+> CLI、tinker、每一条在线命令都站在 `ConsoleCommand` 与注册表上。)
 >
 > 两处与下文设计不同的地方,各自在原处标了:
 > **§4.1 的 stub 不用 jblade 渲染**(与 100ms / native 目标冲突),
@@ -165,6 +181,15 @@
 ## 设计目标
 
 1. 命令启动快:`jaravel make:model Post` 应在 **100ms 内**完成,不能等 JVM + Spring 启动 3 秒;
+
+   > **v0.5 实测:270ms**(`./jaravelw list`,JVM 版 CLI)。
+   > 没达到 100ms —— 那个数字的前提是 native 二进制(~20ms 启动),
+   > 而 native 排在 v0.9。
+   >
+   > 但这条目标真正要防的那件事达到了:**不等 Spring**。
+   > 3 秒 → 0.27 秒,而且 `make:*` 这类命令的进程里根本没有容器、
+   > 没有数据库、没有模板引擎。剩下的 170ms 是 JVM 本身的启动,
+   > 它只能靠 native(或 AppCDS)去掉。
 2. 代码生成的 stub 可被用户覆盖(团队定制样板);
 3. `tinker` 必须可用——交互式探索是 Laravel 开发流的核心环节;
 4. 命令既能在终端跑,也能被程序调用(`Artisan.call("migrate")`)。
@@ -181,8 +206,8 @@
 jaravel <command>
    │
    ├─ 【离线命令】无需应用上下文
-   │   new · make:* · route:list(读缓存) · config:cache · optimize
-   │   key:generate · lang:check · openapi:diff · about
+   │   new · make:* · key:generate · wrapper:install
+   │   lang:check · openapi:diff · config:cache · optimize
    │   │
    │   └─ 由 GraalVM native 编译的 jaravel CLI 直接执行
    │      启动 ~20ms,无 JVM 预热,手感等同 php artisan
@@ -191,7 +216,9 @@ jaravel <command>
        migrate · db:seed · tinker · queue:work · schedule:* · 自定义命令
        │
        └─ CLI 启动应用 JVM(或连接已运行的 dev server),在容器内执行
-          启动 ~1.5s(或 0ms 若 dev server 已在运行)
+          实测:连通道 0.19s(应用已跑着)· 冷启动 2.1s(缓存命中)
+          / 4.5s(首次要解析依赖)—— 原估的 ~1.5s 偏乐观,
+          真实数字与明细见本节下方那张表
 ```
 
 ### 1.1 `jaravel` 可执行文件
@@ -340,6 +367,14 @@ jaravel install:auth                    # 在已有项目中加认证脚手架(�
 jaravel install:api                     # 加 API 脚手架(token 认证 + 异常格式)
 jaravel install:broadcasting            # v0.6
 ```
+
+> ### ⚠ v0.5:这一组**一条都没实现**
+>
+> `jaravel new` 要先回答 §10 里那个还没定的问题(模板内嵌在二进制里
+> 还是从 GitHub 下载),而 `install:*` 要先有可装的脚手架。
+>
+> 今天新建项目的办法是照 `examples/` 里那四个抄 —— 它们现在都在构建里
+> (v0.5 把它们纳入了 reactor,见 docs/14),所以至少保证**能跑起来**。
 
 ### 2.2 代码生成
 
@@ -497,6 +532,13 @@ jaravel model:prune                     # 清理可修剪的模型数据
 > `db:seed` 的一个取舍:有 `DatabaseSeeder` 就只跑它(尊重 Laravel 的
 > 入口约定),没有就全跑 —— 否则一个只写了几个 seeder、没写入口的项目
 > 会「什么都没发生」。
+>
+> **`db:show` 与 `db:table` 也实现了** —— 它们的实现注记写在 §2.5
+> (与 `config:show` 放在一起:三条都是「排查之前先确认事实」那一类)。
+>
+> 这一组里**还没有**的:`migrate:reset` / `migrate:refresh` /
+> `schema:dump` / `db:wipe` / `db:monitor` / `db`(开数据库 CLI)/
+> `model:show` / `model:prune`。
 
 ### 2.4 运行时
 
@@ -871,9 +913,9 @@ public class SyncInventory extends ConsoleCommand {
         // 进度条
         withProgressBar(items, item -> inventory.upsert(item));
 
-        // 表格输出
+        // 表格输出(集合 + lambda,与 withProgressBar 同一个形状)
         table(List.of("SKU", "数量", "状态"),
-              items.map(i -> List.of(i.sku(), i.qty(), i.status())));
+              items, i -> List.of(i.sku(), i.qty(), i.status()));
 
         // 交互
         if (confirm("是否重建索引?", false)) {
@@ -885,27 +927,57 @@ public class SyncInventory extends ConsoleCommand {
         success("同步完成:" + items.size() + " 条");
         return 0;
     }
-
-    /** 若该命令同时是定时任务 */
-    @Override public void schedule(Schedule s) {
-        s.command(this).everyTenMinutes().withoutOverlapping();
-    }
 }
 ```
+
+> ### 这段示例改过三处(v0.5 对账)
+>
+> 1. **表格**:原文是 `table(headers, items.map(...))` —— `Coll` 不是 `List`,
+>    那行编译不过。现在用 `table(表头, 集合, lambda)` 这个重载
+>    (它与 `withProgressBar` 同一个形状,是写 parity 切片 05 时加的)。
+> 2. **`spinner(...)` 删掉了** —— 没实现,见 §3.1。
+> 3. **`@Override public void schedule(Schedule s)` 删掉了。**
+>    一条命令同时是定时任务,原设计让它自己实现 `schedule` ——
+>    那在这里**结构上不可能**:`jaravel-console` 不许依赖 `jaravel-scheduler`
+>    (ADR-001,archunit 阻断式守着),否则 CLI 的 classpath 会把调度器拖进来。
+>
+>    真正的写法是在应用的调度定义里按**名字**挂:
+>
+>    ```java
+>    @Component
+>    public class ConsoleKernel implements Schedule.ScheduleDefinition {
+>        @Override public void schedule(Schedule s) {
+>            s.command("inventory:sync").everyTenMinutes().withoutOverlapping();
+>        }
+>    }
+>    ```
+>
+>    按名字而不是按实例,还有一个附带好处:调度器不需要持有一个带状态的
+>    命令对象(命令的字段上写着上次解析出来的选项)。
 
 ### 3.1 输出 API
 
 ```java
 info("...") · line("...") · comment("...") · question("...")
-warn("...") · error("...") · success("...")
+warn("...") · error("...") · success("...") · failure("...")
 newLine(2)
-table(headers, rows)
+table(headers, rows) · table(headers, items, item -> List.of(...))
 withProgressBar(items, consumer)
 var bar = progressBar(total); bar.advance(); bar.finish();
-spinner("处理中", () -> doWork())
-components().twoColumnDetail("键", "值")
-components().task("迁移数据库", () -> migrate())        // 带 ✓/✗ 标记
+twoColumnDetail("键", "值")
 ```
+
+> ### 与原设计的三处差异(v0.5 对账)
+>
+> | 原设计 | 实际 |
+> |---|---|
+> | `components().twoColumnDetail(...)` | **没有 `components()` 这一层**。它在 Laravel 里是给一组渲染组件分命名空间,而这里只有两三个 —— 多一层间接只是让补全多按一次回车 |
+> | `spinner("处理中", () -> doWork())` | **没实现**。它要一个会刷新的终端,而这个框架的命令输出大量跑在管道与 CI 里;真要做,`withProgressBar` 的非 TTY 退化逻辑可以照搬 |
+> | `components().task("...", () -> ...)`(带 ✓/✗) | **没实现**。`doctor` 用 `success()` / `failure()` 手写了等效的效果 |
+>
+> 多出来的一个:**`failure(...)`** —— 红色的 ✗ 但走 **stdout**。
+> 与 `error(...)`(走 stderr)分开,是因为 `doctor` 的报告里
+> ✗ 那几行是**报告的一部分**:打到 stderr 会让整份报告在终端里被切成两段。
 
 ### 3.2 注册
 
@@ -961,8 +1033,17 @@ Artisan.call("migrate", Map.of("--force", true));
 Artisan.call("inventory:sync", Map.of("supplier", "acme"));
 int code = Artisan.call("db:seed");
 String output = Artisan.output();
-Artisan.queue("inventory:sync");                // 作为队列任务执行
 ```
+
+> 上面这几条**都已实现**(Map 形式与 `String...` 形式都有)。
+>
+> ~~`Artisan.queue("inventory:sync")`~~ **没实现**:把一条命令当队列任务投出去
+> 需要一个「按名字执行命令」的任务类,而那个类要能在 worker 那一侧
+> 拿到注册表。可以做,但它与调度器的 `s.command("名字")` 是同一件事的两个入口 ——
+> 在有人真的要它之前不开第二个。
+>
+> ⚠ `Artisan.output()` 在命令**抛异常**时也拿得到那几行(记录放在 `finally` 里)。
+> 那是修过的一个 bug:调用方正要用那些输出写日志,而最需要日志的恰好是失败的那次。
 
 ---
 
@@ -1164,24 +1245,47 @@ jaravel> :exit
 
 ## 6. 内部架构
 
-```
-jaravel-cli(GraalVM native,独立进程)
-├── picocli 命令树
-├── OfflineCommands/              无需容器:new · make:* · key:generate · about
-├── ChannelClient                 连接 dev server 的本地通道
-├── JvmLauncher                   冷启动应用 JVM 执行在线命令
-└── stubs/                        内嵌 stub 资源
+> ⚠ 下面这张图是 **v0.5 实现后的真实结构**。原设计图与它有七处不同,
+> 每一处都在图下面记了账 —— 那些差异不是笔误,是实现时的决定。
 
-jaravel-console(在应用进程内)
-├── ConsoleKernel                 命令注册表(APT 索引)+ 调度定义
-├── ConsoleCommand (abstract)     输出 API / 交互 API / 进度条 / 表格
-├── CommandRegistry               @Command APT 索引
-├── Artisan (facade)              程序化调用
-├── commands/                     所有在线命令实现
-├── generators/                   stub 渲染 + 命名推断 + 后处理
-├── tinker/  JShellBootstrap · JaravelFormatter · ReloadableContainer
-└── channel/ CommandChannelServer unix socket / 命名管道服务端
 ```
+jaravel-cli(JVM;native 在 v0.9)
+├── Jaravel                       入口:离线/在线分流、版本、异常收口
+├── OfflineCommands               这个进程能跑的命令(= BuiltInCommands)
+├── ChannelClient                 连上跑着的应用,在它的进程里执行
+└── AppLauncher                   冷启动一个应用 JVM 执行在线命令
+
+jaravel-console(羽量级;CLI 与应用都依赖它)
+├── ConsoleCommand (abstract)     输出 / 交互 / 进度条 / 表格
+├── CommandRegistry               名字 → 工厂;「是否想写」的建议
+├── BuiltInCommands               框架自带命令的那张表(只有一份)
+├── ArgumentBinder                @Argument / @Option → 字段
+├── Usage · ListCommands · HelpCommand    help 从注解生成
+├── Artisan (facade)              程序化调用
+├── ConsoleIo                     System / Recording(测试用)
+├── CommandLine                   命令行字符串 ↔ 参数表(冷启动那条路用)
+├── generators/                   Stub 渲染 + 命名推断 + 16 条生成命令
+└── channel/ ChannelServer · CommandChannel   AF_UNIX 服务端与协议
+
+jaravel-spring-boot-starter(应用进程内)
+├── JaravelConsoleAutoConfiguration   装配注册表、通道、一次性命令模式
+└── commands/                     **所有在线命令**:migrate · db:* · queue:* ·
+                                   schedule:* · route:list · config:show ·
+                                   about · doctor · tinker
+```
+
+**七处与原设计图不同的地方,以及原因:**
+
+| 原设计 | 实际 | 原因 |
+|---|---|---|
+| `jaravel-cli` 用 picocli 命令树 | **没有 picocli** | 会变成两套注解、两个解析器(§1.1 已记) |
+| 在线命令在 `jaravel-console/commands/` | 在 **starter** 的 `io.jaravel.spring.commands` | 迁移与 seeder 的发现本来就是 Spring 的扫描器;而 console 要保持羽量级给 CLI 用(archunit 阻断式守着)。理由写在 `RuntimeCommand` 的类注释上 |
+| `ConsoleKernel` 是注册表 | 注册表是 `CommandRegistry` | `ConsoleKernel` 这个名字留给**应用**写调度定义(见 `examples/queue`)—— 两件事叫一个名字会很乱 |
+| `JvmLauncher` | `AppLauncher` | —— |
+| `CommandChannelServer` | `ChannelServer` | —— |
+| stub 内嵌在 `jaravel-cli` | 在 `jaravel-console/resources/stubs/` | CLI 与应用都要用它们,而两边都依赖 console |
+| `tinker/` 下三个类,含 `ReloadableContainer` | starter 里的 `TinkerSession` / `TinkerFormatter` / `TinkerCommand` | 求值要在**应用进程**里(§5);`:reload` 没实现,理由见 §5.2 |
+| `OfflineCommands` 含 `about` | `about` 是**在线**命令 | 它报的是解析后的配置与驱动,那要容器 |
 
 ---
 
@@ -1213,16 +1317,45 @@ CLI 与 Maven 不是竞争关系:
 
 `jaravel` CLI 内部也可代理 Maven 命令(`jaravel test` → `mvn test`,`jaravel build` → `mvn package`),让用户只需记一个命令入口。
 
+> ### ⚠ v0.5:这一整节还是设计 —— `jaravel-maven-plugin` 不存在
+>
+> 三个 goal(`compile-views` / `verify-migrations` / `openapi`)一个都没有,
+> `jaravel test` / `jaravel build` 也没有。
+>
+> **但 CLI 已经在调 Maven 了**,只不过是以另一种方式:冷启动启动器
+> (§1)自己去跑 `mvn dependency:build-classpath`(拿 classpath)和
+> `mvn compile`(源码比 class 新的时候)。也就是说「CLI 代理 Maven」
+> 这件事的第一块已经落地了,而且是从相反的方向落的 ——
+> 不是插件把 Jaravel 挂进 Maven 生命周期,而是 CLI 在需要时调用 Maven。
+>
+> 两条已经踩到的坑记在这里,将来做插件时同样成立:
+> **解析依赖要 2.7 秒**(所以必须缓存),
+> **聚合 pom 不是应用**(在一个四十模块的 reactor 根目录里跑 `mvn compile`
+> 是几分钟,而触发它的只是一个敲错目录的命令)。
+
 ---
 
 ## 8. 逃生口
 
 | 需求 | 途径 |
 |---|---|
-| 不想装 CLI | 所有在线命令可通过 `mvn jaravel:run -Dcmd="migrate"` 执行 |
+| 不想装 CLI | `mvn spring-boot:run -Dspring-boot.run.jvmArguments="-Djaravel.command=migrate"` —— 应用启动完跑这一条然后退出(§1 的一次性命令模式) |
 | 需要 Spring Boot CLI 行为 | 照常使用 |
-| 需要 picocli 原生能力 | `ConsoleCommand` 就是 picocli 命令,所有注解可用 |
-| 需要在 CI 中无交互执行 | 所有交互方法在 `--no-interaction` 下使用默认值;`--force` 跳过确认 |
+| 在应用代码里跑命令 | `Artisan.call("migrate", Map.of("--force", true))`(§3.3) |
+| 需要在 CI 中无交互执行 | 交互方法在**读不到输入时直接返回默认值**,所以破坏性命令默认**拒绝**;要做就加 `--force` |
+
+> ### 这张表修过三处(v0.5 对账)
+>
+> - ~~`mvn jaravel:run -Dcmd=...`~~ —— **没有 `jaravel-maven-plugin`**(§7 那一整节还是设计)。
+>   真正可用的是上面那条 `-Djaravel.command=`,而且它是启动器在走的同一条路。
+> - ~~「`ConsoleCommand` 就是 picocli 命令,所有注解可用」~~ ——
+>   **不是**。没有 picocli(§1.1),能用的是 `@Argument` / `@Option`。
+>   照原文去写 `@Parameters` 会编译不过。
+> - ~~`--no-interaction`~~ —— **没有这个开关**,而且不需要:
+>   `ConsoleIo` 在读不到输入时让 `confirm` 返回默认值,
+>   于是管道、CI、命令通道里**天然**就是无交互的。
+>   破坏性命令把默认值设成「否」,所以那些环境下它们一律拒绝 ——
+>   比一个要记得加的开关更安全。
 
 ---
 
@@ -1230,10 +1363,10 @@ CLI 与 Maven 不是竞争关系:
 
 | 项 | Laravel | Jaravel | 原因 |
 |---|---|---|---|
-| 启动开销 | PHP 本身快 | 离线命令走 native CLI;在线命令复用 dev server | 补齐 JVM 的启动劣势 |
-| 命令注册 | Kernel 数组 / 自动发现 | `@Command` + APT 索引 | 零扫描 |
+| 启动开销 | PHP 本身快 | 离线命令在 CLI 自己的进程里跑(实测 **0.27s**);在线命令复用 dev server(**0 启动开销**) | 补齐 JVM 的启动劣势 |
+| 命令注册 | Kernel 数组 / 自动发现 | 应用的命令靠 Spring 发现;框架自带的是一张显式表(§3.2) | APT 索引排在 v0.9,与 native 的 reflect-config 同一件事 |
 | REPL | `tinker`(psysh) | `tinker`(JShell) | 能力略弱但可用 |
-| stub | `.stub` 纯文本占位符替换 | jblade 模板 | 更强的条件/循环能力 |
+| stub | `.stub` 纯文本占位符替换 | **也是纯文本占位符替换** | 原设计是 jblade 模板,实现时否掉了 —— 理由见 §4.1(100ms 目标 + 将来的 native) |
 | `doctor` / `analyze:*` | 无 | 有 | 把框架陷阱变成可检测项 |
 | `parity` | 无 | 有 | 优雅性的量化门禁 |
 
@@ -1241,9 +1374,37 @@ CLI 与 Maven 不是竞争关系:
 
 ## 10. 待决问题
 
-- [ ] **GraalVM native CLI 的构建与分发成本**:6 个平台 × 每次发版。需要 GitHub Actions 矩阵构建。若成本过高,退化为「JVM 版 CLI + AppCDS + 分层编译 `-XX:TieredStopAtLevel=1`」,启动约 300~500ms,仍可接受。**v0.5 前决定。**
-- [ ] 本地命令通道的实现:Unix domain socket(Java 16+ 支持)在 Windows 上需用命名管道。跨平台抽象需要写,工作量约 3 天。
-- [ ] `make:*` 的包路径推断:如何知道 `make:model Post` 应该生成到 `com.app.models`?从 `pom.xml` 的 `groupId` + 约定?还是在 `config/app.yml` 中声明 `base-package`?倾向后者 + 首次运行时自动探测写入。
+**v0.5 已经有答案的(四条):**
+
+- [x] **GraalVM native CLI 的成本** —— 走了那条退路,而且**它比预期好**:
+      JVM 版 CLI 的离线命令实测 **0.27 秒**(`./jaravelw list`),
+      没用 AppCDS、也没加 `-XX:TieredStopAtLevel=1`。
+      native 因此从「v0.5 的前提」降级成 v0.9 的优化项。
+      分发问题也顺带有了答案:`jaravelw` 包装脚本(§1.1),
+      版本号钉在脚本里并提交进仓库,与 `mvnw` 一个套路。
+- [x] **本地命令通道的实现** —— **不需要跨平台抽象**。
+      JDK 16 起 `AF_UNIX` 在 Windows 10 1803+ 上也支持
+      (本机实测:Windows 11 + JDK 21 可用),所以三个平台**一套实现**。
+      原估「约 3 天」里的大头是那个抽象层,而它根本不用写。
+      (那个抽象是会腐坏的:两条分支里只有一条会被日常执行。)
+- [x] **`make:*` 的包路径推断** —— 都没选:**按 ADR-009 的约定布局写死**
+      (`app.models` / `app.http.controllers` / `database.migrations` …)。
+      `base-package` 那条路要在生成前读一次配置,而生成类命令是**离线**的
+      (那是 §1 分流的全部意义)—— 为了一个包名去加载配置,
+      就得把配置模块拖进 CLI 的 classpath。
+      代价是非约定布局的项目用不了 `make:*`,这笔账记在这里。
+- [x] **Tinker 的 `:reload`** —— 答案是**不能**,而且如实告诉用户:
+      重载应用类要换 ClassLoader 重建容器,而 shell 里已有的变量
+      引用旧类、会全部失效。所以 `:reload` 打一句「还没实现 + 为什么」,
+      而不是假装重载了(见 §5)。
+
+**仍然待决:**
+
 - [ ] `jaravel new` 的项目模板分发:内嵌在 CLI 二进制里(体积大但离线可用)还是从 GitHub 下载(需网络)?倾向内嵌 minimal + 可选下载完整 preset。
-- [ ] Tinker 的 `:reload` 能否做到不丢失会话变量?JShell 的状态与 ClassLoader 绑定,重载后变量引用旧类的实例。可能只能提示用户重新赋值。
 - [ ] `analyze:n-plus-one` 的静态分析可靠性:误报率高会让人关掉它。倾向以运行时数据为主(开发期收集查询模式),静态分析为辅。
+- [ ] `optimize` 这一组要先有四种缓存(config / route / view / event)。
+      在那之前**不提供** `optimize` —— 一条「什么都缓存了」而实际什么都没做的
+      命令比没有这条命令更糟。
+- [ ] §7 的 `jaravel-maven-plugin` 整节仍是设计:那个插件不存在。
+      `compile-views` / `verify-migrations` / `openapi` 三个 goal 都还没有,
+      而 §8 原先写的 `mvn jaravel:run` 就是它造成的一条假逃生口(已修)。

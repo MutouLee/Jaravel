@@ -1,6 +1,5 @@
 package {{ pkg }};
 
-import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 
 import io.jaravel.console.Argument;
@@ -9,16 +8,12 @@ import io.jaravel.console.ConsoleCommand;
 import io.jaravel.console.Option;
 
 /**
- * ★ {@code @Scope("prototype")} 不是可选的。
+ * {@code @Component} 让容器建它,于是依赖可以从构造器注入。
  *
- * <p>命令对象带状态:解析出来的参数就写在它的字段上。单例的话连着跑
- * 两条命令时,第二条会看到第一条留下的选项 —— 而那个症状
- * (「我没加 --force 但它覆盖了」)与原因离得太远。
- *
- * <p>{@code @Component} 让容器建它,于是依赖可以从构造器注入。
+ * <p>作用域不用管:注册表每跑一次都**新造一个实例**,
+ * 所以上一条命令解析出来的选项不会漏到下一条。
  */
 @Component
-@Scope("prototype")
 @Command(name = "{{ commandName }}", description = "TODO 这条命令做什么")
 public class {{ class }} extends ConsoleCommand {
 

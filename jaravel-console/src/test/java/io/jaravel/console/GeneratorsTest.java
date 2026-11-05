@@ -256,8 +256,13 @@ class GeneratorsTest {
 
             assertThat(read(tmp.resolve("src/main/java/app/console/SyncInventory.java")))
                     .contains("name = \"app:sync-inventory\"")
-                    .as("生成的时候就把 prototype 写对,而不是等装配时的警告")
-                    .contains("@Scope(\"prototype\")");
+                    .as("""
+                            ★ 不再写 @Scope("prototype")。
+                            注册表每跑一次新造一个实例(createBean),所以那个仪式
+                            不再是必须的 —— 而一个生成出来就带着多余注解的模板
+                            会被照抄到每一条命令上。
+                            (这条测试原先断言的恰好相反,是对账时改过来的。)""")
+                    .doesNotContain("Scope");
         }
 
         @Test

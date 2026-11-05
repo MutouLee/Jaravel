@@ -2,14 +2,28 @@
 
 > Laravel 级开发体验,构建在 Spring Boot 之上的 Java 应用框架。
 
-**当前状态:v0.3 已完成。** 16 个模块、**1030 个测试**通过,三个示例应用端到端跑通
-(Todo 35/35、Blog 33/33、Auth 33/33)。认证 / 授权 / 会话 / 缓存 / 热重载到位,
-Spring Security 桥接可用。距离可用还差队列 / 事件 / 邮件 / CLI。
+**当前状态:v0.4 完成,v0.5 的 Artisan 线完成。**
+31 个模块、**2181 个测试**全绿,四个示例应用都在构建里
+(`examples/{todo,blog,auth,queue}`)。
+队列 / 事件 / 调度 / 邮件 / 通知 / 存储到位(v0.4),
+终端上有 **38 条命令**、本地命令通道、冷启动启动器、`jaravelw`、`tinker`(v0.5)。
+还差:API 资源 + OpenAPI(v0.5 的另一条线)、native 二进制(v0.9)。
 
-v0.3 的五条验收里 4 条达成、1 条部分达成(L2「改方法体 0 重启」未实现,
-降级到 L3 的 136 ms),过程中发现并修掉 **12 个真实缺陷** ——
-其中 5 个属于「单元测试全绿、真实运行下完全不工作」。
-详见 [V0.3-RESULT.md](V0.3-RESULT.md) · [V0.2-RESULT.md](V0.2-RESULT.md) · [V0.1-RESULT.md](V0.1-RESULT.md)。
+```bash
+jaravel make:model Post -mcr     # 182ms,不启动任何容器
+jaravel migrate                  # 应用跑着时 197ms(复用它的进程)
+jaravel list                     # 全部命令,含应用自己定义的
+```
+
+v0.5 的五条验收里 2 条达成、2 条部分达成、1 条无法测量(没接覆盖率工具),
+过程中发现并修掉 **14 个真实缺陷** —— 其中三个是**自己的门禁与示例在说谎**
+(两个示例按提交的样子起不来、`jaravel list` 列不全、parity 的度量对象没有测试)。
+
+详见 [V0.5-RESULT.md](V0.5-RESULT.md) · [V0.3-RESULT.md](V0.3-RESULT.md) ·
+[V0.2-RESULT.md](V0.2-RESULT.md) · [V0.1-RESULT.md](V0.1-RESULT.md)。
+(v0.4 没有单独的结果文档 —— 它的验收逐条结果、文档↔现实对账表与 parity
+复测都记在 [docs/17-roadmap.md](docs/17-roadmap.md) 的 v0.4 一节里。
+再写一份会造出第二个会漂的出处。)
 
 | 项 | 值 |
 |---|---|
@@ -98,6 +112,7 @@ p.save();                  // 与快照比对,只 UPDATE 变化的列
 
 ```
 DESIGN.md                 设计总纲:可行性结论、三条顶层决策、模块结构、路线图
+V0.5-RESULT.md            v0.5 Artisan 线结果(含 14 个真缺陷与被打破又修回的门禁)
 V0.3-RESULT.md            v0.3 落地结果(含 12 个真缺陷与 1 条部分未达成的验收)
 V0.2-RESULT.md            v0.2 落地结果(含 8 个真 bug 与 1 条定错了的验收标准)
 V0.1-RESULT.md            v0.1 验收结果(含未达成项与修掉的 bug)
@@ -117,14 +132,27 @@ jaravel-validation/       60+ 规则、嵌套通配符、本地化、FormRequest
 jaravel-cache/            6 个驱动、标签失效、原子锁、限流器
 jaravel-session/          4 个驱动、flash、CSRF、会话生命周期
 jaravel-auth/             Session/Token/JWT guard、Gate/Policy、哈希、密码重置、邮箱验证
+jaravel-queue/            队列契约、database/sync 驱动、虚拟线程 worker、chain / batch / 唯一性
+jaravel-events/           事件总线、队列化监听器、Spring 桥接
+jaravel-events-processor/ @Listener 的 APT:强类型绑定 + 索引(运行时零反射、零扫包)
+jaravel-scheduler/        Schedule DSL、进程内调度器、多实例去重(onOneServer)
+jaravel-mail/             Mailable、SMTP/log/array、内置邮件组件 <x-mail::*>
+jaravel-notifications/    多渠道通知(database / mail)、Notifiable
+jaravel-storage/          Filesystem、local 驱动、上传安全(内容嗅探 / 路径穿越 / 随机命名)
+jaravel-http-client/      Http 客户端门面(重试、超时、假实现)
+jaravel-console/          Artisan 内核:命令基类、参数绑定、注册表、stub、16 条生成命令
+jaravel-cli/              jaravel 可执行入口:离线/在线分流、命令通道、冷启动启动器
+jaravel-testing/          FeatureTest 三层基类、HTTP 断言、数据库断言、回滚隔离
 jaravel-devtools/         热重载:文件监听、变更分类、重启闸门(请求挂起 + 按需重启)
 jaravel-security-bridge/  Spring Security 双向桥接(企业 SSO 场景)
 jaravel-spring-boot-starter/   自动装配与 Spring 适配(与桥接模块是唯一接触 Spring 的地方)
+                               —— 20 条在线命令也在这里(它们的发现机制本来就是 Spring 的)
 jaravel-archunit-rules/   ADR-001 的阻断式强制
 
 examples/todo/            v0.1 的垂直切片(v0.2 已迁到 Eloquent)
 examples/blog/            v0.2 切片:关联 + 预加载 + 迁移 + FormRequest,零裸 SQL
 examples/auth/            v0.3 切片:注册/登录/记住我/密码重置/邮箱验证/Policy,端到端
+examples/queue/           v0.4 切片:队列 + 邮件 + 通知 + 调度;v0.5 又加了三条自定义命令
 benchmark/laravel-parity/ parity 门禁:与等价 Laravel 实现的代码量对比
 benchmark/jpa-comparison/ 与 Spring Data JPA 的单条主键查询对照基准
 ```
@@ -132,7 +160,7 @@ benchmark/jpa-comparison/ 与 Spring Data JPA 的单条主键查询对照基准
 ## 快速开始
 
 ```bash
-mvn install                                  # 构建 + 519 个测试
+mvn install                                  # 构建 + 2181 个测试(约 70 秒,-T1C)
 
 # Todo 切片(:8000)
 cd examples/todo && mvn spring-boot:run

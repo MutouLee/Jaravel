@@ -111,6 +111,18 @@
 
     <!-- SchedulerMultiInstanceTest 要一个**真的共享存储**来验证
          3 个实例下的调度锁 -->
+    <!--
+      MockHttpServletRequest / MockFilterChain —— CORS 与请求 ID 是
+      Servlet Filter(那条分层写在 Middleware 的类注释里),测它们要一对
+      servlet 替身。spring-test 里那一对是**官方维护**的,比手写靠得住:
+      HttpServletRequest 有几十个方法,手写版本会在某个默认方法上
+      与真实容器不同(上一轮写 Request 替身时就撞过)。
+    -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-test</artifactId>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>org.xerial</groupId>
       <artifactId>sqlite-jdbc</artifactId>

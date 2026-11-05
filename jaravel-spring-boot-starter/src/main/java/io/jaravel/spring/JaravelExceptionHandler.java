@@ -192,6 +192,14 @@ public class JaravelExceptionHandler {
     private Map<String, Object> laravelBody(Throwable t, int status) {
         var body = new LinkedHashMap<String, Object>();
         body.put("message", userMessage(t, status));
+        // ★ 错误响应里带上请求 ID(docs/12 §6.4)。
+        //
+        // 这是它最有价值的一处:用户截图发来一个「Server Error.」,
+        // 而那条消息在生产环境下**刻意不含任何内部信息** ——
+        // 没有 id 的话,从那张截图到日志里的那一条异常,
+        // 只能靠时间戳去猜。
+        String requestId = RequestIdFilter.current();
+        if (requestId != null) body.put("request_id", requestId);
 
         if (Application.isDebug()) {
             body.put("exception", t.getClass().getName());
@@ -226,6 +234,9 @@ public class JaravelExceptionHandler {
         body.put("status", status);
         body.put("detail", userMessage(t, status));
         if (request != null) body.put("instance", request.path());
+        String requestId = RequestIdFilter.current();
+        // RFC 7807 §3.2 允许扩展成员 —— request_id 放这里比塞进 detail 好
+        if (requestId != null) body.put("request_id", requestId);
 
         if (t instanceof io.jaravel.validation.ValidationException v) {
             // 校验错误放在扩展成员里 —— RFC 7807 §3.2 明确允许扩展,

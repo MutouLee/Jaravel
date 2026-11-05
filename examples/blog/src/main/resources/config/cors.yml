@@ -1,0 +1,12 @@
+# CORS(docs/12 §6.3)—— 示例里开着,好让预检那条路径有人走
+#
+# ⚠ 没有这个文件时 CORS 整个 filter 不启用:它是**放宽**同源策略,
+#    默认打开会让每个项目把 API 对全世界打开。
+cors:
+  paths: [ "api/*" ]
+  allowed-origins: [ "https://app.example.com" ]
+  allowed-methods: [ "*" ]
+  allowed-headers: [ "*" ]
+  exposed-headers: [ "X-Request-Id" ]
+  max-age: 3600
+  supports-credentials: true

@@ -570,6 +570,81 @@ r.post("/payments", PaymentController::store).middleware("idempotent");
 
 客户端传 `Idempotency-Key` 头,同 key 的重复请求返回首次的响应(存 Cache,TTL 可配)。支付类接口的硬需求,Laravel 生态需要第三方包。列入 v0.7。
 
+> ### v0.5:§6.1 / §6.3 / §6.4 已实现(21 个测试)
+>
+> 实测(`examples/blog`,真 curl):
+>
+> ```
+> $ curl -D - /api/posts/cached
+> HTTP/1.1 200     ETag: W/"6854387f4a9798cd"    Cache-Control: public, max-age=300
+>                  X-Request-Id: 2d10de5c-…
+>
+> $ curl -H 'If-None-Match: W/"6854387f4a9798cd"' /api/posts/cached
+> HTTP/1.1 304     ETag: W/"6854387f4a9798cd"    (正文 0 字节)
+>
+> $ curl -X OPTIONS -H 'Origin: https://app.example.com' >        -H 'Access-Control-Request-Method: POST' /api/posts
+> HTTP/1.1 204     Access-Control-Allow-Origin: https://app.example.com
+>                  Vary: Origin     Access-Control-Allow-Methods: POST
+> ```
+>
+> **§6.2(XML / CSV 内容协商)与 §6.5(幂等性)没做** —— 后者文档自己就
+> 写着「列入 v0.7」。
+>
+> #### ★ ETag 只能在写出字节的那一刻算
+>
+> `Response.etag()` 记的是一个**意愿**,摘要在 `ResponseWriter` 里算。
+> 因为在 `Response` 那一层响应体还是一个没序列化的对象 —— 当时算要么
+> 把序列化提前做一遍(多一次开销,而且用的可能不是应用自己配的
+> ObjectMapper),要么对着 `hashCode` 算,而**那不是内容摘要**:
+> 两个 equals 的对象可以序列化成不同字节(字段顺序、日期格式)。
+>
+> **一个算错的 ETag 比没有 ETag 糟得多**:它会让客户端缓存住旧内容,
+> 而那种 bug 在开发期(总是强刷)完全看不见。
+>
+> 用弱 ETag(`W/` 前缀)是诚实的:强 ETag 要求字节级相同,而这里的字节
+> 来自 JSON 序列化。比较时忽略 `W/`(RFC 9110 §8.8.3.2 的弱比较)——
+> 只做字符串相等的话,一旦经过某个会改写前缀的代理就永远不命中,
+> 而那不会报错。
+>
+> #### ★ CORS 与请求 ID 是 Servlet Filter,不是中间件
+>
+> 这条分层早就写在 `Middleware` 的类注释里:「真正需要全局拦截的横切
+> 关注点(CORS、代理头、维护模式)由 starter 注册为一个 Servlet Filter」。
+> 这一轮验证了它的具体后果:
+>
+> **预检用 `OPTIONS`,而应用通常只注册了 GET/POST** —— 走路由匹配的话
+> 它会撞上 405(v0.5 刚实现的那条路径),于是浏览器把整个跨域请求判为失败。
+> 而且预检不带 Cookie 也不带 Authorization,走完整管道只会在某个中间件
+> 里被拒掉。
+>
+> **CORS 默认是关的**:没有 `config/cors.yml`(或 `cors.paths` 为空)时
+> 整个 filter 不启用。CORS 是**放宽**同源策略 —— 一个默认带着
+> `Allow-Origin: *` 的框架会让每个不知道这件事的项目把 API 对全世界打开。
+> 那是安全默认值问题,不是便利性问题。
+>
+> 三处细节各有一条测试:**回显具体的 Origin 而不是 `*`**(带凭据时浏览器
+> 拒绝 `*`)并带 `Vary: Origin`(否则 CDN 可能把 A 站的响应发给 B 站);
+> **通配转正则必须先转义**(`https://*.trusted.com` 不转义的话
+> `https://evil-trusted.com` 也能通过 —— 一个真实的绕过);
+> **上游的 `X-Request-Id` 要校验格式**(带换行的值可以往响应里注入额外的头、
+> 往日志里注入伪造的行)。
+>
+> 请求 ID 进**错误响应体**(`request_id`)—— 那是它最有价值的一处:
+> 用户截图发来一个「Server Error.」,而那条消息在生产环境下刻意不含
+> 任何内部信息;没有 id 的话,从那张截图到日志里的那一条异常只能靠
+> 时间戳去猜。
+>
+> #### ★ 顺带补上 jaravel-testing 的两个缺口
+>
+> 这两个功能**在真 HTTP 上全对,而在 `FeatureTest` 里一条断言都过不去**:
+>
+> 1. **`FeatureTest` 不跑 Filter。** 它直接调 handlerMapping + handlerAdapter,
+>    那是整条管道的**后半段**;Filter 在前半段,于是任何用 Filter 实现的
+>    功能在测试框架里完全不可见(预检拿到 405、响应里没有 X-Request-Id)。
+>    不补的话,今后每个 Filter 功能都只能靠手工 curl 验证 ——
+>    而手工验证不留痕迹。
+> 2. **没有 `options(...)`。** 于是预检那条路径在测试里根本发不出来。
+
 ---
 
 ## 7. 内部架构

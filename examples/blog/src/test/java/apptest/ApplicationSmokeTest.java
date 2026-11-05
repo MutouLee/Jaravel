@@ -149,4 +149,58 @@ class ApplicationSmokeTest extends FeatureTest {
                 .isPresent();
         assertThat(response.header("Allow").orElseThrow()).contains("GET");
     }
+
+    @Test
+    @DisplayName("★ 条件请求:第二次带 If-None-Match 得到 304,而且没有正文")
+    void conditionalRequestReturns304() {
+        var first = get("/api/posts/cached").assertOk();
+        String etag = first.header("ETag").orElseThrow();
+
+        assertThat(etag)
+                .as("""
+                        弱 ETag(W/ 前缀)是诚实的:强 ETag 要求字节级相同,
+                        而这里的字节来自 JSON 序列化 —— 同一份数据在不同的
+                        ObjectMapper 配置下字节不同。""")
+                .startsWith("W/");
+
+        var second = withHeader("If-None-Match", etag).get("/api/posts/cached");
+
+        assertThat(second.status()).isEqualTo(304);
+        assertThat(second.content())
+                .as("304 **必须**没有正文 —— 带了体的 304 会让一些客户端挂住")
+                .isEmpty();
+        assertThat(second.header("ETag")).contains(etag);
+        assertThat(second.header("Cache-Control"))
+                .as("缓存指令要留着 —— 客户端下一次还要用")
+                .isPresent();
+    }
+
+    @Test
+    @DisplayName("★ 每个响应都带 X-Request-Id,而上游传来的会被沿用")
+    void everyResponseCarriesARequestId() {
+        assertThat(get("/").assertOk().header("X-Request-Id"))
+                .as("没有它的话,一张「Server Error.」的截图只能靠时间戳去对日志")
+                .isPresent();
+
+        assertThat(withHeader("X-Request-Id", "gateway-abc").get("/").header("X-Request-Id"))
+                .as("每一跳都换 id 的话,那个 id 只能定位一跳")
+                .contains("gateway-abc");
+    }
+
+    @Test
+    @DisplayName("★ CORS 预检在 filter 里就回答掉 —— 它不该撞上 405")
+    void corsPreflightDoesNotHitMethodNotAllowed() {
+        var response = withHeader("Origin", "https://app.example.com")
+                .withHeader("Access-Control-Request-Method", "POST")
+                .options("/api/posts");
+
+        assertThat(response.status())
+                .as("""
+                        /api/posts 只注册了 GET。预检走路由匹配的话会得到 405
+                        (v0.5 刚实现的那条路径),于是浏览器把整个跨域请求判为失败。
+                        这就是 Middleware 的类注释里那条分层的具体后果。""")
+                .isEqualTo(204);
+        assertThat(response.header("Access-Control-Allow-Origin"))
+                .contains("https://app.example.com");
+    }
 }

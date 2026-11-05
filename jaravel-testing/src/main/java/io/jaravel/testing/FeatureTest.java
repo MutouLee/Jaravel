@@ -99,6 +99,27 @@ public abstract class FeatureTest {
     @Autowired
     protected JaravelHandlerAdapter handlerAdapter;
 
+    /**
+     * 应用注册的 Servlet Filter(CORS、请求 ID…)。
+     *
+     * <h2>★ 为什么测试框架也得跑它们</h2>
+     * <p>这个类直接调 handlerMapping + handlerAdapter —— 那是**整条管道的
+     * 后半段**。Filter 在前半段,于是任何用 Filter 实现的功能在
+     * {@code FeatureTest} 里完全不可见。
+     *
+     * <p>这是实测撞到的:CORS 与请求 ID 在真 HTTP 上(curl)全对,
+     * 而同样的断言在 {@code FeatureTest} 里一条都过不去 ——
+     * 预检拿到 405、响应里没有 X-Request-Id。
+     * 而那两件事**必须**是 Filter(理由在 {@code Middleware} 的类注释里:
+     * 它们要覆盖没匹配上路由的请求)。
+     *
+     * <p>不补的话,今后每一个 Filter 实现的功能都只能靠手工 curl 验证 ——
+     * 而手工验证不留痕迹。
+     */
+    @Autowired(required = false)
+    private java.util.List<org.springframework.boot.web.servlet.FilterRegistrationBean<?>>
+            filterRegistrations;
+
     @Autowired(required = false)
     protected SessionStore sessionStore;
 
@@ -249,6 +270,16 @@ public abstract class FeatureTest {
     public TestResponse delete(String uri)   { return call("DELETE", uri, null); }
     public TestResponse head(String uri)     { return call("HEAD", uri, null); }
 
+    /**
+     * {@code OPTIONS} —— 主要用途是 **CORS 预检**。
+     *
+     * <p>此前没有这个方法,于是预检那条路径在测试里根本发不出来 ——
+     * 而它恰恰是最需要测的一条:预检必须**绕过路由匹配**
+     * (应用通常只注册了 GET/POST,走匹配会撞上 405),
+     * 那条分层写在 {@code Middleware} 的类注释里。
+     */
+    public TestResponse options(String uri)  { return call("OPTIONS", uri, null); }
+
     public TestResponse post(String uri, Map<String, ?> form) {
         return call("POST", uri, form);
     }
@@ -373,8 +404,57 @@ public abstract class FeatureTest {
         if (withCsrf) request.addHeader("X-CSRF-TOKEN", token);
     }
 
+    /**
+     * 按注册顺序跑一遍 Filter。
+     *
+     * @return true 表示请求该继续走路由分发;false 表示某个 filter 已经把它答掉了
+     */
+    private boolean runFilters(MockHttpServletRequest request, MockHttpServletResponse response) {
+        if (filterRegistrations == null || filterRegistrations.isEmpty()) return true;
+
+        var filters = filterRegistrations.stream()
+                .filter(org.springframework.boot.web.servlet.FilterRegistrationBean::isEnabled)
+                .sorted(java.util.Comparator.comparingInt(
+                        org.springframework.boot.web.servlet.FilterRegistrationBean::getOrder))
+                .map(org.springframework.boot.web.servlet.FilterRegistrationBean::getFilter)
+                .filter(java.util.Objects::nonNull)
+                .toArray(jakarta.servlet.Filter[]::new);
+        if (filters.length == 0) return true;
+
+        // 链末尾放一个**什么都不做**的 servlet:它被调用就说明
+        // 所有 filter 都放行了。用它而不是「检查响应有没有被写」——
+        // 后者在一个只加了响应头的 filter 上会误判
+        var reached = new boolean[1];
+        var chain = new org.springframework.mock.web.MockFilterChain(
+                new jakarta.servlet.http.HttpServlet() {
+                    @Override
+                    protected void service(jakarta.servlet.http.HttpServletRequest req,
+                                           jakarta.servlet.http.HttpServletResponse res) {
+                        reached[0] = true;
+                    }
+                },
+                filters);
+        try {
+            chain.doFilter(request, response);
+        } catch (Exception e) {
+            throw e instanceof RuntimeException re ? re : new RuntimeException(e);
+        }
+        return reached[0];
+    }
+
     private TestResponse execute(MockHttpServletRequest request) {
         var response = new MockHttpServletResponse();
+
+        // Filter 先跑(CORS 预检可能在这里就把请求答掉,于是下面一步都不走)
+        if (!runFilters(request, response)) {
+            String shortCircuited;
+            try {
+                shortCircuited = response.getContentAsString(StandardCharsets.UTF_8);
+            } catch (java.io.UnsupportedEncodingException e) {
+                throw new IllegalStateException(e);
+            }
+            return new TestResponse(response, shortCircuited, readBackSession(response), null);
+        }
 
         var chain = handlerMapping.getHandler(request);
         if (chain == null) {

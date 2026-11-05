@@ -219,6 +219,72 @@ public class Response {
         return this;
     }
 
+    // ================= 条件请求与缓存(docs/12 §6.1) =================
+
+    private boolean etagRequested;
+    private String etagValue;
+
+    /**
+     * 让框架**按响应体算一个 ETag**,并在客户端已有同一份时回 304。
+     *
+     * <pre>{@code
+     * return Response.json(data).etag().cacheControl("public, max-age=300");
+     * }</pre>
+     *
+     * <h2>★ 为什么是「请求计算」而不是现在就算</h2>
+     * <p>这里算不了:{@code Body.Json} 里是一个**还没序列化的对象**,
+     * 而 ETag 必须是最终字节的摘要 —— 现在算要么把序列化提前做一遍
+     * (多一次开销,而且用的可能不是应用自己配置的那个 ObjectMapper),
+     * 要么对着对象的 {@code hashCode} 算,而那**不是内容摘要**:
+     * 两个 equals 的对象可以序列化成不同字节(字段顺序、日期格式),
+     * 反过来 hashCode 相同也不保证内容相同。
+     *
+     * <p>一个算错的 ETag 比没有 ETag 糟得多:它会让客户端缓存住旧内容,
+     * 而那种 bug 在开发期(总是强刷)完全看不见。
+     * 所以这里只记一个「要算」的意愿,真正的摘要在写出字节时做。
+     */
+    public Response etag() {
+        this.etagRequested = true;
+        return this;
+    }
+
+    /** 自己给一个 ETag(比如用版本号或 updated_at,比算摘要便宜) */
+    public Response etag(String value) {
+        this.etagValue = value;
+        this.etagRequested = true;
+        return this;
+    }
+
+    public boolean wantsEtag() {
+        return etagRequested;
+    }
+
+    public String explicitEtag() {
+        return etagValue;
+    }
+
+    /** {@code Last-Modified} —— 与 {@code If-Modified-Since} 配对 */
+    public Response lastModified(java.time.Instant instant) {
+        if (instant == null) return this;
+        // HTTP 日期必须是 GMT 的 RFC 1123 格式,秒级精度。
+        // 带毫秒或带别的时区都会让一部分客户端直接忽略这个头
+        return header("Last-Modified", java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME
+                .format(instant.atZone(java.time.ZoneOffset.UTC).withNano(0)));
+    }
+
+    public Response cacheControl(String value) {
+        return header("Cache-Control", value);
+    }
+
+    /** 304:没有响应体,而且**必须**没有 —— 带了体的 304 会让一些客户端挂住 */
+    public static Response notModified() {
+        var r = new Response();
+        r.status = 304;
+        r.body = new Body.Text("");
+        r.contentType = null;
+        return r;
+    }
+
     public Response contentType(String ct) {
         this.contentType = ct;
         return this;

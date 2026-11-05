@@ -69,7 +69,7 @@ public class JaravelAutoConfiguration {
             "app.yml", "database.yml", "view.yml", "jaravel.yml",
             "auth.yml", "cache.yml", "session.yml", "hashing.yml", "queue.yml",
             "events.yml", "schedule.yml", "mail.yml", "notifications.yml",
-            "filesystems.yml", "uploads.yml", "api.yml");
+            "filesystems.yml", "uploads.yml", "api.yml", "cors.yml");
 
     // ================= 容器与应用 =================
 
@@ -225,6 +225,40 @@ public class JaravelAutoConfiguration {
         for (RouteDefinition d : sorted) d.define(router);
 
         return router.compile();
+    }
+
+    /**
+     * CORS(docs/12 §6.3)—— 默认**关闭**,没有 cors.paths 就不装。
+     *
+     * <p>CORS 是放宽同源策略。一个默认带着 {@code Allow-Origin: *} 的框架
+     * 会让每个不知道这件事的项目把 API 对全世界打开 ——
+     * 那是安全默认值问题,不是便利性问题。
+     *
+     * <p>顺序必须在 Jaravel 的分发之前(预检要绕过路由匹配,
+     * 否则会撞上 405)—— 用 HIGHEST_PRECEDENCE 之后一点点,
+     * 让编码过滤器仍然在最外层。
+     */
+    @Bean
+    public org.springframework.boot.web.servlet.FilterRegistrationBean<CorsFilter>
+            jaravelCorsFilter(ConfigRepository config) {
+
+        var filter = new CorsFilter(config);
+        var registration =
+                new org.springframework.boot.web.servlet.FilterRegistrationBean<>(filter);
+        registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE + 10);
+        registration.setEnabled(filter.enabled());
+        return registration;
+    }
+
+    /** 请求 ID(docs/12 §6.4)—— 永远开:每个响应都该能被定位到一次请求 */
+    @Bean
+    public org.springframework.boot.web.servlet.FilterRegistrationBean<RequestIdFilter>
+            jaravelRequestIdFilter() {
+
+        var registration = new org.springframework.boot.web.servlet.FilterRegistrationBean<>(
+                new RequestIdFilter());
+        registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE + 20);
+        return registration;
     }
 
     @Bean

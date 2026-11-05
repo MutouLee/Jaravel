@@ -36,6 +36,124 @@ public class ResponseWriter {
      * 必须发生在调用方的异常处理区域之内;而真正写出字节不会抛业务异常。
      */
     public byte[] serialize(Response response, HttpServletResponse servletResponse) throws IOException {
+        // ★ ETag 必须在这里算 —— 这是唯一拿得到**最终字节**的位置。
+        //
+        // 理由写在 Response.etag() 上:响应体在那之前还是一个没序列化的对象,
+        // 而一个算错的 ETag 比没有 ETag 糟得多(它会让客户端缓存住旧内容,
+        // 而那种 bug 在开发期总是强刷的情况下完全看不见)。
+        if (response.wantsEtag()) {
+            return serializeConditional(response, servletResponse);
+        }
+        return write(response, servletResponse);
+    }
+
+    /**
+     * 带 ETag 的那条路:先渲染出字节、算摘要、再决定是 200 还是 304。
+     *
+     * <h2>为什么 304 要先渲染一遍</h2>
+     * <p>看起来浪费 —— 都要回 304 了还序列化干什么。但 ETag 的定义就是
+     * **当前内容的摘要**:不渲染就不知道内容有没有变。
+     *
+     * <p>省掉的是**网络传输**,那通常才是瓶颈(一个 200KB 的 JSON 列表)。
+     * 真要省掉渲染,得由调用方给一个便宜的 ETag
+     * ({@code .etag(post.updatedAt().toString())})—— 那条路也留了。
+     */
+    private byte[] serializeConditional(Response response, HttpServletResponse servletResponse)
+            throws IOException {
+
+        String tag = response.explicitEtag();
+        byte[] body = null;
+
+        if (tag == null) {
+            body = renderToBytes(response);
+            tag = weakEtagOf(body);
+        }
+
+        var request = currentServletRequest();
+        String ifNoneMatch = request == null ? null : request.getHeader("If-None-Match");
+        if (ifNoneMatch != null && matches(ifNoneMatch, tag)) {
+            // 304 不带响应体。头要保留 ETag 与缓存指令 ——
+            // 客户端下一次还要用它们
+            servletResponse.setStatus(304);
+            servletResponse.setHeader("ETag", tag);
+            response.headers().forEach((name, values) -> {
+                if (name.equalsIgnoreCase("Cache-Control") || name.equalsIgnoreCase("Last-Modified")) {
+                    values.forEach(v -> servletResponse.addHeader(name, v));
+                }
+            });
+            return new byte[0];
+        }
+
+        byte[] written = write(response, servletResponse);
+        servletResponse.setHeader("ETag", tag);
+        return body != null ? body : written;
+    }
+
+    /**
+     * 弱 ETag。
+     *
+     * <p>用 {@code W/} 前缀是诚实的:强 ETag 要求**字节级**相同,
+     * 而我们这里的字节来自 JSON 序列化 —— 同一份数据在不同的
+     * ObjectMapper 配置下字节不同。声明成弱的,语义就对了
+     * (RFC 9110 §8.8.1:弱 ETag 表示「语义等价」)。
+     */
+    private static String weakEtagOf(byte[] body) {
+        try {
+            var digest = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(body);
+            var hex = new StringBuilder(16);
+            for (int i = 0; i < 8; i++) hex.append(String.format("%02x", hash[i]));
+            return "W/\"" + hex + "\"";
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException("这个 JVM 没有 SHA-256", e);
+        }
+    }
+
+    /**
+     * {@code If-None-Match} 的匹配。
+     *
+     * <p>要处理三件事:多个值用逗号分隔、{@code *} 匹配一切、
+     * 以及**比较时忽略 {@code W/} 前缀**(RFC 9110 §8.8.3.2 的弱比较)。
+     * 只做字符串相等的话,客户端回传的 {@code W/"abc"} 与我们算出的
+     * {@code W/"abc"} 能对上,但一旦经过某个会改写前缀的代理就对不上了 ——
+     * 症状是「缓存永远不命中」,而那不会报错。
+     */
+    private static boolean matches(String ifNoneMatch, String tag) {
+        String normalized = strip(tag);
+        for (String candidate : ifNoneMatch.split(",")) {
+            String trimmed = candidate.trim();
+            if (trimmed.equals("*")) return true;
+            if (strip(trimmed).equals(normalized)) return true;
+        }
+        return false;
+    }
+
+    private static String strip(String etag) {
+        String out = etag.startsWith("W/") ? etag.substring(2) : etag;
+        if (out.length() >= 2 && out.startsWith("\"") && out.endsWith("\"")) {
+            out = out.substring(1, out.length() - 1);
+        }
+        return out;
+    }
+
+    private byte[] renderToBytes(Response response) throws IOException {
+        if (response.body() instanceof Response.Body.Bytes b) return b.content();
+        String rendered = renderBody(response);
+        return rendered == null || rendered.isEmpty()
+                ? new byte[0]
+                : rendered.getBytes(StandardCharsets.UTF_8);
+    }
+
+    /** 当前请求 —— 条件请求要读 If-None-Match */
+    private static jakarta.servlet.http.HttpServletRequest currentServletRequest() {
+        return io.jaravel.http.RequestScope.tryRequest()
+                .flatMap(io.jaravel.http.Request::raw)
+                .filter(raw -> raw instanceof jakarta.servlet.http.HttpServletRequest)
+                .map(raw -> (jakarta.servlet.http.HttpServletRequest) raw)
+                .orElse(null);
+    }
+
+    private byte[] write(Response response, HttpServletResponse servletResponse) throws IOException {
         servletResponse.setStatus(response.status());
 
         boolean binary = response.body() instanceof Response.Body.Bytes;

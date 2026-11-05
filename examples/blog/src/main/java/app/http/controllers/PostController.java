@@ -100,6 +100,19 @@ public class PostController {
     }
 
     /**
+     * GET /api/posts/cached —— 条件请求(docs/12 §6.1)。
+     *
+     * <p>{@code .etag()} 让框架按**最终字节**算摘要;客户端带着
+     * {@code If-None-Match} 再来时回 304、不传正文。
+     */
+    public Object apiCached() {
+        return io.jaravel.http.Response
+                .json(Post.query().published().get().toList())
+                .etag()
+                .cacheControl("public, max-age=300");
+    }
+
+    /**
      * GET /api/posts/{id} —— 单个资源(docs/12 §1)。
      *
      * <p>这个接口预加载了 author **与** comments,所以两个字段都在。

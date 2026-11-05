@@ -42,4 +42,51 @@ class ApplicationSmokeTest extends FeatureTest {
     void theApiResponds() {
         get("/api/posts").assertOk();
     }
+
+    @Test
+    @DisplayName("★ 分页信封完整:prev/next 即便是 null 也要有那个键")
+    void paginationEnvelopeIsComplete() throws Exception {
+        var response = get("/api/posts/paged?page=1").assertOk();
+
+        var json = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(response.content());
+
+        assertThat(json.has("data")).isTrue();
+        assertThat(json.get("links").has("prev"))
+                .as("""
+                        第一页的 prev 是 null —— 而这个应用的 ObjectMapper 配了
+                        「不输出 null 字段」(API 响应的常见设置)。
+                        第一版的序列化器直接 writeObject(map),于是那个键**整个消失**。
+                        前端分页组件靠 links.prev === null 判断能不能往前翻,
+                        键不存在时拿到 undefined —— 在 JS 里也是假值,
+                        所以多数组件还能用:这正是最糟的那种 bug,
+                        它不报错,只在某些组件上表现为按钮状态不对。""")
+                .isTrue();
+        assertThat(json.get("links").get("prev").isNull()).isTrue();
+        assertThat(json.get("links").get("next").asText()).contains("page=2");
+
+        var meta = json.get("meta");
+        assertThat(meta.get("current_page").asInt()).isEqualTo(1);
+        assertThat(meta.get("per_page").asInt()).isEqualTo(5);
+        assertThat(meta.get("path").asText())
+                .as("path 要是真的请求 URL —— resolver 装上了才有")
+                .contains("/api/posts/paged");
+    }
+
+    @Test
+    @DisplayName("★ ?page=2 真的翻页 —— 页码由 starter 装的 resolver 读")
+    void pageParameterIsHonoured() throws Exception {
+        var first = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(get("/api/posts/paged?page=1").assertOk().content());
+        var second = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(get("/api/posts/paged?page=2").assertOk().content());
+
+        assertThat(second.get("meta").get("current_page").asInt()).isEqualTo(2);
+        assertThat(second.get("links").get("next").isNull())
+                .as("第二页是最后一页(共 7 条、每页 5 条)")
+                .isTrue();
+        assertThat(first.get("data").get(0).get("id").asInt())
+                .as("两页的内容不该一样 —— 一样就说明 offset 没生效")
+                .isNotEqualTo(second.get("data").get(0).get("id").asInt());
+    }
 }

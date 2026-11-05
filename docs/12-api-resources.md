@@ -140,6 +140,72 @@ Cursored<User> c  = User.query().cursorPaginate(15);     // 游标(大表/无限
 
 与 Laravel 完全一致 —— 前端分页组件可直接复用。
 
+> ### v0.5:分页已实现(25 个测试)
+>
+> `paginate(perPage)` · `paginate(perPage, page)` · `simplePaginate(...)`,
+> 加上 `Paginated<T>` 与上面那个 JSON 形状。
+> **`cursorPaginate` 还没有** —— 它要内省排序列、再把游标编码成不透明串,
+> 是一道独立的设计题,不是这一节的变体。
+>
+> 实测(`examples/blog` 的 `/api/posts/paged?page=2`,真 HTTP):
+>
+> ```json
+> "links": { "first": "…?page=1", "last": "…?page=2",
+>            "prev": "…?page=1", "next": null },
+> "meta":  { "current_page": 2, "from": 6, "last_page": 2,
+>            "path": "http://localhost:8001/api/posts/paged",
+>            "per_page": 5, "to": 7, "total": 7 }
+> ```
+>
+> #### ★ 三处实现决定
+>
+> **一个 `Paginated` 而不是两个分页器。** Laravel 分
+> `LengthAwarePaginator` / `Paginator`(后者不查总数),这里是一个类加一个
+> **可空的 total** —— 因为 §2.1 给 `paginate` 与 `simplePaginate` 写的返回类型
+> 都是 `Paginated<User>`。两个类会让那段文档撒谎,而且调用方要为
+> 「少一个 total」换一次类型。没有 total 时**不输出** `total` / `last_page`,
+> 而不是输出一个猜的值:一个编出来的 `last_page` 会让前端渲染出
+> 一堆点不动的页码。
+>
+> **`simplePaginate` 多取一条来判断「还有没有下一页」。** 那是不查总数的
+> 全部办法:要 `perPage + 1` 条,取到了就说明还有下一页,然后把它丢掉。
+> 值得做的理由是 `count(*)` 在大表上是一次全表扫描,而无限滚动这种界面
+> 根本不显示总页数 —— 为一个不显示的数字付一次全扫是纯粹的浪费。
+>
+> **页码与链接走 resolver,不走参数。** `User.query().paginate(15)` 这一句里
+> 没有 `Request`,而页码在 HTTP 场景下必然来自 `?page=N`。做成参数
+> (`paginate(15, request)`)会把**每一个**分页调用点都绑上 HTTP,
+> 包括那些不在请求里的(队列任务里导出报表、命令行里分批处理)。
+> 所以与 Laravel 一样用静态 resolver,由 starter 在启动时装上;
+> 不在请求里时当成第 1 页 —— 那时**不报错**,因为 worker 里分批处理
+> 拿到第一批正是对的。
+>
+> #### ⚠ 两个只有真跑才会发现的
+>
+> **`links.next` 整个键消失过。** 第一版的序列化器是
+> `writeObject(toMap())`,而 `examples/blog` 的 `ObjectMapper` 配了
+> 「不输出 null 字段」(API 响应的常见设置)—— 于是最后一页没有 `next`、
+> 第一页没有 `prev`。前端组件靠 `links.next === null` 判断能不能翻,
+> 键不存在时拿到 `undefined`,在 JS 里**也是假值** —— 所以多数组件还能用。
+> 那正是最糟的那种 bug:不报错,只在某些组件上表现为按钮状态不对。
+> 而上面那句「前端分页组件可直接复用」兑现不了。
+>
+> 处置:**信封**(`links` / `meta`)逐字段显式写、null 就写 null;
+> 而 `data` 里的元素仍然走应用自己的 mapper —— 那是用户的数据,
+> 用户的 inclusion 策略在那里是对的。
+> (同一条理由在 docs/13 的 `route:list --json` 那里出现过一次:
+> **一个机器可读的契约不该随一条无关配置变形**。)
+>
+> **链接里必须排掉旧的 `page`。** 留着它的话 `/posts?page=2` 的下一页会变成
+> `/posts?page=2&page=3` —— 哪一个生效取决于服务端实现,也就是说翻页会
+> **有时**不动。其它查询参数反过来必须留着:丢了它们,
+> 用户一翻页筛选条件就没了。
+>
+> #### 还没有的
+>
+> `cursorPaginate`(§2.1)· `links()` 模板辅助(§2.4)·
+> `JsonResource` 与资源集合(§1)· 统一异常处理(§3)· OpenAPI(§5)。
+
 ### 2.3 与 Resource 结合
 
 ```java

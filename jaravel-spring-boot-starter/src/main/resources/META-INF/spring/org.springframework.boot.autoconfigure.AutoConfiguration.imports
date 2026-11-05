@@ -8,4 +8,5 @@ io.jaravel.spring.JaravelMailAutoConfiguration
 io.jaravel.spring.JaravelNotificationsAutoConfiguration
 io.jaravel.spring.JaravelStorageAutoConfiguration
 io.jaravel.spring.JaravelUploadsAutoConfiguration
+io.jaravel.spring.JaravelPaginationAutoConfiguration
 io.jaravel.spring.JaravelDevToolsAutoConfiguration

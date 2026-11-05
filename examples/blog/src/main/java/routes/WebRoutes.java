@@ -21,6 +21,7 @@ public class WebRoutes implements RouteDefinition {
         r.post("/posts/{id}/comments", CommentController::store).whereNumber("id").name("comments.store");
 
         r.get("/api/posts", PostController::apiIndex);
+        r.get("/api/posts/paged", PostController::apiPaged);
         r.get("/api/posts/{id}", PostController::apiShow).whereNumber("id");
     }
 }

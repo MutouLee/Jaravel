@@ -19,6 +19,7 @@ import io.jaravel.eloquent.meta.ModelMeta;
 import io.jaravel.eloquent.meta.RelPath;
 import io.jaravel.eloquent.relations.RelationLoader;
 import io.jaravel.support.Coll;
+import io.jaravel.support.Paginated;
 
 /**
  * 类型安全的模型查询。架在 {@link QueryBuilder} 之上,把列名换成 {@link Col}。
@@ -397,6 +398,86 @@ public class Query<M extends Model<M>> {
 
     public boolean doesntExist() {
         return !exists();
+    }
+
+    // ================= 执行:分页 =================
+
+    /**
+     * 带总数的分页(docs/12 §2.1)。
+     *
+     * <p>页码从 {@code Paginated} 的 resolver 取 —— HTTP 场景下那就是
+     * {@code ?page=N};不在请求里(队列任务、命令)时是第 1 页。
+     * 理由写在 {@link Paginated#pageResolver} 上。
+     */
+    public Paginated<M> paginate(int perPage) {
+        return paginate(perPage, Paginated.resolveCurrentPage());
+    }
+
+    /**
+     * 指定页码的分页。
+     *
+     * <h2>★ 两次查询的顺序与 count 为什么不受 limit 影响</h2>
+     * <p>先 {@code count()} 再取这一页。{@code count()} 走的是
+     * {@code QueryBuilder.aggregate},而它**临时摘掉 order / limit / offset**
+     * 再编译 —— 所以即便调用方已经写了 {@code .limit(3)},
+     * 总数仍然是「符合条件的全部」。
+     *
+     * <p>顺序反过来也能工作,但先 count 让「页码超出范围」这件事
+     * 在拿到空列表之前就有数:总数是 0 和总数是 150 而你在第 99 页,
+     * 对调用方是两件不同的事。
+     *
+     * <h2>⚠ 它不保证两次查询之间数据没变</h2>
+     * <p>count 与取页之间有人插了一行,这一页就可能与总数不自洽
+     * (Laravel 也一样)。要绝对一致得把两次查询放进一个事务,
+     * 而那会为了一个分页接口拿住一个事务 —— 不值得。
+     * 真的需要稳定翻页时用游标分页(docs/12 §2.1 的第三种,还没实现)。
+     */
+    public Paginated<M> paginate(int perPage, int page) {
+        long total = count();
+        if (total == 0) {
+            return withResolvedLinks(Paginated.empty(perPage));
+        }
+
+        List<M> items = forPage(page, perPage).get().toList();
+        return withResolvedLinks(Paginated.of(items, page, perPage, total));
+    }
+
+    /** 不查总数的分页(docs/12 §2.1)—— 页码同样来自 resolver */
+    public Paginated<M> simplePaginate(int perPage) {
+        return simplePaginate(perPage, Paginated.resolveCurrentPage());
+    }
+
+    /**
+     * 不查总数的分页。
+     *
+     * <h2>★ 多取一条来判断「还有没有下一页」</h2>
+     * <p>这是不查总数的全部办法:要 {@code perPage + 1} 条,
+     * 取到了第 {@code perPage + 1} 条就说明还有下一页,然后把它丢掉。
+     *
+     * <p>为什么值得:{@code count(*)} 在大表上是一次全表扫描,
+     * 而「无限滚动」这种界面根本不显示总页数 ——
+     * 为一个不显示的数字付一次全扫是纯粹的浪费。
+     */
+    public Paginated<M> simplePaginate(int perPage, int page) {
+        if (perPage <= 0) {
+            throw new IllegalArgumentException("perPage 必须大于 0,收到 " + perPage);
+        }
+        List<M> fetched = forPage(page, perPage + 1).get().toMutableList();
+
+        boolean hasMore = fetched.size() > perPage;
+        if (hasMore) fetched.remove(fetched.size() - 1);
+
+        return withResolvedLinks(Paginated.simple(fetched, page, perPage, hasMore));
+    }
+
+    /**
+     * 把当前请求的路径与查询参数装进分页器。
+     *
+     * <p>同样走 resolver:{@code jaravel-eloquent} 不认识 {@code Request}
+     * (而且按 ADR-001 也不该认识)。
+     */
+    private <T> Paginated<T> withResolvedLinks(Paginated<T> page) {
+        return page.withPath(Paginated.resolvePath()).withQuery(Paginated.resolveQuery());
     }
 
     // ================= 执行:聚合 =================

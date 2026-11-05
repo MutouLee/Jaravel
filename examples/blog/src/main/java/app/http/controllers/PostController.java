@@ -75,6 +75,17 @@ public class PostController {
         return Post.query().published().withAuthor().get().toList();
     }
 
+    /**
+     * GET /api/posts/paged?page=2 —— 分页(docs/12 §2)。
+     *
+     * <p>页码不用自己读:{@code paginate(5)} 从请求里取 {@code ?page=N}
+     * (starter 装了 resolver),返回的 JSON 是 docs/12 §2.2 那个
+     * 与 Laravel 一致的 {@code data / links / meta} 形状。
+     */
+    public Object apiPaged() {
+        return Post.query().published().withAuthor().paginate(5);
+    }
+
     /** GET /api/posts/{id} */
     public Object apiShow(Long id) {
         return Post.query().withAuthor().withComments().whereId(id).firstOrFail();

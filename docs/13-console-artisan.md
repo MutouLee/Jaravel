@@ -749,6 +749,15 @@ jaravel inspire                         # 彩蛋,保留 Laravel 传统
 >
 > 之后是 **1.28**(145 → 138 行 vs Laravel 111)。整体 worst 仍是切片 03 的 1.29。
 >
+> **这三条命令有验收测试**(13 条,`examples/queue` 的 `ConsoleCommandsTest`)。
+> 理由不只是「示例会被照抄」:它们**同时是门禁的度量对象** ——
+> 它们坏了而没人知道的话,那个 1.28 仍然照常输出,
+> 而**门禁会拿一份不能跑的代码给出一个好看的数字**。那比没有门禁更糟。
+>
+> 测试钉住的是两个方向相反的默认值:`invoice:send` 在读不到输入时
+> **投**(投递是它的本职),而会删数据的 `invoice:prune` **拒绝** ——
+> 代价不对称,所以默认值的方向也不对称。
+>
 > **有一处刻意没做**:`InvoiceReportCommand` 里手拼 JSON 用了 8 行,
 > 而 Laravel 是一个 `json_encode`。削掉它要往 `jaravel-support` 里加一个
 > JSON 编码器 —— 而 support 必须保持零依赖(CLI 的卖点就是 classpath 小,

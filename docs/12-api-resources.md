@@ -597,7 +597,7 @@ public JsonResource store(StorePostRequest req) { ... }
 > | 路径参数类型 | ✅ 有限 —— 见下 |
 > | 安全要求 | ✅ `auth:*` 中间件 → `security` + 401 |
 > | operationId / tags / summary | ✅ 控制器#方法 / 控制器名 / 路由名 |
-> | 请求体 schema | ❌ 要从 `FormRequest.rules()` 提取 |
+> | 请求体 schema | ✅ **从 `FormRequest.rules()` 提取(不需要 APT,见下)** |
 > | 响应 schema | ❌ 要 APT 对 `toArray` 做 AST 分析 |
 > | 描述与示例 | ❌ javadoc 要 APT;`@ApiDoc` 注解还不存在 |
 >
@@ -606,6 +606,50 @@ public JsonResource store(StorePostRequest req) { ... }
 > 文档里缺一个 `requestBody` 至少是**明显**的缺失。
 > 命令跑完会把「还缺什么」打出来 —— 否则用户以为「文档生成好了」,
 > 而里面没有任何 schema 时他会去怀疑自己的注解或者 Swagger UI。
+>
+> #### v0.5:`rules()` → schema(5 个测试)
+>
+> `rules()` 返回 `Map<String, String>`(`"title" → "required|string|max:200"`)——
+> **运行时可读**,所以这一行不用等 APT。实测(`examples/blog`):
+>
+> ```json
+> "title": { "type": "string", "maxLength": 200 },
+> "age":   { "type": ["integer", "null"], "minimum": 18, "maximum": 99 },
+> "role":  { "enum": ["admin", "user"] },
+> "password": { "minLength": 8 },   "password_confirmation": { "minLength": 8 }
+> ```
+>
+> **⚠ 必须按类型翻译 `max`**:字符串是 `maxLength`、数字是 `maximum`、
+> 数组是 `maxItems`。写反了的话前端表单校验会允许一个 200 字的标题,
+> 然后在提交时得到 422。没有类型规则时按字符串处理 ——
+> 与校验器在那种情况下的实际行为一致(HTTP 表单的值本来就是字符串)。
+>
+> **Laravel 的 `confirmed` 会顺带生成 `<field>_confirmation` 字段** ——
+> 它是真实存在的请求字段,不写进去前端照文档发请求会得到 422,
+> 而文档上看不出为什么。`regex:/…/` 那对 PHP 定界符会被剥掉
+> (留着的话客户端生成器把 `/` 当成模式的一部分,校验永远不通过)。
+>
+> **exists / unique / after 这类语义规则在 schema 里没有表达方式,直接跳过** ——
+> 硬塞成 description 会让客户端代码里出现一句注释,而真正的约束仍然只有
+> 服务端知道。命令输出里会明说:「schema 校验通过」不等于「服务端会接受」。
+>
+> **FormRequest 按框架的既有契约实例化**(无参构造,`ArgumentBinder`
+> 每次请求就是这么建它的),**不调 `bind(request)`** —— 那会跑鉴权与校验。
+> 实例化失败(rules() 依赖实例状态的)时**跳过那一个请求体并把接口报出来**,
+> 而不是让整份文档失败:十个接口里有一个缺请求体,
+> 远好过一份生成不出来的文档。
+>
+> #### ★ 一个 Java 语言级陷阱:`cond ? Double : Long` 会把两个分支都变成 double
+>
+> `numeric()` 第一版写的是 `raw.contains(".") ? Double.valueOf(raw) : Long.valueOf(raw)`。
+> 结果 `max:5` 在 schema 里变成 **5.0** —— 探针发现的,而且字节码里能
+> 看到 `doubleValue` + `l2d`:JLS 15.25 规定,`Double` 与 `Long` 都可**拆箱**成
+> 数值类型时,条件表达式做二进制数值提升,**两个分支都被提升成 double**。
+>
+> 修法是把两个分支显式转成 `(Number)`:它不可拆箱,于是走引用类型的三目,
+> 各保持各的装箱。这不像「编译缓存过期」那样一眼可辨 ——
+> 症状是一个 Double 悄悄流进 schema,而某些客户端生成器
+> 按整数与浮点分别生成类型。
 >
 > #### ★ 路径参数的类型:两个来源,以及什么时候放弃
 >

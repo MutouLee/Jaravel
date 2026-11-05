@@ -55,7 +55,10 @@
         <artifactId>maven-surefire-plugin</artifactId>
         <configuration>
           <!-- compile-testing 需要访问 javac 内部 -->
-          <argLine>-Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8
+          <!-- @{jacocoArgLine} 不能省:这里盖掉了父 pom 的 argLine,
+               不带它就等于把 jacoco 的 agent 顶掉 —— 症状是这个模块
+               在覆盖率报告里是 0%(而测试明明跑了)。实测撞过。 -->
+          <argLine>@{jacocoArgLine} -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8
             --add-exports jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED
             --add-exports jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED
             --add-exports jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED

@@ -81,6 +81,26 @@
 
   <build>
     <plugins>
+      <!--
+        覆盖率的 agent。
+
+        ★ 示例**不继承** jaravel-parent(它们刻意长得像用户自己的项目),
+        所以父 pom 里那份 jacoco 配置不作用于这里 —— 不加这几行的话,
+        这个示例的验收测试覆盖到的框架代码**一行都不算进覆盖率**。
+        而 examples/auth 一个人就有 91 条真 HTTP 测试,漏掉它等于
+        把框架覆盖率报低一大截。
+      -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>0.8.12</version>
+        <executions>
+          <execution>
+            <id>prepare-agent</id>
+            <goals><goal>prepare-agent</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>

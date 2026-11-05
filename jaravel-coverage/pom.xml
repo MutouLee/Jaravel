@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.jaravel</groupId>
+    <artifactId>jaravel-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>jaravel-coverage</artifactId>
+  <packaging>pom</packaging>
+  <name>Jaravel :: 覆盖率汇总</name>
+  <description>把各模块的 jacoco.exec 汇总成一份报告(v0.5 验收 #4)</description>
+
+  <!--
+    ★ 为什么需要这么一个空模块
+
+    jacoco 的 report 只报**本模块自己的测试覆盖了本模块的类**。而这个仓库
+    刻意把集成测试放在独立模块里(jaravel-auth-tests / eloquent-tests /
+    events-tests),示例应用本身也是测试。只看单模块的数,
+    jaravel-auth 会显示接近零 —— 它的测试在隔壁。
+
+    report-aggregate 读的是**依赖**里那些模块的 exec 文件,所以这里把
+    每个模块都列成依赖。列表要手维护,而漏一个的后果是那个模块
+    悄悄不算进分母 —— 所以有一条测试核对「reactor 里的模块都在这里」。
+
+    示例应用也列进来:它们的验收测试覆盖的是框架代码,
+    而那正是「框架自身覆盖率」要算的东西。
+  -->
+  <dependencies>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-support</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-core</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-http</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-routing</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-view</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-database</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-eloquent</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-eloquent-processor</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-migration</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-validation</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-queue</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-events</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-events-processor</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-events-tests</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-scheduler</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-mail</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-console</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-cli</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-http-client</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-notifications</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-storage</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-cache</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-session</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-auth</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-auth-tests</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-eloquent-tests</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-devtools</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-testing</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-security-bridge</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-spring-boot-starter</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-archunit-rules</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>com.example</groupId><artifactId>todo</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
+    <dependency><groupId>com.example</groupId><artifactId>blog</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
+    <dependency><groupId>com.example</groupId><artifactId>auth</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
+    <dependency><groupId>com.example</groupId><artifactId>queue</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>aggregate</id>
+            <phase>verify</phase>
+            <goals><goal>report-aggregate</goal></goals>
+            <configuration>
+              <outputDirectory>${project.build.directory}/site/jacoco-aggregate</outputDirectory>
+              <!--
+                ★ 示例的**应用代码**不算进「框架自身覆盖率」,但它们的
+                **exec 数据要算** —— 那些验收测试覆盖的正是框架代码。
+                所以示例模块仍然列在依赖里(为了读 exec),
+                只把 ADR-009 那几个应用侧包从报告里排掉。
+              -->
+              <excludes>
+                <exclude>app/**</exclude>
+                <exclude>routes/**</exclude>
+                <exclude>database/**</exclude>
+              </excludes>
+              <formats><format>HTML</format><format>XML</format><format>CSV</format></formats>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

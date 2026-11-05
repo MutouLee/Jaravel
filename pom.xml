@@ -74,9 +74,23 @@
     <module>examples/blog</module>
     <module>examples/auth</module>
     <module>examples/queue</module>
+
+    <!-- 覆盖率汇总 —— 必须在最后:它要读上面每个模块的 jacoco.exec -->
+    <module>jaravel-coverage</module>
   </modules>
 
   <properties>
+    <!--
+      ★ 这个空属性是为了 jacoco,而它堵的是一个经典陷阱。
+
+      jacoco 的 prepare-agent 靠**设置 argLine 属性**把 agent 注进 surefire。
+      而下面 surefire 的 <argLine> 是写死的 —— 写死会把 agent 顶掉,
+      症状是「覆盖率报告出来了,但所有模块都是 0%」,
+      而那个 0 看起来像「测试没跑」或者「jacoco 装错了」。
+      两者都不是:测试跑了,只是没人在记。
+      (这是接覆盖率工具时最常见的一次返工,所以记在这里。)
+    -->
+    <jacocoArgLine></jacocoArgLine>
     <!-- ADR-007:基线 Java 21 -->
     <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -170,7 +184,9 @@
           <artifactId>maven-surefire-plugin</artifactId>
           <version>3.5.2</version>
           <configuration>
-            <argLine>-Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8</argLine>
+            <!-- @{...} 是**后期求值**:jacoco 在 initialize 阶段写进这个属性,
+                 而 ${...} 会在那之前就被定下来(于是永远是空的) -->
+            <argLine>@{jacocoArgLine} -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8</argLine>
           </configuration>
         </plugin>
         <plugin>
@@ -178,7 +194,40 @@
           <artifactId>spring-boot-maven-plugin</artifactId>
           <version>${spring-boot.version}</version>
         </plugin>
+        <plugin>
+          <groupId>org.jacoco</groupId>
+          <artifactId>jacoco-maven-plugin</artifactId>
+          <version>0.8.12</version>
+        </plugin>
       </plugins>
     </pluginManagement>
+
+    <plugins>
+      <!--
+        覆盖率(v0.5 验收 #4)。
+
+        每个模块各自记一份 target/jacoco.exec;汇总在 jaravel-coverage 模块
+        (那里有 report-aggregate)。
+        **必须汇总而不是看单模块的数**:这个仓库刻意把集成测试放在独立模块里
+        (jaravel-auth-tests / eloquent-tests / events-tests),而示例应用
+        本身也是测试。只看单模块的话 jaravel-auth 会显示接近 0% ——
+        它的测试在隔壁。
+      -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>prepare-agent</id>
+            <goals><goal>prepare-agent</goal></goals>
+            <configuration>
+              <!-- 不用默认的 argLine:父 pom 的 surefire 写死了那个参数,
+                   换一个名字再由 @{jacocoArgLine} 拼进去 -->
+              <propertyName>jacocoArgLine</propertyName>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
   </build>
 </project>

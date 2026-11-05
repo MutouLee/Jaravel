@@ -15,7 +15,7 @@ jaravel migrate                  # 应用跑着时 197ms(复用它的进程)
 jaravel list                     # 全部命令,含应用自己定义的
 ```
 
-v0.5 的五条验收里 2 条达成、2 条部分达成、1 条无法测量(没接覆盖率工具),
+v0.5 的五条验收里 3 条达成、2 条部分达成(覆盖率:指令 **73.3%** / 分支 65.8%),
 过程中发现并修掉 **14 个真实缺陷** —— 其中三个是**自己的门禁与示例在说谎**
 (两个示例按提交的样子起不来、`jaravel list` 列不全、parity 的度量对象没有测试)。
 
@@ -148,6 +148,7 @@ jaravel-security-bridge/  Spring Security 双向桥接(企业 SSO 场景)
 jaravel-spring-boot-starter/   自动装配与 Spring 适配(与桥接模块是唯一接触 Spring 的地方)
                                —— 20 条在线命令也在这里(它们的发现机制本来就是 Spring 的)
 jaravel-archunit-rules/   ADR-001 的阻断式强制
+jaravel-coverage/         覆盖率汇总(report-aggregate;指令 73.3% / 分支 65.8%)
 
 examples/todo/            v0.1 的垂直切片(v0.2 已迁到 Eloquent)
 examples/blog/            v0.2 切片:关联 + 预加载 + 迁移 + FormRequest,零裸 SQL

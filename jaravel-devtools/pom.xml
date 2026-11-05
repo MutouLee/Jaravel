@@ -39,6 +39,37 @@
 
   <build>
     <plugins>
+      <!--
+        ★ jacoco 的 agent 必须放过 Swappable。
+
+        HotSwapperTest 在运行时编译一个叫 Swappable 的类、加载它、
+        再用新字节码 redefine 它 —— 而标准 JVM 的 HotSwap 只允许
+        **方法体**变化。agent 一旦给它插上 $jacocoData 字段与 $jacocoInit
+        方法,redefine 看到的就是「类的结构变了」,于是直接拒绝。
+
+        症状很有欺骗性:接上覆盖率之后,那条「真的验证热替换」的测试开始
+        报「不只是方法体变了(增删方法/字段、改签名或注解)」——
+        而测试代码与被测代码一个字都没动。
+        (实测撞到:这一条就是接 jacoco 时弄坏的。)
+
+        排掉它只损失一个测试夹具的覆盖率,而那个类是测试里现编的,
+        本来也不该算进框架覆盖率。
+      -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>prepare-agent</id>
+            <configuration>
+              <propertyName>jacocoArgLine</propertyName>
+              <excludes>
+                <exclude>Swappable</exclude>
+              </excludes>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
@@ -48,7 +79,10 @@
                不加这个参数的话 HotSwapperTest 里那组
                真正验证热替换的测试会全部跳过 ——
                而一组永远跳过的测试等于没有测试 -->
-          <argLine>-Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8
+          <!-- @{jacocoArgLine} 不能省:这里盖掉了父 pom 的 argLine,
+               不带它就等于把 jacoco 的 agent 顶掉 —— 症状是这个模块
+               在覆盖率报告里是 0%(而测试明明跑了)。实测撞过。 -->
+          <argLine>@{jacocoArgLine} -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8
                    -Djdk.attach.allowAttachSelf=true</argLine>
         </configuration>
       </plugin>

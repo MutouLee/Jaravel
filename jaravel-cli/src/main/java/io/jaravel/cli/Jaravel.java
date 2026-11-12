@@ -211,13 +211,18 @@ public final class Jaravel {
      * 列在检视命令那一组:没有 APP_KEY 的应用起不来,所以一条
      * 「要先把应用跑起来」的路径在那里是死循环。它是离线命令。
      * (有一条测试核对「两张表不重叠」—— 这个冲突就是它抓出来的。)
+     *
+     * <p>⚠ {@code openapi:} 也不能整组算在线:{@code openapi:diff}
+     * 只读两份已经生成好的 JSON,是离线命令(docs/13 §1)。
+     * 写成前缀的话它会同时出现在两张表里 ——
+     * 与 {@code key:generate} 同一类冲突。
      */
     static final List<String> ONLINE_COMMANDS = List.of(
             "migrate", "db:", "db", "model:", "schema:",
             "tinker", "serve", "queue:", "schedule:",
             "route:", "config:", "view:", "event:",
             "optimize", "about", "down", "up",
-            "storage:link", "lang:check", "openapi:",
+            "storage:link", "lang:check", "openapi:generate",
             "doctor", "analyze:", "inspire", "stub:publish");
 
     private static String needsApplication(String command) {

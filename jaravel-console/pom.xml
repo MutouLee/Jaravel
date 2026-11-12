@@ -22,6 +22,22 @@
     </dependency>
 
     <!--
+      openapi:diff 要读两份 OpenAPI JSON。
+
+      ★ 只在这个模块里加,**不放进 jaravel-support**:support 是零依赖的
+      工具层,而一条只服务 openapi:diff 的 JSON 解析器不该改变那一层。
+      手写一个 JSON 解析器更不值得 —— 它要处理转义、数字、嵌套,
+      而每一个边界条件都是一个会静默读错契约的机会。
+
+      它会进 CLI 的 classpath,但只在 openapi:diff 真正跑起来时才加载,
+      make:* 那条 100ms 的路径不受影响。
+    -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+    </dependency>
+
+    <!--
       注意这里**没有** jaravel-view 的依赖。
 
       stub 是模板,照 docs/13 §4.1 本该用 jblade 渲染(「自举」)。

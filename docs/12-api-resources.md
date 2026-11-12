@@ -667,7 +667,8 @@ public JsonResource store(StorePostRequest req) { ... }
 >
 > #### 三处为 `openapi:diff` 做的准备
 >
-> `diff` 还没做,但它的前提现在就得立住,否则将来每次 diff 都是噪音:
+> 做这一刀时 `diff` 还没写,但它的前提现在就得立住,
+> 否则将来每次 diff 都是噪音(`openapi:diff` 随后已实现,见本节末尾):
 >
 > - **路径按字典序** —— 哈希序的话 diff 里会出现一堆与 API 无关的变化,
 >   而那会训练人忽略 diff;
@@ -689,6 +690,80 @@ public JsonResource store(StorePostRequest req) { ... }
 > 与那一节里分页的位置是同一类问题(见 §7 的注记)。
 > 所以它与 `route:list` 放在一起:都在 starter 的 `commands` 包里,
 > 因为它们要的东西在那里。
+
+> ### v0.5:`openapi:diff` —— 比较契约,不比较文本(25 个测试)
+>
+> ```bash
+> jaravel openapi:generate --stdout > /tmp/openapi.json
+> jaravel openapi:diff public/openapi.json /tmp/openapi.json
+>
+> jaravel openapi:diff base.json current.json --json       # 给 CI 读
+> jaravel openapi:diff base.json current.json --fail-on=any
+> ```
+>
+> `--fail-on` 三档:`breaking`(默认)/ `any` / `none`。
+> 退出码只有两种:0 表示没越过门槛,1 表示越过了(或参数、文件有问题)。
+>
+> #### ★ 判定标准只有一条
+>
+> **按旧文档生成的客户端,照着旧文档发请求、读响应,还能不能工作。**
+>
+> | 变化 | 请求 | 响应 |
+> |---|---|---|
+> | 删路径 / 方法 | 破坏性 | — |
+> | `operationId` 改名 | 破坏性(生成的客户端方法名会变) | — |
+> | 新增必填参数 / 字段 / 请求体 | 破坏性 | — |
+> | 参数由可选变必填 | 破坏性 | — |
+> | 类型 / enum 收窄 | 破坏性(旧值可能不再被接受) | 非破坏 |
+> | 类型 / enum 放宽 | 非破坏 | 破坏性(客户端可能收到没见过的值) |
+> | 删响应状态码 / 响应字段 / 响应头 | — | 破坏性 |
+> | 新增路径 / 方法 / 可选参数 / 可选字段 | 新增或非破坏 | 非破坏 |
+> | `info.version` · `description` · `example` · `title` | 忽略 | 忽略 |
+>
+> #### ★ 同一个 schema 变化,在请求与响应里方向是反的
+>
+> `type: integer` → `[integer, null]` 在请求里是**放宽**
+> (以前只收整数,现在也收 null),在响应里也是放宽 ——
+> 但前者的后果是「旧客户端照常工作」,后者是「客户端可能收到一个
+> 它按旧文档不会处理的 null」。所以 `Direction` 贯穿整个 schema 递归,
+> 不区分方向的话,这两种情况里必有一种判反。
+>
+> 数值边界同理:`minLength` 变大在请求里是收紧,在响应里是收紧;
+> 但请求收紧会让旧值被拒(破坏性),响应收紧只会让输出更窄(非破坏)。
+>
+> #### ★ 不认识的改动按破坏性处理
+>
+> schema 里出现 diff 不认识的关键字变化(`oneOf`、`discriminator`…)时,
+> 保守地报破坏性,并在消息里写明「diff 不认识它」。漏报比误报糟:
+> 误报只需要人看一眼,漏报会让一次真正的破坏性变更随发布上线。
+> 而 `description` / `example` 这类纯文档字段是**明确忽略**的 ——
+> 报出来只是噪音。`info.version` 也一样:每次发布它都会变,
+> 拿它当变更等于给 diff 加一条永远为真的红。
+>
+> #### 为什么是离线命令、为什么收两个文件
+>
+> 当前文档要由 `openapi:generate` 从路由表生成,而路由表在应用进程里 ——
+> 这个命令如果自己去生成,就变成在线命令了。而「比较两份已经生成好的
+> JSON」根本不需要容器。所以 CLI 里的用法正好是两段:
+> 生成到临时文件,再和仓库里提交的基线比。基线在仓库里,
+> review 时看到的 diff 就是这次发布对 API 契约的实际影响。
+>
+> #### 已知限制(写在代码注释里,也在这里)
+>
+> - `$ref` 不解析:引用不同就报破坏性,相同则不深入。当前的生成器不产出 `$ref`;
+> - 路径级的共享 `parameters` 不单独比较(生成器把它们写在每个 operation 上);
+> - 判断是保守的,不是完备的:无法证明包含关系的正则变化一律按破坏性处理。
+>
+> #### ★ 注册命令时,「两张表不重叠」那条门禁抓到了一处真冲突
+>
+> CLI 用一份 `ONLINE_COMMANDS` 前缀表决定「不认识的名字要不要去问应用」。
+> 它原本写着 `openapi:` —— 整组算在线。新增 `openapi:diff` 之后,
+> `JaravelCliTest.theTwoTablesDoNotOverlap` 立刻红了:
+> 同一条命令同时出现在离线注册表与在线前缀表里。
+>
+> 这没有造成分流错误(本地注册表优先),但那份前缀表是在**声明**
+> 哪些命令需要容器,而 openapi:diff 不需要。改成 `openapi:generate` 之后,
+> 声明与实际一致;将来再加在线的 openapi 子命令,也会被迫显式写出来。
 
 ---
 
@@ -839,8 +914,13 @@ r.post("/payments", PaymentController::store).middleware("idempotent");
 > 视图层(将来)渲染它的链接,三者都够不到彼此,只够得到 support。
 > 代价是它不知道当前请求,靠静态 resolver 补(与 Laravel 同一个结构)。
 >
-> `exceptions/` · `openapi/` · `negotiation/` · `middleware/` ·
-> `conditional/` 这几个子包还没有。
+> `exceptions/` · `negotiation/` · `middleware/` · `conditional/`
+> 这几个子包还没有。
+>
+> `openapi/` 也**不在**这里:`openapi:generate` 在 starter
+> (它要 `RouteCollection`),`openapi:diff` 在 `jaravel-console`
+> (离线命令,只读两份 JSON,不需要容器也不需要路由表)。
+> jaravel-api 没有理由为此引入 Jackson。
 
 ```
 jaravel-api
@@ -891,4 +971,4 @@ jaravel-api
 - [ ] `JsonResource#toArray` 的键集合静态提取(用于 OpenAPI)的可靠性。复杂逻辑下必然失败。倾向:静态提取做 best-effort,失败时在 `openapi:generate` 输出中明确标注「该 schema 由运行时采样得出,可能不完整」,而不是静默生成错误文档。
 - [ ] 默认是否带 `data` 包裹?Laravel 带,但很多团队关掉。倾向跟随 Laravel(带),文档显著说明如何关闭。
 - [ ] `Cursored` 分页的 cursor 编码(base64 的 JSON vs 不透明字符串)与排序列的约束(必须包含唯一列)。需要在 API 层给出清晰错误而非返回错误数据。
-- [ ] OpenAPI 生成是 Maven 插件(构建期)还是 Artisan 命令(运行期)?两者都需要:插件用于 CI diff,命令用于本地快速查看。
+- [ ] OpenAPI 生成是 Maven 插件(构建期)还是 Artisan 命令(运行期)?两者都需要:插件用于 CI diff,命令用于本地快速查看。**命令那一半已实现**(`openapi:generate` + `openapi:diff`);docs/16 里那个 `openapi-diff` Maven goal 仍未做。

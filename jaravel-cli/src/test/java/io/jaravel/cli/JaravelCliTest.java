@@ -87,6 +87,23 @@ class JaravelCliTest {
     }
 
     @Test
+    @DisplayName("★ openapi:diff 走离线路径 —— 只读两份 JSON,不碰容器")
+    void openApiDiffRunsWithoutAnApplication(@TempDir Path tmp) throws Exception {
+        String json = """
+                {"openapi":"3.1.0","info":{"title":"t","version":"1.0.0"},
+                 "paths":{"/posts":{"get":{"operationId":"PostController.index",
+                 "responses":{"200":{"description":"ok"}}}}}}""";
+        Path base = Files.writeString(tmp.resolve("base.json"), json);
+        Path current = Files.writeString(tmp.resolve("current.json"), json);
+
+        var result = run(project(tmp), "openapi:diff", base.toString(), current.toString());
+
+        assertThat(result.code()).isZero();
+        assertThat(result.err()).isEmpty();
+        assertThat(result.out()).contains("两份文档没有差异");
+    }
+
+    @Test
     @DisplayName("★ 目录不像项目时给提示,但**不拒绝执行**")
     void hintsWhenNotAProject(@TempDir Path tmp) {
         var result = run(tmp, "make:model", "Post");

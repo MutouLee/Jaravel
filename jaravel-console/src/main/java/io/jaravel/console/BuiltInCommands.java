@@ -18,6 +18,7 @@ import io.jaravel.console.generators.MakeRequest;
 import io.jaravel.console.generators.MakeSeeder;
 import io.jaravel.console.generators.MakeTest;
 import io.jaravel.console.generators.WrapperInstallCommand;
+import io.jaravel.console.openapi.OpenApiDiffCommand;
 
 /**
  * 框架自带的离线命令 —— **这张表只有一份**。
@@ -51,7 +52,8 @@ public final class BuiltInCommands {
     }
 
     /**
-     * 生成类命令 + {@code key:generate} + {@code wrapper:install}。
+     * 离线命令:生成类 + {@code key:generate} + {@code wrapper:install}
+     * + {@code openapi:diff}。
      *
      * <p>全部是 {@code offline = true}:它们只读写文件,不需要容器
      * (有一条测试核对这件事 —— 标错方向的代价不对称,
@@ -68,7 +70,8 @@ public final class BuiltInCommands {
             MakeEvent.class, MakeListener.class, MakePolicy.class,
             MakeSeeder.class, MakeMail.class, MakeNotification.class,
             MakeConsoleCommand.class, MakeTest.class,
-            KeyGenerateCommand.class, WrapperInstallCommand.class);
+            KeyGenerateCommand.class, WrapperInstallCommand.class,
+            OpenApiDiffCommand.class);
 
     /**
      * {@code list} 与 {@code help} —— **两侧都要注册**。

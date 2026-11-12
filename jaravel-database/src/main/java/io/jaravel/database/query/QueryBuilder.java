@@ -3,9 +3,11 @@ package io.jaravel.database.query;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.function.Consumer;
 
@@ -16,6 +18,7 @@ import io.jaravel.database.query.QueryState.Bool;
 import io.jaravel.database.query.QueryState.Op;
 import io.jaravel.database.query.QueryState.Where;
 import io.jaravel.support.Coll;
+import io.jaravel.support.LazyColl;
 
 /**
  * 流式查询构造器。表达力对标 Laravel 的 {@code Illuminate\Database\Query\Builder}。
@@ -501,6 +504,82 @@ public class QueryBuilder {
             handler.accept(batch);
             lastId = batch.last().orElseThrow().get(keyColumn);
             if (batch.size() < size) break;
+        }
+    }
+
+    /** 惰性遍历的默认块大小 —— 与 Laravel 的 lazy() 默认一致 */
+    public static final int DEFAULT_LAZY_SIZE = 1000;
+
+    /**
+     * 惰性遍历(docs/05 §2.5)。
+     *
+     * <p>这一版是**按主键分块**实现的:每次只取一块,内存上限是块大小,
+     * 翻页语义与 {@link #chunkById(int, Consumer)} 相同 —— 并发插入时
+     * 不会漏行或重复。真正的 JDBC 游标(单次查询、逐行读取)留到后面。
+     *
+     * <p>在遍历开始前不会执行任何 SQL。重复遍历会重新查询。
+     */
+    public LazyColl<Row> lazy() {
+        return lazy(DEFAULT_LAZY_SIZE);
+    }
+
+    public LazyColl<Row> lazy(int size) {
+        return lazy(size, "id");
+    }
+
+    public LazyColl<Row> lazy(int size, String keyColumn) {
+        return lazyChunks(size, keyColumn).flatMap(chunk -> chunk);
+    }
+
+    public LazyColl<Coll<Row>> lazyChunks(int size) {
+        return lazyChunks(size, "id");
+    }
+
+    /** 每块一组的惰性遍历;调用方可以按块做预加载等批量处理 */
+    public LazyColl<Coll<Row>> lazyChunks(int size, String keyColumn) {
+        if (size <= 0) {
+            throw new IllegalArgumentException("lazy 的块大小必须大于 0,收到:" + size);
+        }
+        return LazyColl.from(() -> new ChunkIterator(size, keyColumn));
+    }
+
+    private final class ChunkIterator implements Iterator<Coll<Row>> {
+        private final int size;
+        private final String keyColumn;
+        private Object lastKey;
+        private Coll<Row> current = Coll.empty();
+        private boolean exhausted;
+
+        private ChunkIterator(int size, String keyColumn) {
+            this.size = size;
+            this.keyColumn = keyColumn;
+        }
+
+        @Override
+        public boolean hasNext() {
+            if (!current.isEmpty()) return true;
+            if (exhausted) return false;
+
+            var q = cloneForChunk();
+            if (lastKey != null) q.where(keyColumn, Op.GT, lastKey);
+            current = q.reorder().orderBy(keyColumn).limit(size).get();
+
+            if (current.isEmpty()) {
+                exhausted = true;
+                return false;
+            }
+
+            lastKey = current.last().orElseThrow().get(keyColumn);
+            if (current.size() < size) exhausted = true;
+            return true;
+        }
+
+        @Override
+        public Coll<Row> next() {
+            if (!hasNext()) throw new NoSuchElementException();
+            Coll<Row> out = current;
+            current = Coll.empty();
+            return out;
         }
     }
 

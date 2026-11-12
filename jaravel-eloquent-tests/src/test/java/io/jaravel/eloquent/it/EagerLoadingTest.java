@@ -45,6 +45,25 @@ class EagerLoadingTest extends EloquentTestBase {
     }
 
     @Test
+    @DisplayName("★ lazy() 按块遍历,每块也做预加载 —— 不是 N+1")
+    void lazyChunksKeepEagerLoading() {
+        seed(5, 2);
+
+        clearSql();
+        var users = User.query().load(User_.posts).lazy(2).toList();
+
+        assertThat(users).hasSize(5);
+        // 5 个用户按 2 个一块 = 3 块;每块 1 条用户 + 1 条文章 = 6 条
+        assertThat(selectCount()).isEqualTo(6);
+
+        clearSql();
+        for (User user : users) {
+            assertThat(user.posts().getLoaded()).hasSize(2);
+        }
+        assertThat(selectCount()).as("访问已加载的关联不再查库").isZero();
+    }
+
+    @Test
     @DisplayName("不预加载时就是 N+1 —— 作为对照,证明上面的断言有意义")
     void withoutEagerLoadingItIsNPlusOne() {
         seed(3, 2);

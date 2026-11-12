@@ -149,6 +149,15 @@ try (var cursor = DB.table("users").cursor()) {              // 流式,内存恒
 LazyColl<Row> lazy = DB.table("users").lazy();
 ```
 
+> **v0.6:`lazy()` 已实现,但它是「按主键分块」而不是单条 JDBC 游标。**
+> 默认块大小 1000,内存上限是块大小;翻页语义与 `chunkById` 相同
+> (并发插入不漏行不重复)。真正的 `cursor()`(单次查询、逐行读取)
+> 需要长期持有连接与 ResultSet,留到后续。
+>
+> `LazyColl` 在 `jaravel-support`:`map` / `filter` / `take` / `flatMap`
+> 都保持惰性,构造时**不执行任何 SQL**;重复遍历会重新查询。
+> 用完请 `close()`,`toList()` / `forEach` / `try-with-resources` 会自动关。
+
 ### 2.6 写入
 
 ```java

@@ -208,7 +208,7 @@ Cursored<User> cur = User.query().cursorPaginate(15);
 // 大数据集
 User.query().chunkById(1000, batch -> { ... });
 try (var c = User.query().cursor()) { c.forEach(...); }
-LazyColl<User> lazy = User.query().lazy();
+LazyColl<User> lazy = User.query().lazy();      // 按主键分块,每块做预加载
 
 // 批量写
 User.query().where(User_.STATUS, PENDING).update(Map.of("status", ACTIVE));

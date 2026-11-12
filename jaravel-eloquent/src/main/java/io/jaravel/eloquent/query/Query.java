@@ -22,6 +22,7 @@ import io.jaravel.eloquent.relations.RelationLoader;
 import io.jaravel.support.Coll;
 import io.jaravel.support.Cursor;
 import io.jaravel.support.Cursored;
+import io.jaravel.support.LazyColl;
 import io.jaravel.support.Paginated;
 
 /**
@@ -727,6 +728,26 @@ public class Query<M extends Model<M>> {
             for (Row row : rows) models.add(IdentityMap.resolve(meta, row));
             if (!eagerLoads.isEmpty()) RelationLoader.load(meta, models, eagerLoads);
             handler.accept(Coll.wrap(List.copyOf(models)));
+        });
+    }
+
+    /**
+     * 惰性遍历(docs/06 §3 的「大数据集」)。
+     *
+     * <p>按主键分块,每块做一次预加载 —— 于是 {@code lazy()} 不会退化成
+     * N+1:每块的用户查询 + 每块每个预加载关系各一条。内存上限是块大小。
+     */
+    public LazyColl<M> lazy() {
+        return lazy(QueryBuilder.DEFAULT_LAZY_SIZE);
+    }
+
+    public LazyColl<M> lazy(int size) {
+        prepare();
+        return builder.lazyChunks(size, meta.keyName()).flatMap(rows -> {
+            List<M> models = new ArrayList<>(rows.size());
+            for (Row row : rows) models.add(IdentityMap.resolve(meta, row));
+            if (!eagerLoads.isEmpty()) RelationLoader.load(meta, models, eagerLoads);
+            return models;
         });
     }
 

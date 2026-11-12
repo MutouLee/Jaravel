@@ -23,6 +23,7 @@ import io.jaravel.database.grammar.PostgresGrammar;
 import io.jaravel.database.grammar.SqliteGrammar;
 import io.jaravel.database.query.QueryBuilder;
 import io.jaravel.database.query.QueryState.Op;
+import io.jaravel.support.Coll;
 
 class DatabaseTest {
 
@@ -539,6 +540,67 @@ class DatabaseTest {
             conn.table("users").chunkById(10, batch -> batch.each(r -> seen.add(r.string("name"))));
             assertThat(seen).hasSize(25);
             assertThat(seen).doesNotHaveDuplicates();
+        }
+
+        @Test
+        @DisplayName("★ lazy():遍历开始前不查库,按块取;25 条用 3 次查询")
+        void lazyFetchesByChunkOnDemand() {
+            for (int i = 1; i <= 25; i++) {
+                conn.table("users").insert(Map.of("name", "u" + i));
+            }
+
+            conn.flushQueryLog();
+            conn.enableQueryLog();
+
+            var lazy = conn.table("users").lazy(10);
+            assertThat(conn.queryLog()).as("构造 lazy 不该执行 SQL").isEmpty();
+
+            var names = lazy.map(row -> row.string("name")).toList();
+
+            assertThat(names).hasSize(25).doesNotHaveDuplicates();
+            assertThat(names.get(0)).isEqualTo("u1");
+            assertThat(names.get(24)).isEqualTo("u25");
+            assertThat(conn.queryLog()).as("10 + 10 + 5,最后一块不足即停止").hasSize(3);
+
+            conn.disableQueryLog();
+            conn.flushQueryLog();
+        }
+
+        @Test
+        @DisplayName("lazyChunks() 按块返回,块大小正确")
+        void lazyChunks() {
+            for (int i = 1; i <= 25; i++) {
+                conn.table("users").insert(Map.of("name", "u" + i));
+            }
+
+            var sizes = conn.table("users").lazyChunks(10)
+                    .map(Coll::size)
+                    .toList();
+
+            assertThat(sizes).containsExactly(10, 10, 5);
+        }
+
+        @Test
+        @DisplayName("lazy() 的 take 在无限/大结果集上提前停")
+        void lazyTakeStopsEarly() {
+            for (int i = 1; i <= 25; i++) {
+                conn.table("users").insert(Map.of("name", "u" + i));
+            }
+
+            var names = conn.table("users").lazy(5)
+                    .map(row -> row.string("name"))
+                    .take(3)
+                    .toList();
+
+            assertThat(names).containsExactly("u1", "u2", "u3");
+        }
+
+        @Test
+        @DisplayName("块大小必须大于 0")
+        void lazyRejectsBadChunkSize() {
+            assertThatThrownBy(() -> conn.table("users").lazy(0))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("块大小必须大于 0");
         }
 
         @Test

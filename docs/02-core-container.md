@@ -536,6 +536,6 @@ DateX.now().timezone("UTC");
 ## 9. 待决问题
 
 - [ ] 门面是否最终改为 APT 生成?手写 400 个方法的维护成本 vs 生成物的调试体验。倾向:v0.1 手写核心 6 个,v0.5 评估生成。
-- [ ] `Coll` 是否需要惰性版本 `LazyColl`(对应 Laravel 的 `LazyCollection`)?用于大结果集游标遍历。倾向 v0.2 跟 Eloquent 的 `cursor()` 一起做。
+- [x] `Coll` 是否需要惰性版本 `LazyColl`(对应 Laravel 的 `LazyCollection`)?用于大结果集游标遍历。**已实现**(v0.6):惰性 `map` / `filter` / `take` / `flatMap` + `onClose`;数据库侧的 `lazy()` 按主键分块(默认 1000),真正的单条 JDBC `cursor()` 仍未做。
 - [ ] `@ConfigProps` 与 Spring `@ConfigurationProperties` 是否合并?倾向保留独立,但在 starter 里让两者读同一份配置源。
 - [ ] 延迟提供者在 native-image 下的可达性分析问题,需验证。

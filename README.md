@@ -11,7 +11,7 @@ Resource 层、分页、统一异常处理、Problem JSON、内容协商(JSON / 
 `openapi:generate` / `openapi:diff`、`@ApiDoc` 与响应 schema 的 APT
 都已到位(v0.5,docs/12)。
 v0.6 进行中:jblade **类组件**已落地(`<x-post-card :post="post" />`);
-`LazyColl` 与数据库 `lazy()` 已落地;调试工具栏已落地(路由/视图/SQL/缓存/队列/事件/耗时/内存);
+`LazyColl` 与数据库 `lazy()` 已落地;调试工具栏已落地(路由/视图/SQL/N+1/缓存/队列/事件/耗时/内存);
 二步验证原语(TOTP + 恢复码)已落地;广播待做。
 还差:native 二进制(v0.9)。
 

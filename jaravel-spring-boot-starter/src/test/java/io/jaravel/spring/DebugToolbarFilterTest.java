@@ -110,20 +110,27 @@ class DebugToolbarFilterTest {
     @Test
     @DisplayName("★ SQL 面板:条数、总耗时、语句与绑定值(都转义)")
     void showsCollectedQueries() throws Exception {
-        var connection = connectionWith(new io.jaravel.database.Connection.QueryLog(
-                "select * from \"users\" where name = ?",
-                List.of("Tom & Jerry"), 1200, "app.PostController.index"));
+        var connection = connectionWith(
+                new io.jaravel.database.Connection.QueryLog(
+                        "select * from \"users\" where name = ?",
+                        List.of("Tom & Jerry"), 1200, "app.PostController.index"),
+                new io.jaravel.database.Connection.QueryLog(
+                        "select * from \"users\" where name = ?",
+                        List.of("Spike"), 800, "app.PostController.index"));
 
         String html = run(filter(true, connection), request("text/html"),
                 "<html><body>hi</body></html>", "text/html;charset=UTF-8", 200);
 
         assertThat(html)
                 .contains("SQL")
-                .contains("1 条")
+                .contains("2 条")
                 .contains("select * from")
                 .contains("app.PostController.index")
                 .contains("&amp;")
-                .contains("[Tom &amp; Jerry]");
+                .contains("[Tom &amp; Jerry]")
+                .as("同一语句执行两次 → 标可能是 N+1")
+                .contains("可能是 N+1")
+                .contains("×2");
     }
 
     @Test

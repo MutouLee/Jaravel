@@ -217,20 +217,35 @@ public class DebugToolbarFilter extends OncePerRequestFilter {
     private static String sqlPanel(java.util.List<io.jaravel.database.Connection.QueryLog> queries) {
         if (queries.isEmpty()) return "";
 
+        var counts = new java.util.HashMap<String, Integer>();
+        for (var query : queries) counts.merge(query.sql(), 1, Integer::sum);
+        long repeated = counts.values().stream().filter(count -> count > 1).count();
+
         var panel = new StringBuilder("<details style=\"margin-top:6px\"><summary style=\"cursor:pointer;color:#9ca3af\">SQL(")
                 .append(queries.size())
                 .append(")</summary><div style=\"max-height:220px;overflow:auto\">");
 
+        if (repeated > 0) {
+            panel.append("<div style=\"color:#fbbf24;padding:6px 0\">⚠ ")
+                    .append(repeated)
+                    .append(" 条语句重复执行 —— 可能是 N+1</div>");
+        }
+
         int shown = Math.min(queries.size(), MAX_QUERIES);
         for (int i = 0; i < shown; i++) {
             var query = queries.get(i);
+            int count = counts.getOrDefault(query.sql(), 1);
+
             panel.append("<div style=\"padding:6px 0;border-top:1px solid #374151\">")
                     .append("<div style=\"color:#9ca3af\">")
                     .append(String.format(Locale.ROOT, "%.1f", query.micros() / 1000.0))
                     .append(" ms")
                     .append(" · ")
-                    .append(esc(query.caller()))
-                    .append("</div><div style=\"white-space:pre-wrap;word-break:break-all\">")
+                    .append(esc(query.caller()));
+            if (count > 1) {
+                panel.append(" · <span style=\"color:#fbbf24\">⚠ ×").append(count).append("</span>");
+            }
+            panel.append("</div><div style=\"white-space:pre-wrap;word-break:break-all\">")
                     .append(esc(query.sql()))
                     .append("</div><div style=\"color:#9ca3af\">")
                     .append(esc(String.valueOf(query.bindings())))

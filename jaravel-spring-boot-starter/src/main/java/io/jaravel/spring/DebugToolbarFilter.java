@@ -77,14 +77,19 @@ public class DebugToolbarFilter extends OncePerRequestFilter {
         boolean injected = false;
 
         if (connection != null) connection.beginQueryCollection();
+        DebugRequestStats.begin();
+        io.jaravel.events.Event.beginEventCollection();
 
         try {
             chain.doFilter(request, cached);
             var queries = connection == null
                     ? java.util.List.<io.jaravel.database.Connection.QueryLog>of()
                     : connection.collectedQueries();
-            injected = tryInject(request, cached, start, queries);
+            injected = tryInject(request, cached, start, queries,
+                    DebugRequestStats.current(), io.jaravel.events.Event.collectedEventNames());
         } finally {
+            io.jaravel.events.Event.endEventCollection();
+            DebugRequestStats.end();
             if (connection != null) connection.endQueryCollection();
             // 没注入就原样写回;注入失败也走这里,页面仍在(少一个工具栏而已)
             if (!injected) cached.copyBodyToResponse();
@@ -101,7 +106,9 @@ public class DebugToolbarFilter extends OncePerRequestFilter {
 
     private boolean tryInject(HttpServletRequest request,
                               ContentCachingResponseWrapper response, long startNanos,
-                              java.util.List<io.jaravel.database.Connection.QueryLog> queries) {
+                              java.util.List<io.jaravel.database.Connection.QueryLog> queries,
+                              DebugRequestStats.Snapshot stats,
+                              java.util.List<String> events) {
         try {
             if (!"GET".equalsIgnoreCase(request.getMethod())) return false;
 
@@ -120,7 +127,8 @@ public class DebugToolbarFilter extends OncePerRequestFilter {
             String html = new String(bytes, StandardCharsets.UTF_8);
             if (html.contains(ID)) return false;
 
-            byte[] injected = injectHtml(html, toolbar(request, response, startNanos, queries))
+            byte[] injected = injectHtml(html,
+                    toolbar(request, response, startNanos, queries, stats, events))
                     .getBytes(StandardCharsets.UTF_8);
 
             response.resetBuffer();
@@ -142,12 +150,22 @@ public class DebugToolbarFilter extends OncePerRequestFilter {
 
     private static String toolbar(HttpServletRequest request,
                                   ContentCachingResponseWrapper response, long startNanos,
-                                  java.util.List<io.jaravel.database.Connection.QueryLog> queries) {
+                                  java.util.List<io.jaravel.database.Connection.QueryLog> queries,
+                                  DebugRequestStats.Snapshot stats,
+                                  java.util.List<String> events) {
         double millis = (System.nanoTime() - startNanos) / 1_000_000.0;
         long used = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
         long queryMicros = queries.stream()
                 .mapToLong(io.jaravel.database.Connection.QueryLog::micros)
                 .sum();
+
+        String cacheText = stats == null
+                ? "命中 0 / 未命中 0"
+                : "命中 " + stats.cacheHits + " / 未命中 " + stats.cacheMisses;
+        String queueText = stats == null
+                ? "投递 0 · 完成 0 · 失败 0"
+                : "投递 " + stats.queued + " · 完成 " + stats.processed
+                        + " · 失败 " + stats.failed;
 
         Route route = request.getAttribute(JaravelHandlerAdapter.ROUTE_ATTRIBUTE) instanceof Route r
                 ? r : null;
@@ -169,6 +187,7 @@ public class DebugToolbarFilter extends OncePerRequestFilter {
 
         String sqlText = queries.size() + " 条 · "
                 + String.format(Locale.ROOT, "%.1f", queryMicros / 1000.0) + " ms";
+        String eventText = events.size() + " 个";
 
         return """
                 <div id="%s" style="position:fixed;right:12px;bottom:12px;z-index:2147483647;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;color:#e5e7eb;background:#111827;border:1px solid #374151;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.35);max-width:560px">
@@ -179,15 +198,20 @@ public class DebugToolbarFilter extends OncePerRequestFilter {
                         <tr><td style="color:#9ca3af;padding-right:12px">路由</td><td>%s</td></tr>
                         <tr><td style="color:#9ca3af">视图</td><td>%s</td></tr>
                         <tr><td style="color:#9ca3af">SQL</td><td>%s</td></tr>
+                        <tr><td style="color:#9ca3af">缓存</td><td>%s</td></tr>
+                        <tr><td style="color:#9ca3af">队列</td><td>%s</td></tr>
+                        <tr><td style="color:#9ca3af">事件</td><td>%s</td></tr>
                         <tr><td style="color:#9ca3af">内存</td><td>%.1f MB</td></tr>
                       </table>
+                      %s
                       %s
                     </div>
                   </details>
                 </div>
                 """
                 .formatted(ID, summary, esc(routeText), esc(viewText), sqlText,
-                        used / 1024.0 / 1024.0, sqlPanel(queries));
+                        cacheText, queueText, eventText, used / 1024.0 / 1024.0,
+                        sqlPanel(queries), eventPanel(events));
     }
 
     private static String sqlPanel(java.util.List<io.jaravel.database.Connection.QueryLog> queries) {
@@ -217,6 +241,26 @@ public class DebugToolbarFilter extends OncePerRequestFilter {
                     .append(queries.size() - shown)
                     .append(" 条未列出</div>");
         }
+        return panel.append("</div></details>").toString();
+    }
+
+    private static String eventPanel(java.util.List<String> events) {
+        if (events.isEmpty()) return "";
+
+        var counts = new java.util.TreeMap<String, Integer>();
+        for (String event : events) counts.merge(event, 1, Integer::sum);
+
+        var panel = new StringBuilder("<details style=\"margin-top:6px\"><summary style=\"cursor:pointer;color:#9ca3af\">事件(")
+                .append(events.size())
+                .append(")</summary><div style=\"max-height:160px;overflow:auto\">");
+
+        counts.forEach((name, count) -> panel
+                .append("<div style=\"padding:2px 0;color:#d1d5db\">")
+                .append(esc(name))
+                .append(" ×")
+                .append(count)
+                .append("</div>"));
+
         return panel.append("</div></details>").toString();
     }
 

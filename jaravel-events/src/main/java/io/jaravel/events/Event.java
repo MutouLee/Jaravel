@@ -131,6 +131,24 @@ public final class Event {
         bus().listen(classNamePattern, handler);
     }
 
+    // ================= 按请求收集(调试工具栏) =================
+
+    /** 开始按当前线程收集事件名;总线没装配时什么都不做 */
+    public static void beginEventCollection() {
+        EventBus current = bus;
+        if (current != null) current.beginEventCollection();
+    }
+
+    public static List<String> collectedEventNames() {
+        EventBus current = bus;
+        return current == null ? List.of() : current.collectedEventNames();
+    }
+
+    public static void endEventCollection() {
+        EventBus current = bus;
+        if (current != null) current.endEventCollection();
+    }
+
     // ================= 测试 =================
 
     /** 记录分发但不执行监听器。**在被测代码之前调** */

@@ -10,7 +10,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
+import io.jaravel.cache.events.CacheEvents;
 import io.jaravel.core.config.MapConfigRepository;
+import io.jaravel.events.Event;
+import io.jaravel.events.EventBus;
 import io.jaravel.http.Response;
 import io.jaravel.routing.Route;
 
@@ -121,6 +124,32 @@ class DebugToolbarFilterTest {
                 .contains("app.PostController.index")
                 .contains("&amp;")
                 .contains("[Tom &amp; Jerry]");
+    }
+
+    @Test
+    @DisplayName("★ 缓存命中/未命中计数进工具栏")
+    void showsCacheStats() throws Exception {
+        Event.use(EventBus.standalone());
+
+        var request = request("text/html");
+        var response = new MockHttpServletResponse();
+
+        filter(true).doFilter(request, response, (req, res) -> {
+            Event.dispatch(new CacheEvents.Hit("posts:1"));
+            Event.dispatch(new CacheEvents.Hit("posts:2"));
+            Event.dispatch(new CacheEvents.Missed("posts:3"));
+
+            var http = (jakarta.servlet.http.HttpServletResponse) res;
+            http.setContentType("text/html;charset=UTF-8");
+            http.getWriter().write("<html><body>hi</body></html>");
+        });
+
+        assertThat(response.getContentAsString())
+                .contains("缓存")
+                .contains("命中 2 / 未命中 1")
+                .contains("事件")
+                .contains("Hit ×2")
+                .contains("Missed ×1");
     }
 
     @Test

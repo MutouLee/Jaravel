@@ -1821,6 +1821,30 @@ class JbladeTest {
         }
 
         @Test
+        @DisplayName("带 body 的类组件也检查 shouldRender,且只构造一次")
+        void shouldRenderWithBody(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of(
+                    "components.test-maybe-body", """
+                        @params(io.jaravel.view.TestMaybeCard self, gg.jte.Content slot = null)
+                        <p>{{ self.title }}{{ slot }}</p>
+                        """,
+                    "t", """
+                        @params(boolean show)
+                        <x-test-maybe-body title="T" :visible="show">body</x-test-maybe-body>
+                        """));
+
+            assertThat(e.render("t", Map.of("show", true))).contains("T").contains("body");
+            assertThat(e.render("t", Map.of("show", false)))
+                    .as("shouldRender 为 false 时连 body 一起不输出")
+                    .doesNotContain("<p>");
+
+            assertThat(e.transpiledSource("t"))
+                    .contains("var __jaravel_component_")
+                    .contains("@if(__jaravel_component_")
+                    .contains("@endif");
+        }
+
+        @Test
         @DisplayName("转写产物是 new 组件类,不是匿名模板调用")
         void transpilesToConstructorCall(@TempDir Path tmp) {
             var e = engine(tmp, Map.of(

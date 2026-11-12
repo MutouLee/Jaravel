@@ -119,18 +119,18 @@ public final class JbladeTranspiler {
         /** 当前正在收集哪个具名 slot;null = 收集默认 slot */
         String capturing;
         /** 类组件的信息;匿名组件为 null —— slot 声明要从它查 */
-        final ClassComponent classComponent;
+        final ClassComponentCall classComponentCall;
 
         ComponentFrame(String name, int line, String callPrefix) {
             this(name, line, callPrefix, null);
         }
 
         ComponentFrame(String name, int line, String callPrefix,
-                       ClassComponent classComponent) {
+                       ClassComponentCall classComponentCall) {
             this.name = name;
             this.line = line;
             this.callPrefix = callPrefix;
-            this.classComponent = classComponent;
+            this.classComponentCall = classComponentCall;
         }
 
         List<Piece> target() {
@@ -139,8 +139,16 @@ public final class JbladeTranspiler {
     }
 
     private final Deque<ComponentFrame> componentFrames = new ArrayDeque<>();
+    /**
+     * 一次类组件调用的信息。
+     *
+     * @param local 带 shouldRender 时的局部变量名;null 表示不需要检查
+     */
+    private record ClassComponentCall(ClassComponent component, String local, String constructor) {
+    }
+
     /** CO 哨兵 → 类组件信息(匿名组件不在这里) */
-    private final Map<Integer, ClassComponent> classComponentTags = new HashMap<>();
+    private final Map<Integer, ClassComponentCall> classComponentTags = new HashMap<>();
     /** 类组件的局部变量名后缀 —— 一行里可能有多个组件 */
     private int componentLocals;
 
@@ -945,14 +953,21 @@ public final class JbladeTranspiler {
         }
 
         // 带 body:调用本体先不发出去 —— 具名 slot 可能还要往参数表里加东西。
-        // 这一条路径目前不生成 shouldRender 检查(先构造再判断需要包住
-        // 整个拼装结果;自闭合组件是绝大多数)。
+        // shouldRender 需要「先构造一次」,所以这里把构造挪到拼接时的
+        // 前导行(!{ var c = new …; }),调用里只引用那个局部变量。
+        String local = null;
+        String self = constructor;
+        if (component.shouldRender()) {
+            local = "__jaravel_component_" + (++componentLocals);
+            self = local;
+        }
+
         String call = "@template." + component.view()
-                    + "(ctx = ctx, " + component.selfName() + " = " + constructor;
+                    + "(ctx = ctx, " + component.selfName() + " = " + self;
 
         open("component", sourceLine);
         int id = tag(tagName, sourceLine, call);
-        classComponentTags.put(id, component);
+        classComponentTags.put(id, new ClassComponentCall(component, local, constructor));
         return sentinel("CO", id);
     }
 
@@ -1423,7 +1438,7 @@ public final class JbladeTranspiler {
         switch (kind) {
             case "CO" -> {
                 TagInfo tag = tags.get(id);
-                ClassComponent classComponent = classComponentTags.remove(id);
+                ClassComponentCall classComponent = classComponentTags.remove(id);
                 componentFrames.push(new ComponentFrame(
                         tag.name(), tag.line(), tag.text(), classComponent));
             }
@@ -1431,9 +1446,9 @@ public final class JbladeTranspiler {
                 ComponentFrame frame = componentFrames.peek();
                 String name = tags.get(id).name();
 
-                if (frame.classComponent != null) {
+                if (frame.classComponentCall != null) {
                     String parameter = slotParam(name);
-                    if (!frame.classComponent.contentParams().contains(parameter)) {
+                    if (!frame.classComponentCall.component().contentParams().contains(parameter)) {
                         throw new JbladeException(templateName, sourceLine,
                                 "类组件 <x-" + frame.name + "> 的模板没有声明 "
                               + parameter + "。\n"
@@ -1487,10 +1502,22 @@ public final class JbladeTranspiler {
         var glue = new StringBuilder(frame.callPrefix);
         var pieces = new ArrayList<Piece>();
 
+        // 类组件的 shouldRender:先构造一次放进局部变量,再包一层 @if。
+        // 自闭合那条路在 classComponentTag 里直接拼好了;带 body 的
+        // 要等 slot 拼装完才能包住整个调用。
+        ClassComponentCall conditional = frame.classComponentCall;
+        boolean guarded = conditional != null && conditional.local() != null;
+        if (guarded) {
+            pieces.add(new Piece("!{ var " + conditional.local()
+                    + " = " + conditional.constructor() + "; }", frame.line, true));
+            pieces.add(new Piece("@if(" + conditional.local() + ".shouldRender())",
+                    frame.line, true));
+        }
+
         for (var entry : frame.namedSlots.entrySet()) {
             String parameter = slotParam(entry.getKey());
-            if (frame.classComponent != null
-                    && !frame.classComponent.contentParams().contains(parameter)) {
+            if (frame.classComponentCall != null
+                    && !frame.classComponentCall.component().contentParams().contains(parameter)) {
                 throw new JbladeException(templateName, closeLine,
                         "类组件 <x-" + frame.name + "> 的模板没有声明 "
                       + parameter + "。\n"
@@ -1505,8 +1532,8 @@ public final class JbladeTranspiler {
             glue.append('`');
         }
 
-        boolean passDefaultSlot = frame.classComponent == null
-                || frame.classComponent.hasDefaultSlot();
+        boolean passDefaultSlot = frame.classComponentCall == null
+                || frame.classComponentCall.component().hasDefaultSlot();
 
         if (passDefaultSlot) {
             glue.append(", slot = @`");
@@ -1524,6 +1551,10 @@ public final class JbladeTranspiler {
 
         glue.append(')');
         pieces.add(new Piece(glue.toString(), closeLine, false));
+
+        if (guarded) {
+            pieces.add(new Piece("@endif", closeLine, true));
+        }
 
         // 落到上一层:外层帧的缓冲区,或产物
         ComponentFrame parent = componentFrames.peek();

@@ -68,8 +68,26 @@ public final class EventBus {
 
     private FakeRecorder fake;
 
+    /** 按线程收集事件名 —— 调试工具栏的「本次请求事件」面板 */
+    private final ThreadLocal<List<String>> collected = new ThreadLocal<>();
+
     public EventBus(Function<Class<?>, Object> resolver) {
         this.resolver = resolver;
+    }
+
+    // ================= 按请求收集(调试工具栏) =================
+
+    public void beginEventCollection() {
+        collected.set(new ArrayList<>());
+    }
+
+    public List<String> collectedEventNames() {
+        List<String> names = collected.get();
+        return names == null ? List.of() : List.copyOf(names);
+    }
+
+    public void endEventCollection() {
+        collected.remove();
     }
 
     /** 不解析任何依赖 —— 只能用闭包监听器。单元测试用 */
@@ -282,6 +300,9 @@ public final class EventBus {
     }
 
     private boolean deliver(Object event) {
+        List<String> collectedNames = collected.get();
+        if (collectedNames != null) collectedNames.add(event.getClass().getSimpleName());
+
         notifyWildcards(event);
 
         // 按事件的**实际类型**查。不做父类/接口匹配 ——

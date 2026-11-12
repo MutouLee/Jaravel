@@ -599,6 +599,22 @@ class EventBusTest {
     }
 
     @Test
+    @DisplayName("★ 按线程收集事件名 —— 调试工具栏的「本次请求事件」")
+    void collectsEventNamesPerThread() {
+        var bus = EventBus.standalone();
+
+        bus.beginEventCollection();
+        bus.dispatch(new OrderPaid(1L, 100));
+        bus.dispatch(new OrderRefunded(1L));
+
+        assertThat(bus.collectedEventNames())
+                .containsExactly("OrderPaid", "OrderRefunded");
+
+        bus.endEventCollection();
+        assertThat(bus.collectedEventNames()).isEmpty();
+    }
+
+    @Test
     @DisplayName("★ Boolean 返回 null 时不中止(把 null 当 false 会静默断链)")
     void nullBooleanDoesNotAbort() {
         var binding = ListenerIndex.load(getClass().getClassLoader()).stream()

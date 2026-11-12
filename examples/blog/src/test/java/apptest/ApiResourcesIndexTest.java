@@ -47,9 +47,10 @@ class ApiResourcesIndexTest {
                 .filteredOn(property -> property.name().equals("author"))
                 .singleElement()
                 .satisfies(property -> {
-                    assertThat(property.type())
-                            .as("嵌套资源的形状静态分析不知道 —— 不写 type,不猜 object")
-                            .isNull();
+                    assertThat(property.type()).isEqualTo("object");
+                    assertThat(property.ref())
+                            .as("嵌套资源记下类名,生成器会把它解析成 $ref")
+                            .isEqualTo("app.http.resources.AuthorResource");
                     assertThat(property.optional()).isTrue();
                 });
 

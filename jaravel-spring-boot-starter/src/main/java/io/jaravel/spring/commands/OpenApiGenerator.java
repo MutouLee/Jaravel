@@ -361,9 +361,54 @@ final class OpenApiGenerator {
         }
 
         String component = componentNameFor(resource);
+        // ★ 先登记名字再构建:资源之间可以互相引用(A 的 author 是 B,
+        // B 的 owner 又是 A)。名字不在建 schema 之前放进去的话,
+        // 递归会无限展开。构建期间查到自己只会拿到 $ref。
         componentNames.put(className, component);
-        usedSchemas.put(component, schema.get().toOpenApiSchema());
+
+        usedSchemas.put(component, schema.get().toOpenApiSchema(
+                (nested, array) -> schemaForRef(nested, array, "schema " + component)));
         return schemaRef(component);
+    }
+
+    /**
+     * 把一个嵌套资源的类名解析成 {@code $ref}。
+     *
+     * <p>类可能来自另一个模块的索引;加载不到、或者索引里没有它的 schema
+     * 时返回 null —— 调用方会退回 {@code {type: object/array}},
+     * 而 note 里会说清是哪一个。
+     */
+    private Map<String, Object> schemaForRef(String className, boolean array, String location) {
+        Class<?> type = loadClass(className);
+        if (type == null) {
+            schemaNotes.add(location + " · " + className + ":嵌套资源类加载不到");
+            return null;
+        }
+        if (!JsonResource.class.isAssignableFrom(type)) {
+            schemaNotes.add(location + " · " + type.getSimpleName()
+                    + ":嵌套字段指向的不是 JsonResource 子类");
+            return null;
+        }
+
+        Map<String, Object> ref = schemaRefOf(type, location + " · " + type.getSimpleName());
+        if (ref == null) return null;
+
+        if (!array) return ref;
+
+        var schema = new LinkedHashMap<String, Object>();
+        schema.put("type", "array");
+        schema.put("items", ref);
+        return schema;
+    }
+
+    private static Class<?> loadClass(String className) {
+        ClassLoader loader = Thread.currentThread().getContextClassLoader();
+        if (loader == null) loader = OpenApiGenerator.class.getClassLoader();
+        try {
+            return Class.forName(className, false, loader);
+        } catch (ClassNotFoundException e) {
+            return null;
+        }
     }
 
     private static Map<String, Object> schemaRef(String component) {

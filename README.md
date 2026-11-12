@@ -3,7 +3,7 @@
 > Laravel 级开发体验,构建在 Spring Boot 之上的 Java 应用框架。
 
 **当前状态:v0.5 完成。**
-33 个模块、**2386 个测试**全绿,四个示例应用都在构建里
+33 个模块、**2392 个测试**全绿,四个示例应用都在构建里
 (`examples/{todo,blog,auth,queue}`)。
 队列 / 事件 / 调度 / 邮件 / 通知 / 存储到位(v0.4),
 终端上有 **40 条命令**、本地命令通道、冷启动启动器、`jaravelw`、`tinker`;
@@ -17,7 +17,7 @@ jaravel migrate                  # 应用跑着时 197ms(复用它的进程)
 jaravel list                     # 全部命令,含应用自己定义的
 ```
 
-Artisan 线的五条验收里 3 条达成、2 条部分达成(收口时覆盖率重测:指令 **74.7%** / 分支 66.0%),
+Artisan 线的五条验收里 3 条达成、2 条部分达成(收口时覆盖率重测:指令 **74.8%** / 分支 66.0%),
 过程中发现并修掉 **14 个真实缺陷** —— 其中三个是**自己的门禁与示例在说谎**
 (两个示例按提交的样子起不来、`jaravel list` 列不全、parity 的度量对象没有测试)。
 
@@ -152,7 +152,7 @@ jaravel-security-bridge/  Spring Security 双向桥接(企业 SSO 场景)
 jaravel-spring-boot-starter/   自动装配与 Spring 适配(与桥接模块是唯一接触 Spring 的地方)
                                —— 20 条在线命令也在这里(它们的发现机制本来就是 Spring 的)
 jaravel-archunit-rules/   ADR-001 的阻断式强制
-jaravel-coverage/         覆盖率汇总(report-aggregate;指令 74.7% / 分支 66.0%)
+jaravel-coverage/         覆盖率汇总(report-aggregate;指令 74.8% / 分支 66.0%)
 
 examples/todo/            v0.1 的垂直切片(v0.2 已迁到 Eloquent)
 examples/blog/            v0.2 切片:关联 + 预加载 + 迁移 + FormRequest,零裸 SQL
@@ -165,7 +165,7 @@ benchmark/jpa-comparison/ 与 Spring Data JPA 的单条主键查询对照基准
 ## 快速开始
 
 ```bash
-mvn install                                  # 构建 + 2386 个测试(-T1C)
+mvn install                                  # 构建 + 2392 个测试(-T1C)
 
 # Todo 切片(:8000)
 cd examples/todo && mvn spring-boot:run

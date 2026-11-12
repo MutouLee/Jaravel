@@ -293,6 +293,82 @@ class ResourceSchemaProcessorTest {
     }
 
     @Test
+    @DisplayName("★ 嵌套资源:new / collection / lambda 里的 new 都记下类名")
+    void detectsNestedResourceReferences(@TempDir Path tmp) throws IOException {
+        var result = compile(tmp,
+                "app/Author.java", """
+                        package app;
+                        public class Author { public String name; }
+                        """,
+                "app/AuthorResource.java", """
+                        package app;
+
+                        import io.jaravel.api.JsonResource;
+                        import io.jaravel.http.Request;
+                        import java.util.Map;
+
+                        public class AuthorResource extends JsonResource<Author> {
+                            public AuthorResource(Author author) { super(author); }
+                            public AuthorResource() { super(null); }
+
+                            @Override
+                            public Map<String, Object> toArray(Request request) {
+                                return map(request).put("name", model.name).build();
+                            }
+                        }
+                        """,
+                "app/PostNested.java", """
+                        package app;
+
+                        import java.util.List;
+
+                        public class PostNested {
+                            public Long id;
+                            public Author author;
+                            public List<Author> authors;
+                        }
+                        """,
+                "app/PostNestedResource.java", """
+                        package app;
+
+                        import io.jaravel.api.JsonResource;
+                        import io.jaravel.http.Request;
+                        import java.util.Map;
+
+                        public class PostNestedResource extends JsonResource<PostNested> {
+
+                            public PostNestedResource(PostNested post) { super(post); }
+
+                            @Override
+                            public Map<String, Object> toArray(Request request) {
+                                return map(request)
+                                        .put("id", model.id)
+                                        .put("author", new AuthorResource(model.author))
+                                        .put("authors", AuthorResource.collection(
+                                                model.authors, AuthorResource::new))
+                                        .putWhen(true, "optional_author",
+                                                () -> new AuthorResource(model.author))
+                                        .putWhen(true, "author_ref", AuthorResource::new)
+                                        .build();
+                            }
+                        }
+                        """);
+
+        assertThat(result.ok()).as(result.diagnostics()).isTrue();
+        assertThat(result.lines())
+                .as("诊断:\n%s", result.diagnostics())
+                .containsExactly(
+                "R\tapp.AuthorResource",
+                "F\tname\tstring\t0",
+                "R\tapp.PostNestedResource",
+                "F\tid\tinteger\t0",
+                "F\tauthor\tobject\t0\tapp.AuthorResource",
+                "F\tauthors\tarray\t0\tapp.AuthorResource",
+                "F\toptional_author\tobject\t1\tapp.AuthorResource",
+                "F\tauthor_ref\tobject\t1\tapp.AuthorResource");
+    }
+
+    @Test
     @DisplayName("★ 嵌套资源用二进制名($) —— 运行时用 Class.getName() 查,必须对得上")
     void nestedResourcesUseBinaryNames(@TempDir Path tmp) throws IOException {
         var result = compile(tmp, "app/Post.java", POST, "app/Outer.java", """

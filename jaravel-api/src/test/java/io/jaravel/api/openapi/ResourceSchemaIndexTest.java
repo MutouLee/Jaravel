@@ -81,6 +81,67 @@ class ResourceSchemaIndexTest {
     }
 
     @Test
+    @DisplayName("★ 第 5 列是嵌套资源类 —— 单个与数组都带 ref")
+    void parsesNestedResourceRefs(@TempDir Path tmp) throws Exception {
+        write(tmp, """
+                R\tapp.PostResource
+                F\tauthor\tobject\t1\tapp.AuthorResource
+                F\tcomments\tarray\t1\tapp.CommentResource
+                F\ttitle\tstring\t0
+                """);
+
+        var schema = load(tmp).schemas().get("app.PostResource");
+
+        assertThat(schema.properties()).containsExactly(
+                new ResourceProperty("author", "object", true, "app.AuthorResource"),
+                new ResourceProperty("comments", "array", true, "app.CommentResource"),
+                new ResourceProperty("title", "string", false, null));
+    }
+
+    @Test
+    @DisplayName("★ 生成器传入 resolver 时,ref 变成真正的 $ref(单个 / 数组 items)")
+    void resolvesNestedResourceRefs(@TempDir Path tmp) throws Exception {
+        write(tmp, """
+                R\tapp.PostResource
+                F\tauthor\tobject\t1\tapp.AuthorResource
+                F\tcomments\tarray\t1\tapp.CommentResource
+                """);
+
+        var schema = load(tmp).schemas().get("app.PostResource");
+        var resolved = schema.toOpenApiSchema((className, array) -> array
+                ? Map.of("type", "array",
+                         "items", Map.of("$ref", "#/components/schemas/" + className))
+                : Map.of("$ref", "#/components/schemas/" + className));
+
+        assertThat(resolved.get("required")).isNull();
+
+        @SuppressWarnings("unchecked")
+        var properties = (Map<String, Object>) resolved.get("properties");
+        assertThat(properties.get("author"))
+                .isEqualTo(Map.of("$ref", "#/components/schemas/app.AuthorResource"));
+        assertThat(properties.get("comments")).isEqualTo(Map.of(
+                "type", "array",
+                "items", Map.of("$ref", "#/components/schemas/app.CommentResource")));
+    }
+
+    @Test
+    @DisplayName("没有 resolver 时 ref 退化成 object / array,不写假的 $ref")
+    void unresolvedRefsFallBackToTypes(@TempDir Path tmp) throws Exception {
+        write(tmp, """
+                R\tapp.PostResource
+                F\tauthor\tobject\t1\tapp.AuthorResource
+                F\tcomments\tarray\t1\tapp.CommentResource
+                """);
+
+        @SuppressWarnings("unchecked")
+        var properties = (Map<String, Object>) load(tmp).schemas()
+                .get("app.PostResource").toOpenApiSchema().get("properties");
+
+        assertThat(properties.get("author")).isEqualTo(Map.of("type", "object"));
+        assertThat(properties.get("comments")).isEqualTo(Map.of("type", "array"));
+    }
+
+    @Test
     @DisplayName("多模块:多份索引合并,不是只读第一份")
     void mergesMultipleIndexes(@TempDir Path first, @TempDir Path second) throws Exception {
         write(first, """

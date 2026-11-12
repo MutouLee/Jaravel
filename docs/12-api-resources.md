@@ -832,7 +832,7 @@ public JsonResource store(StorePostRequest req) { ... }
 > 而那份文档看起来完全正常。找不到注解就让这个接口沿用默认值,
 > 整份文档照常生成。
 
-> ### v0.5:响应 schema —— `toArray` 的 APT + record 反射(31 个测试)
+> ### v0.5:响应 schema —— `toArray` 的 APT + record 反射(37 个测试)
 >
 > #### 整条链路
 >
@@ -903,6 +903,26 @@ public JsonResource store(StorePostRequest req) { ... }
 > ⚠ `with(request)` 附加的根字段(比如 `meta`)这一版**没有**提取 ——
 > 那要再分析一个方法体里的 Map 表达式。缺字段比写错字段好。
 >
+> #### 嵌套资源 → `$ref`
+>
+> 字段的值是另一个资源时,索引里记下资源类的二进制名,生成器把它
+> 解析成 `components.schemas` 里的 `$ref`:
+>
+> - `new AuthorResource(model.author)` → `{"$ref": ".../AuthorResource"}`;
+> - `AuthorResource.collection(...)` / `AuthorResource::collection` →
+>   `{"type": "array", "items": {"$ref": ...}}`;
+> - `putWhenLoadedOne("author", …, AuthorResource::new)` → 单个;
+> - lambda 里的同类写法也认(`() -> new AuthorResource(...)`)。
+>
+> 资源可以互相引用(甚至自引用):component 名在构建 schema **之前**
+> 登记,环上只会拿到 `$ref`,不会无限展开。加载不到的嵌套类退回
+> `{"type": "object"}`,并由命令报出来 —— 不写一个指不到东西的 `$ref`。
+>
+> ★ **构造器引用 `X::new` 在 AST 里的名字是 `<init>`,不是 `"new"`。**
+> 第一版按名字判断,于是 `putWhenLoadedOne` 里的嵌套资源一个都没识别出来;
+> 必须看 `MemberReferenceTree.getMode() == NEW`。这个 bug 是静默的:
+> 字段还在,只是 type 为空,看起来像「静态分析不知道」。
+>
 > #### record 返回类型
 >
 > docs/12 §1.4 推荐的另一条输出路径。它**不是** `JsonResource`,所以:
@@ -947,7 +967,6 @@ public JsonResource store(StorePostRequest req) { ... }
 >
 > - record 的自定义 Jackson 序列化器 / `@JsonNaming` / `@JsonUnwrapped` 不识别;
 > - `with()` 的根字段没提取;
-> - 嵌套资源字段只有名字、没有 type;
 > - `required` 按 `put` / 原始类型判定,尚未结合应用的 null 输出策略;
 > - 「运行时采样」兜底没做 —— 它需要真实模型实例并执行用户的 `toArray`。
 

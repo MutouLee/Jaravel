@@ -26,16 +26,50 @@ public record ResourceSchema(String className, List<ResourceProperty> properties
         properties = List.copyOf(properties);
     }
 
-    /** 产出 OpenAPI 的 Schema Object(还没有 {@code $ref} 包裹) */
+    /**
+     * 把嵌套资源的类名解析成真正的 schema。
+     *
+     * <p>为什么不在这个模块里直接写 {@code $ref}:component 名由
+     * 生成器按「简单名 / 撞车时限定名」分配,而那是运行期才定下来的。
+     * 这里只给出资源类名,由调用方决定它叫 {@code AuthorResource}
+     * 还是 {@code app.http.resources.AuthorResource}。
+     */
+    @FunctionalInterface
+    public interface RefSchema {
+
+        /**
+         * @param className 资源类的二进制名
+         * @param array     true 表示这个字段是这些资源的数组
+         * @return 完整的字段 schema;返回 null 表示解析不了,
+         *         调用方会退回按 {@link ResourceProperty#type()} 写
+         */
+        Map<String, Object> schemaFor(String className, boolean array);
+    }
+
+    /** 不解析嵌套资源 —— 有 {@code ref} 的字段退化成 object/array */
     public Map<String, Object> toOpenApiSchema() {
+        return toOpenApiSchema((className, array) -> null);
+    }
+
+    public Map<String, Object> toOpenApiSchema(RefSchema refs) {
         var propertySchemas = new LinkedHashMap<String, Object>();
         var required = new ArrayList<String>();
 
         for (ResourceProperty property : properties) {
-            var schema = new LinkedHashMap<String, Object>();
-            if (property.type() != null && !property.type().isBlank()) {
-                schema.put("type", property.type());
+            Map<String, Object> schema = null;
+
+            if (property.ref() != null) {
+                schema = refs.schemaFor(property.ref(), "array".equals(property.type()));
             }
+
+            if (schema == null) {
+                var fallback = new LinkedHashMap<String, Object>();
+                if (property.type() != null && !property.type().isBlank()) {
+                    fallback.put("type", property.type());
+                }
+                schema = fallback;
+            }
+
             propertySchemas.put(property.name(), schema);
             if (!property.optional()) required.add(property.name());
         }

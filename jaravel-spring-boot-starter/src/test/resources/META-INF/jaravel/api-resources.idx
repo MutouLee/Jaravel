@@ -3,3 +3,14 @@ R	io.jaravel.spring.commands.FixtureResource
 F	id	integer	0
 F	title	string	0
 F	nickname		1
+
+# 嵌套资源:单个 / 数组 / 自引用
+R	io.jaravel.spring.commands.NestedFixtureResource
+F	id	integer	0
+F	owner	object	1	io.jaravel.spring.commands.FixtureResource
+F	items	array	1	io.jaravel.spring.commands.FixtureResource
+F	parent	object	1	io.jaravel.spring.commands.NestedFixtureResource
+
+# 指向一个加载不到的类 —— 生成器要退回 object 并记 note
+R	io.jaravel.spring.commands.BrokenNestedResource
+F	owner	object	1	app.DoesNotExist

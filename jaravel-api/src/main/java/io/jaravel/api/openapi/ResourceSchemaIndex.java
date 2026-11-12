@@ -27,6 +27,7 @@ import java.util.Optional;
  * # 注释
  * R\tapp.http.resources.PostResource      ← 一份资源
  * F\tid\tinteger\t0                       ← 字段:名字 / type(可空)/ 是否可选
+ * F\tauthor\tobject\t1\tapp…\AuthorResource  ← 可选的第 5 列:嵌套资源类
  * X\tapp.http.resources.ComplexResource\ttoArray 有 3 个 return
  * </pre>
  *
@@ -94,10 +95,12 @@ public final class ResourceSchemaIndex {
                     case "F" -> {
                         if (current == null || parts.length < 4) continue;
                         String type = unescape(parts[2]);
+                        String ref = parts.length >= 5 ? unescape(parts[4]) : "";
                         properties.add(new ResourceProperty(
                                 unescape(parts[1]),
                                 type.isBlank() ? null : type,
-                                "1".equals(parts[3])));
+                                "1".equals(parts[3]),
+                                ref.isBlank() ? null : ref));
                     }
                     case "X" -> {
                         if (parts.length < 3) continue;

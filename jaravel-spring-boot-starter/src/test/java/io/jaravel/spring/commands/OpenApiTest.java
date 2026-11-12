@@ -168,6 +168,14 @@ class OpenApiTest {
         public Object explicitRecord(Request request) {
             return null;
         }
+
+        public NestedFixtureResource nestedFixture() {
+            return null;
+        }
+
+        public BrokenNestedResource brokenNested() {
+            return null;
+        }
     }
 
     // ================= record 返回类型 =================
@@ -249,10 +257,14 @@ class OpenApiTest {
 
     /** 响应体在根位置默认会被包成 {@code {"data": ...}} —— schema 必须如实写出来 */
     private Map<String, Object> wrappedFixtureContent(String wrapKey) {
+        return wrappedContent(wrapKey, "FixtureResource");
+    }
+
+    private Map<String, Object> wrappedContent(String wrapKey, String component) {
         return Map.of("application/json", Map.of("schema", Map.of(
                 "type", "object",
                 "properties", Map.of(wrapKey,
-                        Map.of("$ref", "#/components/schemas/FixtureResource")),
+                        Map.of("$ref", "#/components/schemas/" + component)),
                 "required", List.of(wrapKey))));
     }
 
@@ -522,6 +534,47 @@ class OpenApiTest {
                     .doesNotContainKey("content");
             assertThat(generator.schemaNotes()).singleElement().asString()
                     .contains("只支持 JsonResource 子类");
+        }
+
+        @Test
+        @DisplayName("★ 嵌套资源 → $ref;自引用不会无限展开")
+        void nestedResourcesBecomeRefs() {
+            var document = document(routes(r ->
+                    r.get("/nested", PostController::nestedFixture)));
+            var operation = operation(document, "/nested", "get");
+
+            assertThat(response(operation, "200").get("content"))
+                    .isEqualTo(wrappedContent("data", "NestedFixtureResource"));
+
+            var nested = componentSchema(document, "NestedFixtureResource");
+            assertThat(properties(nested).get("owner"))
+                    .isEqualTo(Map.of("$ref", "#/components/schemas/FixtureResource"));
+            assertThat(properties(nested).get("items")).isEqualTo(Map.of(
+                    "type", "array",
+                    "items", Map.of("$ref", "#/components/schemas/FixtureResource")));
+            assertThat(properties(nested).get("parent"))
+                    .as("资源可以自引用 —— 名字先登记再构建,环上只会拿到 $ref")
+                    .isEqualTo(Map.of("$ref", "#/components/schemas/NestedFixtureResource"));
+
+            assertThat(nested.get("required")).isEqualTo(List.of("id"));
+            assertThat(componentSchemas(document))
+                    .containsKeys("NestedFixtureResource", "FixtureResource");
+        }
+
+        @Test
+        @DisplayName("★ 嵌套资源类加载不到 → 退回 object,并记一条 note")
+        void missingNestedResourceFallsBack() {
+            var generator = new OpenApiGenerator("测试 API", "2.0.0", null);
+            var document = generator.generate(routes(r ->
+                    r.get("/nested", PostController::brokenNested)));
+
+            var broken = componentSchema(document, "BrokenNestedResource");
+            assertThat(properties(broken).get("owner"))
+                    .as("不写一个指不到东西的 $ref")
+                    .isEqualTo(Map.of("type", "object"));
+
+            assertThat(generator.schemaNotes()).anySatisfy(note ->
+                    assertThat(note).contains("app.DoesNotExist").contains("加载不到"));
         }
     }
 

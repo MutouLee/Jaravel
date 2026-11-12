@@ -28,6 +28,8 @@ import com.sun.source.tree.MemberSelectTree;
 import com.sun.source.tree.MethodInvocationTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.NewArrayTree;
+import com.sun.source.tree.NewClassTree;
+import com.sun.source.tree.ParameterizedTypeTree;
 import com.sun.source.tree.ParenthesizedTree;
 import com.sun.source.tree.ReturnTree;
 import com.sun.source.tree.Tree;
@@ -73,6 +75,10 @@ final class ResourceAnalyzer {
     }
 
     record Failure(String reason) implements Result {
+    }
+
+    /** 一个字段指向另一个资源类;{@code array} 表示它是这些资源的数组 */
+    private record Ref(String className, boolean array) {
     }
 
     private final Elements elements;
@@ -160,7 +166,15 @@ final class ResourceAnalyzer {
 
             boolean optional = !methodName.equals("put");
             String type = valueTypeOf(methodName, args, model, unit);
-            merge(properties, key, type, optional);
+
+            // 值是另一个资源(单个构造器 / collection)→ 记下类名,
+            // 生成器会把它解析成 components.schemas 里的 $ref
+            Ref ref = valueRefOf(methodName, args, unit);
+            if (ref != null) {
+                type = ref.array() ? "array" : "object";
+            }
+
+            merge(properties, key, type, optional, ref == null ? null : ref.className());
         }
 
         return new Success(List.copyOf(properties.values()));
@@ -298,6 +312,108 @@ final class ResourceAnalyzer {
         };
         if (valueIndex < 0 || args.size() <= valueIndex) return null;
         return typeOf(args.get(valueIndex), model, unit);
+    }
+
+    private Ref valueRefOf(String methodName, List<? extends ExpressionTree> args,
+                           CompilationUnitTree unit) {
+        int valueIndex = switch (methodName) {
+            case "put", "putIfAbsent" -> 1;
+            case "putWhen", "putWhenLoaded", "putWhenLoadedOne" -> 2;
+            default -> -1;
+        };
+        if (valueIndex < 0 || args.size() <= valueIndex) return null;
+        return refOf(args.get(valueIndex), unit);
+    }
+
+    /**
+     * 值表达式是不是另一个 {@code JsonResource}。
+     *
+     * <p>认三种写法:
+     * <ul>
+     *   <li>{@code new AuthorResource(model.author)} —— 单个;</li>
+     *   <li>{@code AuthorResource::new} —— 作为 map 函数传给
+     *       {@code putWhenLoadedOne} 之类;</li>
+     *   <li>{@code AuthorResource::collection} /
+     *       {@code AuthorResource.collection(...)} —— 数组。</li>
+     * </ul>
+     *
+     * <p>lambda 会往里看一眼:{@code () -> new AuthorResource(...)}。
+     * 只是 {@code model.author()} 这种返回模型本身的值**不算** ——
+     * 它的 JSON 形状由字段上的类型转换决定,不是资源。
+     */
+    private Ref refOf(ExpressionTree expression, CompilationUnitTree unit) {
+        ExpressionTree value = strip(expression);
+
+        if (value instanceof LambdaExpressionTree lambda
+                && lambda.getBody() instanceof ExpressionTree body) {
+            return refOf(body, unit);
+        }
+
+        if (value instanceof MemberReferenceTree reference) {
+            // ★ 构造器引用 `X::new` 的 getName() 不是 "new"(它是
+            // `<init>`)—— 必须看 ReferenceMode,否则永远识别不到。
+            if (reference.getMode() == MemberReferenceTree.ReferenceMode.NEW) {
+                TypeElement resource = resourceTypeOf(
+                        reference.getQualifierExpression(), unit);
+                return resource == null ? null : new Ref(binaryNameOf(resource), false);
+            }
+
+            if (reference.getMode() == MemberReferenceTree.ReferenceMode.INVOKE
+                    && reference.getName().contentEquals("collection")) {
+                TypeElement resource = resourceTypeOf(
+                        reference.getQualifierExpression(), unit);
+                return resource == null ? null : new Ref(binaryNameOf(resource), true);
+            }
+            return null;
+        }
+
+        if (value instanceof NewClassTree newClass) {
+            Tree identifier = newClass.getIdentifier();
+            if (identifier instanceof ParameterizedTypeTree parameterized) {
+                identifier = parameterized.getType();
+            }
+            TypeElement resource = resourceTypeOf(identifier, unit);
+            return resource == null ? null : new Ref(binaryNameOf(resource), false);
+        }
+
+        if (value instanceof MethodInvocationTree call && nameOf(call).equals("collection")) {
+            TypeElement resource = resourceTypeOf(receiverOf(call), unit);
+            return resource == null ? null : new Ref(binaryNameOf(resource), true);
+        }
+
+        return null;
+    }
+
+    private TypeElement resourceTypeOf(Tree expression, CompilationUnitTree unit) {
+        if (expression == null) return null;
+        TreePath path = TreePath.getPath(unit, expression);
+        if (path == null) return null;
+
+        Element element = trees.getElement(path);
+        if (element instanceof TypeElement type && isJsonResource(type)) return type;
+
+        TypeMirror mirror = trees.getTypeMirror(path);
+        if (mirror != null && mirror.getKind() == TypeKind.DECLARED) {
+            Element type = ((DeclaredType) mirror).asElement();
+            if (type instanceof TypeElement declared && isJsonResource(declared)) {
+                return declared;
+            }
+        }
+        return null;
+    }
+
+    private boolean isJsonResource(TypeElement type) {
+        TypeMirror superType = type.getSuperclass();
+        while (superType != null && superType.getKind() == TypeKind.DECLARED) {
+            TypeElement element = (TypeElement) ((DeclaredType) superType).asElement();
+            if (element.getQualifiedName().contentEquals(JSON_RESOURCE)) return true;
+            superType = element.getSuperclass();
+        }
+        return false;
+    }
+
+    private String binaryNameOf(TypeElement type) {
+        return elements.getBinaryName(type).toString();
     }
 
     private String typeOf(ExpressionTree expression, TypeElement model,
@@ -471,21 +587,32 @@ final class ResourceAnalyzer {
     }
 
     private void merge(LinkedHashMap<String, ResourceProperty> properties,
-                       String key, String type, boolean optional) {
+                       String key, String type, boolean optional, String ref) {
         ResourceProperty existing = properties.get(key);
         if (existing == null) {
-            properties.put(key, new ResourceProperty(key, type, optional));
+            properties.put(key, new ResourceProperty(key, type, optional, ref));
             return;
         }
 
+        boolean typeConflict = existing.type() != null && type != null
+                && !existing.type().equals(type);
         String mergedType;
-        if (existing.type() != null && type != null && !existing.type().equals(type)) {
+        if (typeConflict) {
             // 两个不同的已知类型 —— 不猜,退回到「不知道」
             mergedType = null;
         } else {
             mergedType = type != null ? type : existing.type();
         }
+
+        String mergedRef;
+        if (typeConflict
+                || (existing.ref() != null && ref != null && !existing.ref().equals(ref))) {
+            mergedRef = null;
+        } else {
+            mergedRef = ref != null ? ref : existing.ref();
+        }
+
         properties.put(key, new ResourceProperty(
-                key, mergedType, existing.optional() && optional));
+                key, mergedType, existing.optional() && optional, mergedRef));
     }
 }

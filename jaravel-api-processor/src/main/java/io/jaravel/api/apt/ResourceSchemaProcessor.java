@@ -135,7 +135,11 @@ public class ResourceSchemaProcessor extends AbstractProcessor {
                 for (ResourceProperty property : schema.properties()) {
                     writer.write("F\t" + escape(property.name())
                             + "\t" + escape(property.type() == null ? "" : property.type())
-                            + "\t" + (property.optional() ? "1" : "0") + "\n");
+                            + "\t" + (property.optional() ? "1" : "0")
+                            // 第 5 列只在有嵌套资源时写 —— 旧的索引仍然读得懂
+                            + (property.ref() == null
+                                    ? "" : "\t" + escape(property.ref()))
+                            + "\n");
                 }
             }
 

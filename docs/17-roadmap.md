@@ -483,8 +483,9 @@ record 返回类型由运行时反射得到;`with()` 的根字段由 APT 从
 | v0.6 | jblade 组件系统 + 上下文感知转义;调试工具栏;广播(WebSocket)+ broadcast 渠道;二步验证;`LazyColl` | 5 |
 
 > **v0.6 进度**:jblade **类组件**已实现(docs/04 §1.7),
-> `LazyColl` 与数据库 `lazy()` 已实现(docs/05 §2.5);
-> 调试工具栏、广播、二步验证待做。
+> `LazyColl` 与数据库 `lazy()` 已实现(docs/05 §2.5),
+> 调试工具栏**基础版**已实现(docs/15 §4.3,SQL 面板待接);
+> 广播、二步验证待做。
 | v0.7 | `jaravel-dashboard`(Horizon 等价);幂等性中间件;`jaravel-permissions`(RBAC);Kafka/RabbitMQ/SQS 驱动 | 5 |
 | v0.8 | 浏览器测试(Playwright);多租户支持包;Inertia 适配;并行测试 | 4 |
 

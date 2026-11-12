@@ -207,6 +207,16 @@ class ApplicationSmokeTest extends FeatureTest {
     }
 
     @Test
+    @DisplayName("★ 调试工具栏只注入 HTML 页面,不污染 JSON 接口")
+    void debugToolbarOnlyOnHtmlPages() {
+        assertThat(get("/").assertOk().content())
+                .contains("id=\"jaravel-debugbar\"");
+
+        assertThat(asJson().get("/api/posts").assertOk().content())
+                .doesNotContain("jaravel-debugbar");
+    }
+
+    @Test
     @DisplayName("★ 内容协商:同一个路由按 Accept 返回 JSON / XML / CSV")
     void contentNegotiation() {
         var json = asJson().get("/api/posts/formats").assertOk();

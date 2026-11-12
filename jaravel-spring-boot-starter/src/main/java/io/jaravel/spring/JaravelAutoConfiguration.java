@@ -261,6 +261,25 @@ public class JaravelAutoConfiguration {
         return registration;
     }
 
+    /**
+     * 开发期调试工具栏(docs/15 §4.3)。
+     *
+     * <p>默认只在 local / app.debug=true 时启用;生产要显式打开
+     * {@code debug.toolbar=true} —— 它会在页面上暴露路由与内存信息。
+     * 顺序在请求 ID 之后:工具栏要包住整个分发过程。
+     */
+    @Bean
+    public org.springframework.boot.web.servlet.FilterRegistrationBean<DebugToolbarFilter>
+            jaravelDebugToolbarFilter(ConfigRepository config) {
+
+        var filter = new DebugToolbarFilter(config);
+        var registration =
+                new org.springframework.boot.web.servlet.FilterRegistrationBean<>(filter);
+        registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE + 30);
+        registration.setEnabled(filter.enabled());
+        return registration;
+    }
+
     @Bean
     public JaravelHandlerMapping jaravelHandlerMapping(RouteCollection routes) {
         return new JaravelHandlerMapping(routes);

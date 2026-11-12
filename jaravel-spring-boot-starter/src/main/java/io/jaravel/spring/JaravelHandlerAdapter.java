@@ -56,6 +56,9 @@ public class JaravelHandlerAdapter implements HandlerAdapter {
     /** 最终 {@link Response} 的请求属性名 */
     public static final String RESPONSE_ATTRIBUTE = "jaravel.response";
 
+    /** 命中的路由 —— 调试栏、日志与诊断用(失败请求没有这个属性) */
+    public static final String ROUTE_ATTRIBUTE = "jaravel.route";
+
     /**
      * 本请求要跳过哪些中间件({@code Set<String>},类的简单名)。
      *
@@ -79,6 +82,7 @@ public class JaravelHandlerAdapter implements HandlerAdapter {
 
         var match = ((JaravelHandlerMapping.Handler) handler).match();
         Route route = match.route();
+        servletRequest.setAttribute(ROUTE_ATTRIBUTE, route);
 
         BasicRequest request = ServletRequestAdapter.adapt(servletRequest);
         match.params().forEach(request::routeParam);

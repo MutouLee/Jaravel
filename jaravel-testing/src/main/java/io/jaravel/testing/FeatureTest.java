@@ -409,57 +409,79 @@ public abstract class FeatureTest {
         if (withCsrf) request.addHeader("X-CSRF-TOKEN", token);
     }
 
-    /**
-     * 按注册顺序跑一遍 Filter。
-     *
-     * @return true 表示请求该继续走路由分发;false 表示某个 filter 已经把它答掉了
-     */
-    private boolean runFilters(MockHttpServletRequest request, MockHttpServletResponse response) {
-        if (filterRegistrations == null || filterRegistrations.isEmpty()) return true;
+    @FunctionalInterface
+    private interface Dispatch {
+        void service(jakarta.servlet.http.HttpServletRequest request,
+                     jakarta.servlet.http.HttpServletResponse response) throws Exception;
+    }
 
-        var filters = filterRegistrations.stream()
+    /**
+     * 按注册顺序跑一遍 Filter,**并把真正的分发放在链的末端**。
+     *
+     * <h2>★ 为什么分发必须在链里</h2>
+     * <p>此前的实现用一个「什么都不做」的 servlet 收尾:filter 跑完后
+     * 再单独调 handlerAdapter。对 CORS / RequestId 这类只加响应头或
+     * 直接回预检的 filter 没问题,但对**包装响应**的 filter(调试工具栏
+     * 要缓冲 HTML 才能注入)是灾难:它包住的只是一个空壳,
+     * 真正的响应写在它外面。
+     *
+     * <p>把分发放进链尾之后,filter 的包装顺序与真实 Servlet 容器一致,
+     * 于是「在测试里看不到的功能」这一类问题不会再出现。
+     *
+     * @return true 表示请求走到了分发;false 表示某个 filter 已经把它答掉了
+     */
+    private boolean runFilters(MockHttpServletRequest request, MockHttpServletResponse response,
+                               Dispatch dispatch) {
+        var filters = filterRegistrations == null
+                ? List.<org.springframework.boot.web.servlet.FilterRegistrationBean<?>>of()
+                : filterRegistrations;
+
+        var active = filters.stream()
                 .filter(org.springframework.boot.web.servlet.FilterRegistrationBean::isEnabled)
                 .sorted(java.util.Comparator.comparingInt(
                         org.springframework.boot.web.servlet.FilterRegistrationBean::getOrder))
                 .map(org.springframework.boot.web.servlet.FilterRegistrationBean::getFilter)
                 .filter(java.util.Objects::nonNull)
                 .toArray(jakarta.servlet.Filter[]::new);
-        if (filters.length == 0) return true;
 
-        // 链末尾放一个**什么都不做**的 servlet:它被调用就说明
-        // 所有 filter 都放行了。用它而不是「检查响应有没有被写」——
-        // 后者在一个只加了响应头的 filter 上会误判
         var reached = new boolean[1];
         var chain = new org.springframework.mock.web.MockFilterChain(
                 new jakarta.servlet.http.HttpServlet() {
                     @Override
                     protected void service(jakarta.servlet.http.HttpServletRequest req,
-                                           jakarta.servlet.http.HttpServletResponse res) {
+                                           jakarta.servlet.http.HttpServletResponse res)
+                            throws jakarta.servlet.ServletException {
                         reached[0] = true;
+                        try {
+                            dispatch.service(req, res);
+                        } catch (RuntimeException | Error e) {
+                            throw e;
+                        } catch (Exception e) {
+                            throw new jakarta.servlet.ServletException(e);
+                        }
                     }
                 },
-                filters);
+                active);
+
         try {
             chain.doFilter(request, response);
-        } catch (Exception e) {
-            throw e instanceof RuntimeException re ? re : new RuntimeException(e);
+        } catch (Throwable t) {
+            throw dispatchFailure(t);
         }
         return reached[0];
     }
 
-    private TestResponse execute(MockHttpServletRequest request) {
-        var response = new MockHttpServletResponse();
+    private static RuntimeException dispatchFailure(Throwable thrown) {
+        Throwable cause = thrown instanceof jakarta.servlet.ServletException se
+                && se.getCause() != null ? se.getCause() : thrown;
 
-        // Filter 先跑(CORS 预检可能在这里就把请求答掉,于是下面一步都不走)
-        if (!runFilters(request, response)) {
-            String shortCircuited;
-            try {
-                shortCircuited = response.getContentAsString(StandardCharsets.UTF_8);
-            } catch (java.io.UnsupportedEncodingException e) {
-                throw new IllegalStateException(e);
-            }
-            return new TestResponse(response, shortCircuited, readBackSession(response), null);
-        }
+        if (cause instanceof RuntimeException runtime) return runtime;
+        if (cause instanceof Error error) throw error;
+        return new RuntimeException(cause);
+    }
+
+    private void dispatch(jakarta.servlet.http.HttpServletRequest request,
+                          jakarta.servlet.http.HttpServletResponse response) throws Exception {
 
         var chain = handlerMapping.getHandler(request);
         if (chain == null) {
@@ -488,16 +510,36 @@ public abstract class FeatureTest {
                             .collect(java.util.stream.Collectors.toSet()));
         }
 
-        try {
-            handlerAdapter.handle(request, response, handler);
-        } catch (Exception e) {
-            throw e instanceof RuntimeException re ? re : new RuntimeException(e);
+        handlerAdapter.handle(request, response, handler);
+    }
+
+    private TestResponse execute(MockHttpServletRequest request) {
+        var response = new MockHttpServletResponse();
+        var dispatchedRequest = new jakarta.servlet.http.HttpServletRequest[1];
+
+        // Filter 与分发在**同一条链**上(CORS 预检仍可能在这条链里
+        // 就把请求答掉,于是分发一步都不走)
+        boolean reached = runFilters(request, response, (req, res) -> {
+            dispatchedRequest[0] = req;
+            dispatch(req, res);
+        });
+
+        if (!reached) {
+            String shortCircuited;
+            try {
+                shortCircuited = response.getContentAsString(StandardCharsets.UTF_8);
+            } catch (java.io.UnsupportedEncodingException e) {
+                throw new IllegalStateException(e);
+            }
+            return new TestResponse(response, shortCircuited, readBackSession(response), null);
         }
 
         // 最终的 Jaravel Response —— 适配器挂在请求属性上。
-        // 视图名与视图数据在序列化成字节之后就没了,必须从这里取
-        var captured = (io.jaravel.http.Response) request.getAttribute(
-                JaravelHandlerAdapter.RESPONSE_ATTRIBUTE);
+        // 视图名与视图数据在序列化成字节之后就没了,必须从这里取。
+        // 用**分发时那个 request**:filter 可能包装过它。
+        var captured = dispatchedRequest[0] == null ? null
+                : (io.jaravel.http.Response) dispatchedRequest[0].getAttribute(
+                        JaravelHandlerAdapter.RESPONSE_ATTRIBUTE);
 
         String content;
         try {

@@ -209,8 +209,13 @@ class ApplicationSmokeTest extends FeatureTest {
     @Test
     @DisplayName("★ 调试工具栏只注入 HTML 页面,不污染 JSON 接口")
     void debugToolbarOnlyOnHtmlPages() {
-        assertThat(get("/").assertOk().content())
-                .contains("id=\"jaravel-debugbar\"");
+        String home = get("/").assertOk().content();
+
+        assertThat(home)
+                .contains("id=\"jaravel-debugbar\"")
+                .contains("SQL</td><td>")
+                .as("首页真的查了库,SQL 面板不该是 0 条")
+                .doesNotContain("SQL</td><td>0 条");
 
         assertThat(asJson().get("/api/posts").assertOk().content())
                 .doesNotContain("jaravel-debugbar");

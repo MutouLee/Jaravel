@@ -85,6 +85,28 @@ public interface Connection {
     List<QueryLog> queryLog();
     void flushQueryLog();
 
+    /**
+     * 开始**按当前线程**收集查询(docs/15 §4.3 的 SQL 面板)。
+     *
+     * <p>与全局 {@link #enableQueryLog()} 是两件事:全局日志会累积所有请求,
+     * 无法切分;这里收集到的是当前线程自 begin 以来的查询 —— 一个 HTTP 请求
+     * 一个线程(虚拟线程),于是天然按请求隔离。调试工具栏用它,
+     * 不需要打开全局日志。
+     *
+     * <p>默认空实现:测试替身不必关心它。
+     */
+    default void beginQueryCollection() {
+    }
+
+    /** 当前线程自 {@link #beginQueryCollection()} 以来执行的查询 */
+    default List<QueryLog> collectedQueries() {
+        return List.of();
+    }
+
+    /** 结束收集并丢掉 ThreadLocal —— 不调会在线程复用下留下残留 */
+    default void endQueryCollection() {
+    }
+
     /** 一条已执行的查询 */
     record QueryLog(String sql, List<Object> bindings, long micros, String caller) {
         @Override public String toString() {

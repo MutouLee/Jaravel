@@ -32,21 +32,31 @@ import io.jaravel.routing.Route;
  * 生产环境要显式打开 {@code debug.toolbar=true}。工具本身也会在页面上
  * 暴露路由与内存信息。
  *
- * <h2>SQL 面板还没接</h2>
- * <p>{@code JdbcConnection} 的查询日志是**全局**的,直接拿来按请求切分会在
- * 并发时串台。正确做法是给每次请求一个 ThreadLocal 收集器 ——
- * 那是下一刀;在此之前工具栏不假装自己知道 SQL 条数。
+ * <h2>SQL 面板:按线程收集,不打开全局日志</h2>
+ * <p>{@code JdbcConnection} 的全局查询日志会累积所有请求、无法按请求切分。
+ * 工具栏用的是 {@code beginQueryCollection()} / {@code collectedQueries()} ——
+ * 收集在**当前线程**上(一个请求一个虚拟线程),于是并发请求不会串台,
+ * 也不需要全局打开日志。
  */
 public class DebugToolbarFilter extends OncePerRequestFilter {
 
     static final String ID = "jaravel-debugbar";
 
+    /** 面板里最多列出的 SQL 条数,再多就只报总数 */
+    private static final int MAX_QUERIES = 100;
+
     private final boolean enabled;
+    private final io.jaravel.database.Connection connection;
 
     public DebugToolbarFilter(ConfigRepository config) {
+        this(config, null);
+    }
+
+    public DebugToolbarFilter(ConfigRepository config, io.jaravel.database.Connection connection) {
         this.enabled = config.bool("debug.toolbar",
                 "local".equals(config.string("app.env", "production"))
                         || config.bool("app.debug", false));
+        this.connection = connection;
     }
 
     public boolean enabled() {
@@ -66,10 +76,16 @@ public class DebugToolbarFilter extends OncePerRequestFilter {
         var cached = new ContentCachingResponseWrapper(response);
         boolean injected = false;
 
+        if (connection != null) connection.beginQueryCollection();
+
         try {
             chain.doFilter(request, cached);
-            injected = tryInject(request, cached, start);
+            var queries = connection == null
+                    ? java.util.List.<io.jaravel.database.Connection.QueryLog>of()
+                    : connection.collectedQueries();
+            injected = tryInject(request, cached, start, queries);
         } finally {
+            if (connection != null) connection.endQueryCollection();
             // 没注入就原样写回;注入失败也走这里,页面仍在(少一个工具栏而已)
             if (!injected) cached.copyBodyToResponse();
         }
@@ -84,7 +100,8 @@ public class DebugToolbarFilter extends OncePerRequestFilter {
     }
 
     private boolean tryInject(HttpServletRequest request,
-                              ContentCachingResponseWrapper response, long startNanos) {
+                              ContentCachingResponseWrapper response, long startNanos,
+                              java.util.List<io.jaravel.database.Connection.QueryLog> queries) {
         try {
             if (!"GET".equalsIgnoreCase(request.getMethod())) return false;
 
@@ -103,7 +120,7 @@ public class DebugToolbarFilter extends OncePerRequestFilter {
             String html = new String(bytes, StandardCharsets.UTF_8);
             if (html.contains(ID)) return false;
 
-            byte[] injected = injectHtml(html, toolbar(request, response, startNanos))
+            byte[] injected = injectHtml(html, toolbar(request, response, startNanos, queries))
                     .getBytes(StandardCharsets.UTF_8);
 
             response.resetBuffer();
@@ -124,9 +141,13 @@ public class DebugToolbarFilter extends OncePerRequestFilter {
     }
 
     private static String toolbar(HttpServletRequest request,
-                                  ContentCachingResponseWrapper response, long startNanos) {
+                                  ContentCachingResponseWrapper response, long startNanos,
+                                  java.util.List<io.jaravel.database.Connection.QueryLog> queries) {
         double millis = (System.nanoTime() - startNanos) / 1_000_000.0;
         long used = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
+        long queryMicros = queries.stream()
+                .mapToLong(io.jaravel.database.Connection.QueryLog::micros)
+                .sum();
 
         Route route = request.getAttribute(JaravelHandlerAdapter.ROUTE_ATTRIBUTE) instanceof Route r
                 ? r : null;
@@ -146,6 +167,9 @@ public class DebugToolbarFilter extends OncePerRequestFilter {
                 + " · " + response.getStatus()
                 + " · " + String.format(Locale.ROOT, "%.1f", millis) + " ms";
 
+        String sqlText = queries.size() + " 条 · "
+                + String.format(Locale.ROOT, "%.1f", queryMicros / 1000.0) + " ms";
+
         return """
                 <div id="%s" style="position:fixed;right:12px;bottom:12px;z-index:2147483647;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;color:#e5e7eb;background:#111827;border:1px solid #374151;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.35);max-width:560px">
                   <details>
@@ -154,14 +178,46 @@ public class DebugToolbarFilter extends OncePerRequestFilter {
                       <table style="border-collapse:collapse">
                         <tr><td style="color:#9ca3af;padding-right:12px">路由</td><td>%s</td></tr>
                         <tr><td style="color:#9ca3af">视图</td><td>%s</td></tr>
+                        <tr><td style="color:#9ca3af">SQL</td><td>%s</td></tr>
                         <tr><td style="color:#9ca3af">内存</td><td>%.1f MB</td></tr>
                       </table>
+                      %s
                     </div>
                   </details>
                 </div>
                 """
-                .formatted(ID, summary, esc(routeText), esc(viewText),
-                        used / 1024.0 / 1024.0);
+                .formatted(ID, summary, esc(routeText), esc(viewText), sqlText,
+                        used / 1024.0 / 1024.0, sqlPanel(queries));
+    }
+
+    private static String sqlPanel(java.util.List<io.jaravel.database.Connection.QueryLog> queries) {
+        if (queries.isEmpty()) return "";
+
+        var panel = new StringBuilder("<details style=\"margin-top:6px\"><summary style=\"cursor:pointer;color:#9ca3af\">SQL(")
+                .append(queries.size())
+                .append(")</summary><div style=\"max-height:220px;overflow:auto\">");
+
+        int shown = Math.min(queries.size(), MAX_QUERIES);
+        for (int i = 0; i < shown; i++) {
+            var query = queries.get(i);
+            panel.append("<div style=\"padding:6px 0;border-top:1px solid #374151\">")
+                    .append("<div style=\"color:#9ca3af\">")
+                    .append(String.format(Locale.ROOT, "%.1f", query.micros() / 1000.0))
+                    .append(" ms")
+                    .append(" · ")
+                    .append(esc(query.caller()))
+                    .append("</div><div style=\"white-space:pre-wrap;word-break:break-all\">")
+                    .append(esc(query.sql()))
+                    .append("</div><div style=\"color:#9ca3af\">")
+                    .append(esc(String.valueOf(query.bindings())))
+                    .append("</div></div>");
+        }
+        if (queries.size() > shown) {
+            panel.append("<div style=\"color:#9ca3af;padding:6px 0\">还有 ")
+                    .append(queries.size() - shown)
+                    .append(" 条未列出</div>");
+        }
+        return panel.append("</div></details>").toString();
     }
 
     private static String esc(String value) {

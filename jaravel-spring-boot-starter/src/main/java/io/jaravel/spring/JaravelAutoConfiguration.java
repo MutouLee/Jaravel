@@ -270,9 +270,12 @@ public class JaravelAutoConfiguration {
      */
     @Bean
     public org.springframework.boot.web.servlet.FilterRegistrationBean<DebugToolbarFilter>
-            jaravelDebugToolbarFilter(ConfigRepository config) {
+            jaravelDebugToolbarFilter(
+                    ConfigRepository config,
+                    org.springframework.beans.factory.ObjectProvider<
+                            io.jaravel.database.Connection> connections) {
 
-        var filter = new DebugToolbarFilter(config);
+        var filter = new DebugToolbarFilter(config, connections.getIfAvailable());
         var registration =
                 new org.springframework.boot.web.servlet.FilterRegistrationBean<>(filter);
         registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE + 30);

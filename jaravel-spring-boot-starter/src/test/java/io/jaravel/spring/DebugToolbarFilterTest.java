@@ -28,9 +28,36 @@ class DebugToolbarFilterTest {
     }
 
     private static DebugToolbarFilter filter(boolean local) {
+        return filter(local, null);
+    }
+
+    private static DebugToolbarFilter filter(boolean local,
+                                             io.jaravel.database.Connection connection) {
         return new DebugToolbarFilter(new MapConfigRepository(
                 Map.of("app", Map.of("env", local ? "local" : "production",
-                                     "debug", local))));
+                                     "debug", local))), connection);
+    }
+
+    /** 只要 collectedQueries 的 Connection 替身 —— 为一条面板断言实现整个接口不值得 */
+    private static io.jaravel.database.Connection connectionWith(
+            io.jaravel.database.Connection.QueryLog... logs) {
+
+        return (io.jaravel.database.Connection) java.lang.reflect.Proxy.newProxyInstance(
+                DebugToolbarFilterTest.class.getClassLoader(),
+                new Class<?>[]{io.jaravel.database.Connection.class},
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "collectedQueries" -> List.of(logs);
+                    case "toString" -> "ConnectionStub";
+                    case "hashCode" -> 1;
+                    case "equals" -> false;
+                    default -> {
+                        Class<?> type = method.getReturnType();
+                        if (type == boolean.class) yield false;
+                        if (type == int.class) yield 0;
+                        if (type == long.class) yield 0L;
+                        yield null;
+                    }
+                });
     }
 
     private static MockHttpServletRequest request(String accept) {
@@ -75,6 +102,25 @@ class DebugToolbarFilterTest {
         assertThat(html.indexOf("jaravel-debugbar"))
                 .as("工具栏在 </body> 之前")
                 .isLessThan(html.lastIndexOf("</body>"));
+    }
+
+    @Test
+    @DisplayName("★ SQL 面板:条数、总耗时、语句与绑定值(都转义)")
+    void showsCollectedQueries() throws Exception {
+        var connection = connectionWith(new io.jaravel.database.Connection.QueryLog(
+                "select * from \"users\" where name = ?",
+                List.of("Tom & Jerry"), 1200, "app.PostController.index"));
+
+        String html = run(filter(true, connection), request("text/html"),
+                "<html><body>hi</body></html>", "text/html;charset=UTF-8", 200);
+
+        assertThat(html)
+                .contains("SQL")
+                .contains("1 条")
+                .contains("select * from")
+                .contains("app.PostController.index")
+                .contains("&amp;")
+                .contains("[Tom &amp; Jerry]");
     }
 
     @Test

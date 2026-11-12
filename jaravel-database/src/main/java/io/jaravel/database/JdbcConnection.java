@@ -41,6 +41,9 @@ public class JdbcConnection implements Connection {
     private volatile boolean logging = false;
     private final List<QueryLog> log = java.util.Collections.synchronizedList(new ArrayList<>());
 
+    /** 按请求(线程)的查询收集 —— 调试工具栏的 SQL 面板 */
+    private final ThreadLocal<List<QueryLog>> collected = new ThreadLocal<>();
+
     public JdbcConnection(DataSource dataSource, Grammar grammar) {
         this.dataSource = dataSource;
         this.grammar = grammar;
@@ -393,7 +396,8 @@ public class JdbcConnection implements Connection {
         // 两者都关着时这里要尽早返回 —— 这是每条 SQL 都会走到的路径,
         // 为没人要的数据算一次耗时、复制一次 bindings、走一遍调用栈
         // (callerHint 要遍历栈帧)在高 QPS 下是真实的开销。
-        if (!logging && !listening) return;
+        List<QueryLog> threadLog = collected.get();
+        if (!logging && !listening && threadLog == null) return;
 
         long nanos = System.nanoTime() - startNanos;
 
@@ -402,8 +406,10 @@ public class JdbcConnection implements Connection {
         var snapshot = java.util.Collections.unmodifiableList(new java.util.ArrayList<>(bindings));
         String caller = callerHint();
 
-        if (logging) {
-            log.add(new QueryLog(sql, snapshot, nanos / 1000, caller));
+        if (logging || threadLog != null) {
+            var entry = new QueryLog(sql, snapshot, nanos / 1000, caller);
+            if (logging) log.add(entry);
+            if (threadLog != null) threadLog.add(entry);
         }
         if (listening) {
             io.jaravel.events.Event.tryDispatch(
@@ -441,6 +447,15 @@ public class JdbcConnection implements Connection {
     @Override public void disableQueryLog() { logging = false; }
     @Override public List<QueryLog> queryLog() { return List.copyOf(log); }
     @Override public void flushQueryLog()   { log.clear(); }
+
+    @Override public void beginQueryCollection() { collected.set(new ArrayList<>()); }
+
+    @Override public List<QueryLog> collectedQueries() {
+        List<QueryLog> entries = collected.get();
+        return entries == null ? List.of() : List.copyOf(entries);
+    }
+
+    @Override public void endQueryCollection() { collected.remove(); }
 
     @Override public Optional<Object> raw() { return Optional.of(dataSource); }
 }

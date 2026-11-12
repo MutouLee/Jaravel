@@ -604,6 +604,27 @@ class DatabaseTest {
         }
 
         @Test
+        @DisplayName("★ 按线程收集查询,且不需要打开全局日志")
+        void collectsQueriesPerThread() {
+            conn.table("users").insert(Map.of("name", "Tom"));
+
+            conn.beginQueryCollection();
+            conn.table("users").get();
+            conn.table("users").where("name", "Tom").get();
+
+            var collected = conn.collectedQueries();
+            assertThat(collected).hasSize(2);
+            assertThat(collected.get(1).sql()).contains("where \"name\" = ?");
+            assertThat(collected.get(1).bindings()).containsExactly("Tom");
+            assertThat(conn.queryLog())
+                    .as("按线程收集不该顺带打开全局日志")
+                    .isEmpty();
+
+            conn.endQueryCollection();
+            assertThat(conn.collectedQueries()).isEmpty();
+        }
+
+        @Test
         @DisplayName("查询日志记录 SQL、绑定值、耗时与调用点(SQL 面板的数据源)")
         void queryLog() {
             conn.enableQueryLog();

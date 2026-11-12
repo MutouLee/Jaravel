@@ -192,7 +192,7 @@ jblade **不发明表达式语言**,直接把表达式原样当作 Java 表达�
 > | 嵌套组件 | 任意深度,slot 里也能嵌 |
 > | **属性袋** | `{{ attributes }}`、`attributes.merge("class", "btn")`、`except` / `only` |
 >
-> **未实现:类组件、`@aware`。**
+> **类组件在 v0.6 已实现(见下);`@aware` 仍未实现。**
 >
 > #### 具名 slot:读到就声明
 >
@@ -327,6 +327,51 @@ jblade **不发明表达式语言**,直接把表达式原样当作 Java 表达�
 > classpath 回落的。那边记了两处被「不引入 Markdown 解析器」逼出来的
 > 设计偏差。
 
+> ### v0.6:类组件已实现(9 个测试)
+>
+> 类组件现在能用了,而**没有引入 APT 索引**:转写器从组件模板的
+> `@params` 读出类名、加载它,把**公开构造函数**当属性表 ——
+> 属性按参数名配对(kebab 与 camel 两种写法都认)。类名写在模板里,
+> 只有一个出处;再生成一份索引会让两边漂。
+>
+> ```java
+> public class PostCard extends Component {
+>     public final Post post;
+>     public PostCard(Post post) { this.post = post; }
+>     @Override public String view() { return "components.post-card"; }
+> }
+> ```
+>
+> ```html
+> {{-- components/post-card.jblade.html --}}
+> @import(app.http.components.PostCard)
+> @params(PostCard self)
+> <article>{{ self.post.title }}</article>
+> ```
+>
+> ```html
+> <x-post-card :post="post" />
+>   → @template.components.post-card(ctx = ctx, self = new PostCard(post))
+> ```
+>
+> - 缺属性 / 多属性 / 重复属性 / 多个 public 构造函数 → **转写期报错**,
+>   并指回模板行;类型不对由 javac 报;
+> - 属性名按构造参数名配对,`:user-id` 与 `userId` 是同一个;
+> - 字面量属性(`title="x"`)是 Java 字符串;数字等非字符串参数用表达式
+>   写法(`:count="1"`),布尔简写直接写属性名(`disabled`);
+> - 构造函数参数名需要 `-parameters`(框架 parent pom 与示例都加了)。
+>   缺了会直接报错并说清怎么加,而不是把 `arg0` 当成属性名;
+> - `examples/blog` 的首页卡片就是类组件 `<x-post-card :post="post" />`。
+>
+> **这一版的限制**:
+>
+> - 只能自闭合;带 body / 具名 slot 的类组件需要先定
+>   「`Content` 怎么进构造器」;
+> - `shouldRender()` 不在标签调用里强制执行(先构造再判断会构造两次);
+> - `view()` 不参与标签解析 —— 标签按 `components/<tag>` 约定;
+> - 类组件没有属性袋(`{{ attributes }}`),多传的属性是错误;
+> - 多个 public 构造函数需要先收敛成一个。
+
 **匿名组件**(纯模板):
 
 ```html
@@ -356,7 +401,6 @@ jblade **不发明表达式语言**,直接把表达式原样当作 Java 表达�
 **类组件**(需要逻辑):
 
 ```java
-@ViewComponent("post-card")
 public class PostCard extends Component {
     public final Post post;
     public final boolean highlighted;
@@ -373,6 +417,7 @@ public class PostCard extends Component {
 
 ```html
 {{-- resources/views/components/post-card.jblade.html --}}
+@import(app.http.components.PostCard)
 @params(PostCard self)
 <article class="{{ self.highlighted ? 'featured' : '' }}">
   <h3>{{ self.post.title }}</h3>
@@ -383,10 +428,10 @@ public class PostCard extends Component {
 组件标签 `<x-post-card :post="post" highlighted />` 在编译期解析为:
 
 ```java
-__out.component(new PostCard(post, true));
+@template.components.post-card(ctx = ctx, self = new PostCard(post, true))
 ```
 
-**编译期校验**:属性名拼错、类型不匹配、必填属性缺失,全部 javac 报错。
+**编译期校验**:属性名拼错、必填属性缺失是转写期错误;类型不匹配由 javac 报错。
 
 ### 1.8 框架指令
 
@@ -635,7 +680,7 @@ loadViewsFrom("classpath:/vendor/sms/views", "sms");
 | 表达式 | PHP 表达式 | Java 表达式 | 复用宿主语言 |
 | `@php ... @endphp` | 支持 | **不支持** | 模板里写 Java 代码块破坏关注点分离;需要逻辑请用类组件 |
 | 编译产物 | PHP 文件 | Java 类 | |
-| 组件自动发现 | 约定目录 | 约定目录 + APT 索引 | 零运行时扫描 |
+| 组件自动发现 | 约定目录 | 约定目录 + 模板 `@params`(类组件) | 类名只有一个出处 |
 | 调用视图 | `view('a.b', $data)` | `Views.aB(data)` 或 `View.of("a.b")` | 前者类型安全 |
 | 文件后缀 | `.blade.php` | `.jblade.html` | 让编辑器按 HTML 高亮 |
 | 上下文感知转义 | 无 | v0.6 规划 | 安全增强 |

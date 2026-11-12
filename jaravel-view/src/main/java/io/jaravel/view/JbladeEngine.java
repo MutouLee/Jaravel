@@ -344,7 +344,8 @@ public final class JbladeEngine implements ViewEngine {
             String blade = repository.read(viewName).orElse(null);
             if (blade == null) return null;
 
-            var result = JbladeTranspiler.transpile(blade, viewName + SUFFIX, this::propsOf);
+            var result = JbladeTranspiler.transpile(blade, viewName + SUFFIX,
+                    this::propsOf, this::classComponentOf);
             lineMaps.put(viewName, result.lineMap());
             declaredParams.put(viewName, result.declaredParams());
             componentDeps.put(viewName, result.components());
@@ -357,6 +358,12 @@ public final class JbladeEngine implements ViewEngine {
          * <p>只扫组件源码的 {@code @props} 那一行,不做完整转写:
          * 这个查询在每次转写一个带组件的模板时都会发生。
          */
+        /** 组件视图 → 类组件信息;不是类组件时返回 empty(按匿名组件处理) */
+        private Optional<JbladeTranspiler.ClassComponent> classComponentOf(String componentView) {
+            return ClassComponentResolver.resolve(
+                    componentView, repository.read(componentView), typeLoader);
+        }
+
         private Optional<List<String>> propsOf(String componentView) {
             long stamp = repository.lastModified(componentView);
             CachedProps hit = propsCache.get(componentView);
@@ -552,6 +559,8 @@ public final class JbladeEngine implements ViewEngine {
     public String transpiledSource(String viewName) {
         String blade = repository.read(viewName)
                 .orElseThrow(() -> new JbladeException(viewName + SUFFIX, 0, "模板不存在"));
-        return JbladeTranspiler.transpile(blade, viewName + SUFFIX).jteSource();
+        var resolvers = new TranspilingCodeResolver();
+        return JbladeTranspiler.transpile(blade, viewName + SUFFIX,
+                resolvers::propsOf, resolvers::classComponentOf).jteSource();
     }
 }

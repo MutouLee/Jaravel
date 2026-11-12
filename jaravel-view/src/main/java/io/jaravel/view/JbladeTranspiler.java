@@ -133,13 +133,16 @@ public final class JbladeTranspiler {
     private final Deque<ComponentFrame> componentFrames = new ArrayDeque<>();
 
     private final ComponentProps componentProps;
+    private final ClassComponents classComponents;
     /** 本模板调用了哪些组件 —— 引擎用它做热重载的依赖追踪(见 Result#components) */
     private final List<String> calledComponents = new ArrayList<>();
 
-    private JbladeTranspiler(String source, String templateName, ComponentProps componentProps) {
+    private JbladeTranspiler(String source, String templateName,
+                             ComponentProps componentProps, ClassComponents classComponents) {
         this.source = source;
         this.templateName = templateName;
         this.componentProps = componentProps;
+        this.classComponents = classComponents;
         this.lineMap = LineMap.builder(templateName);
     }
 
@@ -165,12 +168,36 @@ public final class JbladeTranspiler {
         ComponentProps UNKNOWN = view -> Optional.empty();
     }
 
+    /** 一个类组件的构造参数(名字与类型只用于报错,类型检查交给 javac) */
+    public record ConstructorParam(String name, String typeName) {}
+
+    /** 类组件的模板声明(@params)所指向的类与它的属性表 */
+    public record ClassComponent(String typeName, String view, String selfName,
+                                 List<ConstructorParam> parameters) {}
+
+    /**
+     * 组件视图 → 类组件信息。
+     *
+     * <p>{@link Optional#empty()} 表示**不是类组件**(按匿名组件处理)——
+     * 与 {@link ComponentProps} 同一个「查不到就退回」的语义。
+     */
+    public interface ClassComponents {
+        Optional<ClassComponent> of(String componentView);
+
+        ClassComponents NONE = view -> Optional.empty();
+    }
+
     public static Result transpile(String source, String templateName) {
-        return transpile(source, templateName, ComponentProps.UNKNOWN);
+        return transpile(source, templateName, ComponentProps.UNKNOWN, ClassComponents.NONE);
     }
 
     public static Result transpile(String source, String templateName, ComponentProps props) {
-        return new JbladeTranspiler(source, templateName, props).run();
+        return transpile(source, templateName, props, ClassComponents.NONE);
+    }
+
+    public static Result transpile(String source, String templateName,
+                                   ComponentProps props, ClassComponents classComponents) {
+        return new JbladeTranspiler(source, templateName, props, classComponents).run();
     }
 
     private Result run() {
@@ -803,6 +830,13 @@ public final class JbladeTranspiler {
     private String openTag(String name, String rawAttributes, boolean selfClosing,
                            int sourceLine) {
         String view = componentPath(name);
+
+        Optional<ClassComponent> classComponent = classComponents.of(view);
+        if (classComponent.isPresent()) {
+            return classComponentTag(classComponent.get(), name, rawAttributes,
+                    selfClosing, sourceLine);
+        }
+
         calledComponents.add(view);
 
         var call = new StringBuilder("@template.").append(view).append("(ctx = ctx");
@@ -820,6 +854,118 @@ public final class JbladeTranspiler {
         // 这里只留哨兵,真正的拼装在 assembleComponent。
         open("component", sourceLine);
         return sentinel("CO", tag(name, sourceLine, call.toString()));
+    }
+
+    /**
+     * 类组件标签(docs/04 §1.7):按构造函数参数名配对属性,生成
+     * {@code @template.<view>(ctx = ctx, self = new Class(...))}。
+     *
+     * <p>属性名 → 构造参数:两边都认 kebab 与 camel
+     * ({@code :user-id} 与 {@code userId} 指向同一个参数)。字面量变成
+     * Java 字符串,{@code :expr} 原样透传,布尔简写变成 {@code true}。
+     * **类型对不对交给 javac**;名字对不对、缺不缺在这里报,并能指回模板行。
+     */
+    private String classComponentTag(ClassComponent component, String tagName,
+                                     String rawAttributes, boolean selfClosing,
+                                     int sourceLine) {
+        if (!selfClosing) {
+            throw new JbladeException(templateName, sourceLine,
+                    "<x-" + tagName + "> 是类组件,目前只支持自闭合写法\n"
+                  + "  写成 <x-" + tagName + " … />。\n"
+                  + "  带 body 的类组件需要把 Content 传进构造器的约定,还没做。");
+        }
+
+        calledComponents.add(component.view());
+
+        Map<String, TagAttribute> attributes =
+                tagAttributes(tagName, rawAttributes, sourceLine);
+        var consumed = new java.util.HashSet<String>();
+        var arguments = new ArrayList<String>();
+
+        for (ConstructorParam parameter : component.parameters()) {
+            String kebab = camelToKebab(parameter.name());
+
+            TagAttribute attribute = attributes.get(kebab);
+            if (attribute == null) attribute = attributes.get(parameter.name());
+
+            if (attribute == null) {
+                throw new JbladeException(templateName, sourceLine,
+                        "<x-" + tagName + "> 缺少属性 " + kebab + "。\n"
+                      + "  类组件 " + simpleName(component.typeName())
+                      + " 的构造函数参数:" + describeParams(component) + "\n"
+                      + "  属性按名字配对,kebab 与 camel 两种写法都认。");
+            }
+
+            consumed.add(attribute.name());
+            arguments.add(attributeValue(attribute));
+        }
+
+        for (TagAttribute attribute : attributes.values()) {
+            if (consumed.contains(attribute.name())) continue;
+            throw new JbladeException(templateName, sourceLine,
+                    "<x-" + tagName + "> 不认识属性 " + attribute.name() + "。\n"
+                  + "  类组件的属性必须对应构造函数参数:"
+                  + describeParams(component) + "\n"
+                  + "  类组件没有属性袋({{ attributes }})。");
+        }
+
+        return "@template." + component.view()
+             + "(ctx = ctx, " + component.selfName() + " = new "
+             + component.typeName() + "(" + String.join(", ", arguments) + "))";
+    }
+
+    private record TagAttribute(String name, boolean expression, String value) {}
+
+    private Map<String, TagAttribute> tagAttributes(String tagName, String rawAttributes,
+                                                    int sourceLine) {
+        var attributes = new LinkedHashMap<String, TagAttribute>();
+        Matcher matcher = ATTRIBUTE.matcher(rawAttributes);
+
+        while (matcher.find()) {
+            String name = matcher.group(2);
+            String value = matcher.group(3) != null ? matcher.group(3) : matcher.group(4);
+            var attribute = new TagAttribute(name, !matcher.group(1).isEmpty(), value);
+
+            if (attributes.putIfAbsent(name, attribute) != null) {
+                throw new JbladeException(templateName, sourceLine,
+                        "<x-" + tagName + "> 的属性 " + name + " 写了两遍。");
+            }
+        }
+        return attributes;
+    }
+
+    private static String attributeValue(TagAttribute attribute) {
+        if (attribute.expression()) {
+            return attribute.value() == null ? "true" : attribute.value();
+        }
+        return attribute.value() == null ? "true" : javaStringLiteral(attribute.value());
+    }
+
+    /** {@code userId} → {@code user-id};属性袋与 @props 都用这个约定 */
+    private static String camelToKebab(String name) {
+        var out = new StringBuilder(name.length() + 4);
+        for (char c : name.toCharArray()) {
+            if (Character.isUpperCase(c)) {
+                if (out.length() > 0) out.append('-');
+                out.append(Character.toLowerCase(c));
+            } else {
+                out.append(c);
+            }
+        }
+        return out.toString();
+    }
+
+    private static String describeParams(ClassComponent component) {
+        var names = new ArrayList<String>(component.parameters().size());
+        for (ConstructorParam parameter : component.parameters()) {
+            names.add(parameter.name() + "(" + parameter.typeName() + ")");
+        }
+        return String.join(", ", names);
+    }
+
+    private static String simpleName(String typeName) {
+        int dot = typeName.lastIndexOf('.');
+        return dot < 0 ? typeName : typeName.substring(dot + 1);
     }
 
     /**

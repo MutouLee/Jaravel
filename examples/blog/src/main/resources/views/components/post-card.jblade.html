@@ -1,0 +1,13 @@
+@params(app.http.components.PostCard self)
+
+<article>
+  <h2><a href="/posts/{{ self.post.slug }}">{{ self.post.title }}</a></h2>
+  <p class="muted">
+    {{ self.post.author().getLoaded().map(a -> a.name).orElse("佚名") }}
+    · {{ self.post.views }} 次浏览
+    @foreach(self.post.tags().getLoaded() as tag)
+      · <span class="tag">{{ tag.name }}</span>
+    @endforeach
+  </p>
+  <p>{{ self.post.excerpt() }}</p>
+</article>

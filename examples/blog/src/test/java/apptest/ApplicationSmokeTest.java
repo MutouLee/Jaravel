@@ -33,8 +33,10 @@ class ApplicationSmokeTest extends FeatureTest {
         var response = get("/").assertOk();
 
         assertThat(response.content())
-                .as("首页是文章列表(jblade 渲染出来的 HTML)")
-                .isNotBlank();
+                .as("首页是文章列表,卡片是类组件 <x-post-card> 渲染的")
+                .isNotBlank()
+                .contains("<article>")
+                .contains("次浏览");
     }
 
     @Test

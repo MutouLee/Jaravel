@@ -1605,4 +1605,154 @@ class JbladeTest {
             assertThat(repo.lastModified(VIEW)).isNotZero();
         }
     }
+
+    // ================= 类组件 =================
+
+    @Nested
+    @DisplayName("类组件")
+    class ClassComponents {
+
+        private static final String CARD = """
+                @params(io.jaravel.view.TestCard self)
+                <article class="card"><h2>{{ self.upperTitle() }}</h2><span>{{ self.count }}</span></article>
+                """;
+
+        @Test
+        @DisplayName("★ 构造参数按属性名配对,顺序无关")
+        void constructorArgsMatchByName(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of(
+                    "components.test-card", CARD,
+                    "t", """
+                        @params(int n)
+                        <x-test-card :count="n" title="Hello" />
+                        """));
+
+            assertThat(e.render("t", Map.of("n", 3)))
+                    .contains("<h2>HELLO</h2>")
+                    .contains("<span>3</span>");
+        }
+
+        @Test
+        @DisplayName("类名可以走 @import")
+        void resolvesImportedType(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of(
+                    "components.test-card", """
+                        @import(io.jaravel.view.TestCard)
+                        @params(TestCard self)
+                        <p>{{ self.title }}</p>
+                        """,
+                    "t", """
+                        @params(int n)
+                        <x-test-card title="x" :count="n" />
+                        """));
+
+            assertThat(e.render("t", Map.of("n", 1))).contains("<p>x</p>");
+        }
+
+        @Test
+        @DisplayName("布尔简写与 kebab 属性名")
+        void booleanShorthandAndKebab(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of(
+                    "components.test-button", """
+                        @params(io.jaravel.view.TestButton self)
+                        <button data-user="{{ self.userId }}">{{ self.disabled }}</button>
+                        """,
+                    "t", """
+                        <x-test-button user-id="u1" disabled />
+                        """));
+
+            assertThat(e.render("t", Map.of()))
+                    .contains("data-user=\"u1\"")
+                    .as("布尔简写 disabled → true")
+                    .contains(">true</button>");
+        }
+
+        @Test
+        @DisplayName("★ 缺属性 → 转写期报错,并列出构造函数参数")
+        void missingAttribute(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of(
+                    "components.test-card", CARD,
+                    "t", """
+                        <x-test-card title="x" />
+                        """));
+
+            assertThatThrownBy(() -> e.render("t", Map.of()))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("缺少属性 count")
+                    .hasMessageContaining("title(String), count(int)");
+        }
+
+        @Test
+        @DisplayName("多属性 → 报错(类组件没有属性袋)")
+        void unknownAttribute(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of(
+                    "components.test-card", CARD,
+                    "t", """
+                        <x-test-card title="x" :count="1" class="y" />
+                        """));
+
+            assertThatThrownBy(() -> e.render("t", Map.of()))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("不认识属性 class")
+                    .hasMessageContaining("没有属性袋");
+        }
+
+        @Test
+        @DisplayName("属性写两遍 → 报错")
+        void duplicateAttribute(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of(
+                    "components.test-card", CARD,
+                    "t", """
+                        <x-test-card title="a" title="b" :count="1" />
+                        """));
+
+            assertThatThrownBy(() -> e.render("t", Map.of()))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("属性 title 写了两遍");
+        }
+
+        @Test
+        @DisplayName("带 body 的类组件 → 明确说只支持自闭合")
+        void bodyIsRejected(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of(
+                    "components.test-card", CARD,
+                    "t", """
+                        <x-test-card title="x" :count="1">body</x-test-card>
+                        """));
+
+            assertThatThrownBy(() -> e.render("t", Map.of()))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("只支持自闭合");
+        }
+
+        @Test
+        @DisplayName("多个 public 构造函数 → 报错并说怎么改")
+        void multipleConstructors(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of(
+                    "components.multi", """
+                        @params(io.jaravel.view.MultiCtorComponent self)
+                        <p>x</p>
+                        """,
+                    "t", "<x-multi />\n"));
+
+            assertThatThrownBy(() -> e.render("t", Map.of()))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("2 个 public 构造函数")
+                    .hasMessageContaining("只保留一个");
+        }
+
+        @Test
+        @DisplayName("转写产物是 new 组件类,不是匿名模板调用")
+        void transpilesToConstructorCall(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of(
+                    "components.test-card", CARD,
+                    "t", """
+                        @params(int n)
+                        <x-test-card title="Hello" :count="n" />
+                        """));
+
+            assertThat(e.transpiledSource("t"))
+                    .contains("self = new io.jaravel.view.TestCard(\"Hello\", n)");
+        }
+    }
 }

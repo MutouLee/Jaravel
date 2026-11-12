@@ -3,7 +3,7 @@
 > Laravel 级开发体验,构建在 Spring Boot 之上的 Java 应用框架。
 
 **当前状态:v0.6 进行中(v0.5 已收口)。**
-33 个模块、**2458 个测试**全绿,四个示例应用都在构建里
+33 个模块、**2459 个测试**全绿,四个示例应用都在构建里
 (`examples/{todo,blog,auth,queue}`)。
 队列 / 事件 / 调度 / 邮件 / 通知 / 存储到位(v0.4),
 终端上有 **40 条命令**、本地命令通道、冷启动启动器、`jaravelw`、`tinker`;
@@ -169,7 +169,7 @@ benchmark/jpa-comparison/ 与 Spring Data JPA 的单条主键查询对照基准
 ## 快速开始
 
 ```bash
-mvn install                                  # 构建 + 2458 个测试(-T1C)
+mvn install                                  # 构建 + 2459 个测试(-T1C)
 
 # Todo 切片(:8000)
 cd examples/todo && mvn spring-boot:run

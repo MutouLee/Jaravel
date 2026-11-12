@@ -1797,6 +1797,30 @@ class JbladeTest {
         }
 
         @Test
+        @DisplayName("★ shouldRender:只构造一次,再决定要不要渲染")
+        void shouldRenderIsHonouredOnce(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of(
+                    "components.test-maybe", """
+                        @params(io.jaravel.view.TestMaybeCard self)
+                        <p>{{ self.title }}</p>
+                        """,
+                    "t", """
+                        @params(boolean show)
+                        <x-test-maybe title="T" :visible="show" />
+                        """));
+
+            assertThat(e.render("t", Map.of("show", true))).contains("<p>T</p>");
+            assertThat(e.render("t", Map.of("show", false)))
+                    .as("shouldRender 为 false 时整块不输出")
+                    .doesNotContain("<p>");
+
+            String generated = e.transpiledSource("t");
+            assertThat(generated)
+                    .contains("var __jaravel_component_")
+                    .contains(".shouldRender()");
+        }
+
+        @Test
         @DisplayName("转写产物是 new 组件类,不是匿名模板调用")
         void transpilesToConstructorCall(@TempDir Path tmp) {
             var e = engine(tmp, Map.of(

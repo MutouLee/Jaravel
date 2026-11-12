@@ -141,6 +141,8 @@ public final class JbladeTranspiler {
     private final Deque<ComponentFrame> componentFrames = new ArrayDeque<>();
     /** CO 哨兵 → 类组件信息(匿名组件不在这里) */
     private final Map<Integer, ClassComponent> classComponentTags = new HashMap<>();
+    /** 类组件的局部变量名后缀 —— 一行里可能有多个组件 */
+    private int componentLocals;
 
     private final ComponentProps componentProps;
     private final ClassComponents classComponents;
@@ -189,7 +191,8 @@ public final class JbladeTranspiler {
      */
     public record ClassComponent(String typeName, String view, String selfName,
                                  List<ConstructorParam> parameters,
-                                 java.util.Set<String> contentParams) {
+                                 java.util.Set<String> contentParams,
+                                 boolean shouldRender) {
 
         public boolean hasDefaultSlot() {
             return contentParams.contains("slot");
@@ -923,12 +926,29 @@ public final class JbladeTranspiler {
                   + "  类组件没有属性袋({{ attributes }})。");
         }
 
-        // 还没闭模板调用那一层括号 —— 带 body 时 slot 参数要接在后面
-        String call = "@template." + component.view()
-                    + "(ctx = ctx, " + component.selfName() + " = new "
-                    + component.typeName() + "(" + String.join(", ", arguments) + ")";
+        String constructor = "new " + component.typeName()
+                + "(" + String.join(", ", arguments) + ")";
 
-        if (selfClosing) return call + ")";
+        if (selfClosing) {
+            if (component.shouldRender()) {
+                // ★ 先构造一次、放进局部变量,再判断 —— 不构造两次。
+                // jte 的 !{ ... } 代码块会原样落进生成的 Java 方法体。
+                String local = "__jaravel_component_" + (++componentLocals);
+                return "!{ var " + local + " = " + constructor + "; }"
+                     + "@if(" + local + ".shouldRender())"
+                     + "@template." + component.view() + "(ctx = ctx, "
+                     + component.selfName() + " = " + local + ")"
+                     + "@endif";
+            }
+            return "@template." + component.view() + "(ctx = ctx, "
+                 + component.selfName() + " = " + constructor + ")";
+        }
+
+        // 带 body:调用本体先不发出去 —— 具名 slot 可能还要往参数表里加东西。
+        // 这一条路径目前不生成 shouldRender 检查(先构造再判断需要包住
+        // 整个拼装结果;自闭合组件是绝大多数)。
+        String call = "@template." + component.view()
+                    + "(ctx = ctx, " + component.selfName() + " = " + constructor;
 
         open("component", sourceLine);
         int id = tag(tagName, sourceLine, call);

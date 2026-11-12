@@ -111,7 +111,17 @@ final class ClassComponentResolver {
 
         return Optional.of(new JbladeTranspiler.ClassComponent(
                 sourceName, view, selfName, List.copyOf(parameters),
-                Set.copyOf(contentParams)));
+                Set.copyOf(contentParams), declaresShouldRender(type)));
+    }
+
+    /** 类自己声明了 {@code shouldRender()} 才需要生成「先构造、再判断」的代码 */
+    private static boolean declaresShouldRender(Class<?> type) {
+        try {
+            var method = type.getDeclaredMethod("shouldRender");
+            return method.getReturnType() == boolean.class && method.getParameterCount() == 0;
+        } catch (NoSuchMethodException e) {
+            return false;
+        }
     }
 
     // ================= @params =================

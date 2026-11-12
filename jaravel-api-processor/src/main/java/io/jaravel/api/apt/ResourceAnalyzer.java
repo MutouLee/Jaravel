@@ -71,7 +71,9 @@ final class ResourceAnalyzer {
     sealed interface Result permits Success, Failure {
     }
 
-    record Success(List<ResourceProperty> properties) implements Result {
+    record Success(List<ResourceProperty> properties,
+                   List<ResourceProperty> outer,
+                   String warning) implements Result {
     }
 
     record Failure(String reason) implements Result {
@@ -79,6 +81,10 @@ final class ResourceAnalyzer {
 
     /** 一个字段指向另一个资源类;{@code array} 表示它是这些资源的数组 */
     private record Ref(String className, boolean array) {
+    }
+
+    /** {@code with()} 的提取结果:字段 + 可选的一条 warning(不影响资源本体) */
+    private record Outer(List<ResourceProperty> properties, String warning) {
     }
 
     private final Elements elements;
@@ -177,7 +183,9 @@ final class ResourceAnalyzer {
             merge(properties, key, type, optional, ref == null ? null : ref.className());
         }
 
-        return new Success(List.copyOf(properties.values()));
+        Outer outer = outerOf(resource, model);
+        return new Success(List.copyOf(properties.values()),
+                outer.properties(), outer.warning());
     }
 
     // ================= 找方法 =================
@@ -187,13 +195,17 @@ final class ResourceAnalyzer {
      * {@code toArray},只要那个父类也在源码里。
      */
     private ExecutableElement findToArray(TypeElement resource) {
+        return findMethod(resource, "toArray");
+    }
+
+    private ExecutableElement findMethod(TypeElement resource, String name) {
         TypeElement current = resource;
         while (current != null
                 && !current.getQualifiedName().contentEquals("java.lang.Object")) {
 
             for (Element member : current.getEnclosedElements()) {
                 if (member.getKind() == ElementKind.METHOD
-                        && member.getSimpleName().contentEquals("toArray")
+                        && member.getSimpleName().contentEquals(name)
                         && ((ExecutableElement) member).getParameters().size() == 1) {
                     return (ExecutableElement) member;
                 }
@@ -204,6 +216,76 @@ final class ResourceAnalyzer {
             current = (TypeElement) ((DeclaredType) superType).asElement();
         }
         return null;
+    }
+
+    /**
+     * {@code with(request)} 加到**根位置**的字段(docs/12 §1.1)。
+     *
+     * <p>只认一种形状:{@code return Map.of("k1", v1, "k2", v2);}。
+     * 它覆盖了绝大多数写法(blog 的 {@code meta} 就是它),而其它写法
+     * (先建变量再 put、从别处拼一个 Map)静态分析看不到 —— 那时
+     * **只发 warning,不影响 {@code toArray} 的 schema**:
+     * 少几个根字段,好过整份资源没有 schema。
+     *
+     * <p>外层字段一律 optional:值可能是 null,而应用配了 non_null
+     * 输出时那个键会消失。
+     */
+    private Outer outerOf(TypeElement resource, TypeElement model) {
+        ExecutableElement with = findMethod(resource, "with");
+        if (with == null) return new Outer(List.of(), null);
+
+        TypeElement declaring = (TypeElement) with.getEnclosingElement();
+        if (declaring.getQualifiedName().contentEquals(JSON_RESOURCE)) {
+            // 基类的默认实现返回 Map.of() —— 没有根字段,也不用警告
+            return new Outer(List.of(), null);
+        }
+
+        MethodTree tree = (MethodTree) trees.getTree(with);
+        if (tree == null) {
+            return new Outer(List.of(), "with() 没有源码(来自依赖 jar)");
+        }
+
+        TreePath path = trees.getPath(with);
+        CompilationUnitTree unit = path == null ? null : path.getCompilationUnit();
+        if (unit == null) {
+            return new Outer(List.of(), "拿不到 with() 的编译单元");
+        }
+
+        List<? extends ExpressionTree> returns = returnsOf(tree);
+        if (returns.size() != 1) {
+            return new Outer(List.of(),
+                    "with() 有 " + returns.size() + " 个 return");
+        }
+
+        ExpressionTree expression = returns.get(0);
+        ExpressionTree value = expression == null ? null : strip(expression);
+        if (!(value instanceof MethodInvocationTree call) || !nameOf(call).equals("of")) {
+            return new Outer(List.of(), "with() 的返回不是 Map.of(...)");
+        }
+
+        List<? extends ExpressionTree> args = call.getArguments();
+        if (args.size() % 2 != 0) {
+            return new Outer(List.of(), "Map.of(...) 的参数不是成对的键值");
+        }
+
+        var properties = new ArrayList<ResourceProperty>();
+
+        for (int i = 0; i < args.size(); i += 2) {
+            String key = keyOf(args.get(i), unit);
+            if (key == null) {
+                return new Outer(List.of(), "with() 的字段名不是字符串字面量/常量");
+            }
+
+            Ref ref = refOf(args.get(i + 1), unit);
+            String type = ref != null
+                    ? (ref.array() ? "array" : "object")
+                    : typeOf(args.get(i + 1), model, unit);
+
+            properties.add(new ResourceProperty(
+                    key, type, true, ref == null ? null : ref.className()));
+        }
+
+        return new Outer(List.copyOf(properties), null);
     }
 
     private List<? extends ExpressionTree> returnsOf(MethodTree method) {

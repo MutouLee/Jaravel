@@ -351,6 +351,13 @@ class ResourceSchemaProcessorTest {
                                         .putWhen(true, "author_ref", AuthorResource::new)
                                         .build();
                             }
+
+                            @Override
+                            public Map<String, Object> with(Request request) {
+                                return Map.of(
+                                        "meta", Map.of("version", "1.0"),
+                                        "trace", "x");
+                            }
                         }
                         """);
 
@@ -365,7 +372,46 @@ class ResourceSchemaProcessorTest {
                 "F\tauthor\tobject\t0\tapp.AuthorResource",
                 "F\tauthors\tarray\t0\tapp.AuthorResource",
                 "F\toptional_author\tobject\t1\tapp.AuthorResource",
-                "F\tauthor_ref\tobject\t1\tapp.AuthorResource");
+                "F\tauthor_ref\tobject\t1\tapp.AuthorResource",
+                "O\tmeta\tobject\t1",
+                "O\ttrace\tstring\t1");
+    }
+
+    @Test
+    @DisplayName("with() 不是 Map.of → 只警告;toArray 的 schema 照常生成")
+    void unparseableWithOnlyWarns(@TempDir Path tmp) throws IOException {
+        var result = compile(tmp, "app/Post.java", POST, "app/WeirdWithResource.java", """
+                package app;
+
+                import io.jaravel.api.JsonResource;
+                import io.jaravel.http.Request;
+                import java.util.Map;
+
+                public class WeirdWithResource extends JsonResource<Post> {
+
+                    private final Map<String, Object> extra = Map.of("meta", Map.of());
+
+                    public WeirdWithResource(Post post) { super(post); }
+
+                    @Override
+                    public Map<String, Object> toArray(Request request) {
+                        return map(request).put("id", model.id).build();
+                    }
+
+                    @Override
+                    public Map<String, Object> with(Request request) {
+                        return extra;
+                    }
+                }
+                """);
+
+        assertThat(result.ok()).as("with() 提取不了不该让编译失败").isTrue();
+        assertThat(result.lines()).containsExactly(
+                "R\tapp.WeirdWithResource",
+                "F\tid\tinteger\t0");
+        assertThat(result.diagnostics())
+                .contains("with() 根字段没有提取")
+                .contains("with() 的返回不是 Map.of(...)");
     }
 
     @Test

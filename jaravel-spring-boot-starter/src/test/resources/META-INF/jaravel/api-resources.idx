@@ -14,3 +14,9 @@ F	parent	object	1	io.jaravel.spring.commands.NestedFixtureResource
 # 指向一个加载不到的类 —— 生成器要退回 object 并记 note
 R	io.jaravel.spring.commands.BrokenNestedResource
 F	owner	object	1	app.DoesNotExist
+
+# with() 的根字段(O 行)
+R	io.jaravel.spring.commands.OuterFixtureResource
+F	id	integer	0
+O	meta	object	1
+O	trace	string	1

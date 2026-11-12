@@ -107,7 +107,15 @@ public class ResourceSchemaProcessor extends AbstractProcessor {
         var result = new ResourceAnalyzer(processingEnv).analyze(type);
 
         if (result instanceof ResourceAnalyzer.Success success) {
-            schemas.put(binaryName, new ResourceSchema(binaryName, success.properties()));
+            schemas.put(binaryName, new ResourceSchema(
+                    binaryName, success.properties(), success.outer()));
+
+            if (success.warning() != null) {
+                processingEnv.getMessager().printMessage(Diagnostic.Kind.WARNING,
+                        binaryName + " 的 with() 根字段没有提取:" + success.warning()
+                                + "\n  toArray 的响应 schema 不受影响,只是少了 with() 加的根字段。",
+                        type);
+            }
             return;
         }
 
@@ -133,13 +141,10 @@ public class ResourceSchemaProcessor extends AbstractProcessor {
             for (ResourceSchema schema : schemas.values()) {
                 writer.write("R\t" + escape(schema.className()) + "\n");
                 for (ResourceProperty property : schema.properties()) {
-                    writer.write("F\t" + escape(property.name())
-                            + "\t" + escape(property.type() == null ? "" : property.type())
-                            + "\t" + (property.optional() ? "1" : "0")
-                            // 第 5 列只在有嵌套资源时写 —— 旧的索引仍然读得懂
-                            + (property.ref() == null
-                                    ? "" : "\t" + escape(property.ref()))
-                            + "\n");
+                    writeProperty(writer, "F", property);
+                }
+                for (ResourceProperty property : schema.outerProperties()) {
+                    writeProperty(writer, "O", property);
                 }
             }
 
@@ -153,6 +158,16 @@ public class ResourceSchemaProcessor extends AbstractProcessor {
                     "写不了 " + RESOURCE + ":" + e.getMessage()
                             + "\n  响应 schema 会缺失;清一次构建产物再编译试试。");
         }
+    }
+
+    private static void writeProperty(Writer writer, String tag, ResourceProperty property)
+            throws IOException {
+        writer.write(tag + "\t" + escape(property.name())
+                + "\t" + escape(property.type() == null ? "" : property.type())
+                + "\t" + (property.optional() ? "1" : "0")
+                // 第 5 列只在有嵌套资源时写 —— 旧的索引仍然读得懂
+                + (property.ref() == null ? "" : "\t" + escape(property.ref()))
+                + "\n");
     }
 
     /**

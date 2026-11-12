@@ -468,7 +468,8 @@ v0.4 的上传演示把三条 `/avatar` 路由加进了
 OpenAPI 线里 `openapi:generate`(路由、路径参数、请求体、响应 schema)、
 `openapi:diff` 与 `@ApiDoc` / `@ApiResponse` 都已交付。
 响应 schema 由 `jaravel-api-processor` 从 `JsonResource.toArray` 提取,
-record 返回类型由运行时反射得到;`with()` 根字段与 record 的自定义
+record 返回类型由运行时反射得到;`with()` 的根字段由 APT 从
+`return Map.of(...)` 提取。`with()` 的其它写法与 record 的自定义
 Jackson 序列化仍是后续项,不妨碍 v0.5 收口。
 `jaravel-testing` 在 v0.3 之后已提前交付。
 

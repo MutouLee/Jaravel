@@ -832,7 +832,7 @@ public JsonResource store(StorePostRequest req) { ... }
 > 而那份文档看起来完全正常。找不到注解就让这个接口沿用默认值,
 > 整份文档照常生成。
 
-> ### v0.5:响应 schema —— `toArray` 的 APT + record 反射(37 个测试)
+> ### v0.5:响应 schema —— `toArray` 的 APT + record 反射(41 个测试)
 >
 > #### 整条链路
 >
@@ -923,6 +923,21 @@ public JsonResource store(StorePostRequest req) { ... }
 > 必须看 `MemberReferenceTree.getMode() == NEW`。这个 bug 是静默的:
 > 字段还在,只是 type 为空,看起来像「静态分析不知道」。
 >
+> #### `with()` 的根字段
+>
+> `with(request)` 加在**最外层**的字段(比如 `meta`)由 APT 从
+> `return Map.of("meta", …)` 里提取,索引里记成 `O` 行。
+> 生成器把它们放进 envelope 的 `properties`,**不放进 `required`** ——
+> 值可能是 null,应用配了 `non_null` 输出时那个键会消失。
+>
+> 只认 `Map.of(...)` 这一种形状。先建变量再 `put`、从别处拼一个 Map
+> 之类,静态分析看不到:编译期发 **warning**,toArray 的 schema 照常生成
+> (少几个根字段,好过整份资源没有 schema)。
+>
+> ⚠ `withoutWrapping()` 时 `with` 的字段是平铺进资源本体的,而 component
+> 描述的是资源本体;把它们塞进 component 会让嵌套使用也带上这些字段。
+> 所以那种情况下不写,命令会记一条 note。
+>
 > #### record 返回类型
 >
 > docs/12 §1.4 推荐的另一条输出路径。它**不是** `JsonResource`,所以:
@@ -966,7 +981,7 @@ public JsonResource store(StorePostRequest req) { ... }
 > #### 已知限制
 >
 > - record 的自定义 Jackson 序列化器 / `@JsonNaming` / `@JsonUnwrapped` 不识别;
-> - `with()` 的根字段没提取;
+> - `with()` 只认 `return Map.of(...)`;其它写法告警并省略,`withoutWrapping()` 时不写;
 > - `required` 按 `put` / 原始类型判定,尚未结合应用的 null 输出策略;
 > - 「运行时采样」兜底没做 —— 它需要真实模型实例并执行用户的 `toArray`。
 

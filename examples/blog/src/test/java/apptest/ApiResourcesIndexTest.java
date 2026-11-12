@@ -54,6 +54,10 @@ class ApiResourcesIndexTest {
                     assertThat(property.optional()).isTrue();
                 });
 
+        assertThat(post.outerProperties())
+                .as("with() 加的 meta —— 只出现在最外层,嵌套时不带")
+                .containsExactly(new ResourceProperty("meta", "object", true, null));
+
         assertThat(index.schemaOf(AuthorResource.class)).isPresent();
 
         assertThat(post.toOpenApiSchema().get("required"))

@@ -176,6 +176,10 @@ class OpenApiTest {
         public BrokenNestedResource brokenNested() {
             return null;
         }
+
+        public OuterFixtureResource outerFixture() {
+            return null;
+        }
     }
 
     // ================= record 返回类型 =================
@@ -575,6 +579,42 @@ class OpenApiTest {
 
             assertThat(generator.schemaNotes()).anySatisfy(note ->
                     assertThat(note).contains("app.DoesNotExist").contains("加载不到"));
+        }
+
+        @Test
+        @DisplayName("★ with() 的根字段写进 envelope,且是可选属性")
+        void outerFieldsAreInTheEnvelope() {
+            var document = document(routes(r ->
+                    r.get("/outer", PostController::outerFixture)));
+            var operation = operation(document, "/outer", "get");
+
+            assertThat(response(operation, "200").get("content")).isEqualTo(Map.of(
+                    "application/json", Map.of("schema", Map.of(
+                            "type", "object",
+                            "properties", Map.of(
+                                    "data", Map.of("$ref",
+                                            "#/components/schemas/OuterFixtureResource"),
+                                    "meta", Map.of("type", "object"),
+                                    "trace", Map.of("type", "string")),
+                            "required", List.of("data")))));
+        }
+
+        @Test
+        @DisplayName("withoutWrapping 时 with() 的根字段不写,并记 note")
+        void outerFieldsAreNotedWhenUnwrapped() {
+            JsonResource.withoutWrapping();
+
+            var generator = new OpenApiGenerator("测试 API", "2.0.0", null);
+            var document = generator.generate(routes(r ->
+                    r.get("/outer", PostController::outerFixture)));
+            var operation = operation(document, "/outer", "get");
+
+            assertThat(response(operation, "200").get("content")).isEqualTo(Map.of(
+                    "application/json", Map.of("schema",
+                            Map.of("$ref", "#/components/schemas/OuterFixtureResource"))));
+
+            assertThat(generator.schemaNotes()).anySatisfy(note ->
+                    assertThat(note).contains("with() 的根字段"));
         }
     }
 

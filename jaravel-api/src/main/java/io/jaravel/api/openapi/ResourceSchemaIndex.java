@@ -28,6 +28,7 @@ import java.util.Optional;
  * R\tapp.http.resources.PostResource      ← 一份资源
  * F\tid\tinteger\t0                       ← 字段:名字 / type(可空)/ 是否可选
  * F\tauthor\tobject\t1\tapp…\AuthorResource  ← 可选的第 5 列:嵌套资源类
+ * O\tmeta\tobject\t1                       ← with(request) 的根字段
  * X\tapp.http.resources.ComplexResource\ttoArray 有 3 个 return
  * </pre>
  *
@@ -77,6 +78,7 @@ public final class ResourceSchemaIndex {
                                  Map<String, String> failures) throws IOException {
         String current = null;
         List<ResourceProperty> properties = new ArrayList<>();
+        List<ResourceProperty> outer = new ArrayList<>();
 
         try (var reader = new BufferedReader(
                 new InputStreamReader(url.openStream(), StandardCharsets.UTF_8))) {
@@ -88,19 +90,18 @@ public final class ResourceSchemaIndex {
                 String[] parts = line.split("\t", -1);
                 switch (parts[0]) {
                     case "R" -> {
-                        flush(current, properties, schemas);
+                        flush(current, properties, outer, schemas);
                         current = parts.length > 1 ? unescape(parts[1]) : null;
                         properties = new ArrayList<>();
+                        outer = new ArrayList<>();
                     }
                     case "F" -> {
-                        if (current == null || parts.length < 4) continue;
-                        String type = unescape(parts[2]);
-                        String ref = parts.length >= 5 ? unescape(parts[4]) : "";
-                        properties.add(new ResourceProperty(
-                                unescape(parts[1]),
-                                type.isBlank() ? null : type,
-                                "1".equals(parts[3]),
-                                ref.isBlank() ? null : ref));
+                        var property = propertyOf(parts);
+                        if (current != null && property != null) properties.add(property);
+                    }
+                    case "O" -> {
+                        var property = propertyOf(parts);
+                        if (current != null && property != null) outer.add(property);
                     }
                     case "X" -> {
                         if (parts.length < 3) continue;
@@ -110,13 +111,25 @@ public final class ResourceSchemaIndex {
                 }
             }
         }
-        flush(current, properties, schemas);
+        flush(current, properties, outer, schemas);
+    }
+
+    private static ResourceProperty propertyOf(String[] parts) {
+        if (parts.length < 4) return null;
+        String type = unescape(parts[2]);
+        String ref = parts.length >= 5 ? unescape(parts[4]) : "";
+        return new ResourceProperty(
+                unescape(parts[1]),
+                type.isBlank() ? null : type,
+                "1".equals(parts[3]),
+                ref.isBlank() ? null : ref);
     }
 
     private static void flush(String className, List<ResourceProperty> properties,
+                              List<ResourceProperty> outer,
                               Map<String, ResourceSchema> schemas) {
         if (className == null) return;
-        schemas.putIfAbsent(className, new ResourceSchema(className, properties));
+        schemas.putIfAbsent(className, new ResourceSchema(className, properties, outer));
     }
 
     /**

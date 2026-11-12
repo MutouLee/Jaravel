@@ -21,6 +21,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import io.jaravel.api.JsonResource;
 import io.jaravel.api.openapi.ApiDoc;
 import io.jaravel.api.openapi.ApiResponse;
+import io.jaravel.api.openapi.ResourceProperty;
 import io.jaravel.api.openapi.ResourceSchema;
 import io.jaravel.api.openapi.ResourceSchemaIndex;
 import io.jaravel.routing.Route;
@@ -68,6 +69,9 @@ final class OpenApiGenerator {
     /** 资源类二进制名 → component 名;同一个资源被多个接口引用时只写一份 */
     private final Map<String, String> componentNames = new LinkedHashMap<>();
 
+    /** 已经登记过的资源 schema —— 自引用时靠它在构建之前就拿到名字 */
+    private final Map<String, ResourceSchema> registeredSchemas = new LinkedHashMap<>();
+
     private final Set<String> takenComponentNames = new HashSet<>();
 
     /** 没能生成出 schema 的接口 —— 命令会报出来,而不是静默少一段 */
@@ -85,6 +89,7 @@ final class OpenApiGenerator {
     Map<String, Object> generate(RouteCollection routes) {
         usedSchemas.clear();
         componentNames.clear();
+        registeredSchemas.clear();
         takenComponentNames.clear();
         schemaNotes.clear();
         skipped.clear();
@@ -307,9 +312,11 @@ final class OpenApiGenerator {
      * 调了 {@code withoutWrapping()} 或 {@code wrapWith("result")}。
      * 关掉包裹时响应体就是资源本体。
      *
-     * <p>⚠ {@code with(request)} 附加的根字段(比如 {@code meta})
-     * 这一版**没有**提取:那需要再分析一个方法体里的 Map 表达式。
-     * 文档里不写它们 —— 缺字段比写错字段好;而它们通常不参与客户端逻辑。
+     * <p>{@code with(request)} 的根字段(比如 {@code meta})由 APT 从
+     * {@code return Map.of(...)} 里提取,作为 envelope 的**可选**属性写进去。
+     * 关掉包裹时不写:那种情况下 {@code with} 的字段是平铺进资源本体的,
+     * 而 component 描述的是资源本体 —— 硬塞进去会让嵌套使用也带上它们。
+     * 命令会对这种情况给一条 note。
      *
      * <p>record 不走这里:Jackson 直接序列化它,根位置**没有** {@code data}
      * 包裹(docs/12 §1.4)。所以 record 的响应 schema 就是它自己的
@@ -318,14 +325,29 @@ final class OpenApiGenerator {
     private Map<String, Object> responseBodySchemaOf(Class<?> resource, String location) {
         if (resource.isRecord()) return recordSchemaRefOf(resource, location);
 
-        Map<String, Object> ref = schemaRefOf(resource, location);
-        if (ref == null) return null;
+        ResourceSchema schema = registerResource(resource, location);
+        if (schema == null) return null;
+
+        String component = componentNames.get(resource.getName());
+        Map<String, Object> ref = schemaRef(component);
 
         String wrapKey = JsonResource.wrapKey();
-        if (wrapKey == null) return ref;
+        if (wrapKey == null) {
+            if (!schema.outerProperties().isEmpty()) {
+                schemaNotes.add(location + " → " + resource.getSimpleName()
+                        + ":withoutWrapping() 时 with() 的根字段没有写进 schema");
+            }
+            return ref;
+        }
 
         var properties = new LinkedHashMap<String, Object>();
         properties.put(wrapKey, ref);
+
+        for (ResourceProperty outer : schema.outerProperties()) {
+            properties.put(outer.name(), ResourceSchema.openApiSchemaOf(outer,
+                    (nested, array) -> schemaForRef(nested, array,
+                            "schema " + component + " · " + outer.name())));
+        }
 
         var envelope = new LinkedHashMap<String, Object>();
         envelope.put("type", "object");
@@ -334,14 +356,23 @@ final class OpenApiGenerator {
         return envelope;
     }
 
+    private Map<String, Object> schemaRefOf(Class<?> resource, String location) {
+        ResourceSchema schema = registerResource(resource, location);
+        return schema == null ? null : schemaRef(componentNames.get(resource.getName()));
+    }
+
     /**
-     * 一个资源类 → {@code $ref},并把它的 schema 登记进 components。
+     * 一个资源类 → 登记进 components,返回它的 schema。
      *
      * <p>查的是 APT 在编译期写下的索引,不是反射调用 {@code toArray} ——
      * 后者需要一个真实的模型实例,而且会执行用户的代码。
      * 索引里没有时**不编**:记一条 note,由命令报出来。
+     *
+     * <p>★ 名字先登记再构建:资源之间可以互相引用(A 的 author 是 B,
+     * B 的 owner 又是 A)。名字不在建 schema 之前放进去的话,
+     * 递归会无限展开。构建期间查到自己只会拿到 {@code $ref}。
      */
-    private Map<String, Object> schemaRefOf(Class<?> resource, String location) {
+    private ResourceSchema registerResource(Class<?> resource, String location) {
         if (!JsonResource.class.isAssignableFrom(resource)) {
             schemaNotes.add(location + " → " + resource.getSimpleName()
                     + ":响应 schema 只支持 JsonResource 子类与 record");
@@ -349,8 +380,8 @@ final class OpenApiGenerator {
         }
 
         String className = resource.getName();
-        String existing = componentNames.get(className);
-        if (existing != null) return schemaRef(existing);
+        ResourceSchema registered = registeredSchemas.get(className);
+        if (registered != null) return registered;
 
         Optional<ResourceSchema> schema = schemaIndex.schemaOf(resource);
         if (schema.isEmpty()) {
@@ -361,14 +392,12 @@ final class OpenApiGenerator {
         }
 
         String component = componentNameFor(resource);
-        // ★ 先登记名字再构建:资源之间可以互相引用(A 的 author 是 B,
-        // B 的 owner 又是 A)。名字不在建 schema 之前放进去的话,
-        // 递归会无限展开。构建期间查到自己只会拿到 $ref。
         componentNames.put(className, component);
+        registeredSchemas.put(className, schema.get());
 
         usedSchemas.put(component, schema.get().toOpenApiSchema(
                 (nested, array) -> schemaForRef(nested, array, "schema " + component)));
-        return schemaRef(component);
+        return schema.get();
     }
 
     /**

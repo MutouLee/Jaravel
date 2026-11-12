@@ -142,6 +142,25 @@ class ResourceSchemaIndexTest {
     }
 
     @Test
+    @DisplayName("with() 的根字段用 O 行 —— 与 toArray 的字段分开存")
+    void parsesOuterProperties(@TempDir Path tmp) throws Exception {
+        write(tmp, """
+                R\tapp.PostResource
+                F\tid\tinteger\t0
+                O\tmeta\tobject\t1
+                O\ttrace\tstring\t1
+                """);
+
+        var schema = load(tmp).schemas().get("app.PostResource");
+
+        assertThat(schema.properties()).containsExactly(
+                new ResourceProperty("id", "integer", false, null));
+        assertThat(schema.outerProperties()).containsExactly(
+                new ResourceProperty("meta", "object", true, null),
+                new ResourceProperty("trace", "string", true, null));
+    }
+
+    @Test
     @DisplayName("多模块:多份索引合并,不是只读第一份")
     void mergesMultipleIndexes(@TempDir Path first, @TempDir Path second) throws Exception {
         write(first, """

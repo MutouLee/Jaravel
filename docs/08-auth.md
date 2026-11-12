@@ -400,6 +400,33 @@ boolean ok = user.confirmTwoFactor(code);
 
 列入 v0.6。
 
+> ### v0.6:原语已实现(14 个测试)
+>
+> `io.jaravel.auth.twofactor`:
+>
+> ```java
+> String secret = Totp.generateSecret();                 // 20 字节 → Base32
+> String uri = Totp.otpauthUri("MyApp", "tom@example.com", secret);
+> boolean ok = Totp.verify(secret, userInput);           // 默认 ±1 个 30 秒窗口
+>
+> List<String> codes = RecoveryCodes.generate();         // ABCDE-FGHIJ × 10
+> List<String> stored = codes.stream().map(RecoveryCodes::hash).toList();
+> ```
+>
+> - 默认 **SHA-1 / 6 位 / 30 秒** —— 与主流验证器客户端一致,不做配置界面;
+> - 所有方法都收 `Instant`:测试可以用 RFC 6238 的固定时间点,
+>   窗口边界与跨步长才测得到;
+> - 校验用常数时间比较;恢复码只存 SHA-256,输入接受大小写/连字符差异。
+>
+> **还没做的**:
+>
+> - `User.enableTwoFactor()` 这类**用户模型集成** —— 存 secret/恢复码的
+>   列与迁移属于应用侧;
+> - 二维码 **SVG**:`otpauth://` URI 是任何二维码库的输入,框架不引入
+>   一整个 QR 实现;
+> - 恢复码的**一次性**语义:框架提供生成/哈希/验证,「用过就删」
+>   需要应用在一次更新里完成(否则同一个码可以重复登录)。
+
 ### 6.5 API Token(TokenGuard)
 
 ```java

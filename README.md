@@ -136,11 +136,12 @@ jaravel-auth/             Session/Token/JWT guard、Gate/Policy、哈希、密�
 jaravel-queue/            队列契约、database/sync 驱动、虚拟线程 worker、chain / batch / 唯一性
 jaravel-events/           事件总线、队列化监听器、Spring 桥接
 jaravel-events-processor/ @Listener 的 APT:强类型绑定 + 索引(运行时零反射、零扫包)
+jaravel-api-processor/    JsonResource.toArray → 响应 schema 的 APT(写 api-resources.idx)
 jaravel-scheduler/        Schedule DSL、进程内调度器、多实例去重(onOneServer)
 jaravel-mail/             Mailable、SMTP/log/array、内置邮件组件 <x-mail::*>
 jaravel-notifications/    多渠道通知(database / mail)、Notifiable
 jaravel-storage/          Filesystem、local 驱动、上传安全(内容嗅探 / 路径穿越 / 随机命名)
-jaravel-api/              API 资源:JsonResource / 资源集合 / 输出形状(分页在 support)
+jaravel-api/              API 资源:JsonResource / 资源集合 / 输出形状 / OpenAPI 注解与 schema 索引(分页在 support)
 jaravel-http-client/      Http 客户端门面(重试、超时、假实现)
 jaravel-console/          Artisan 内核:命令基类、参数绑定、注册表、stub、16 条生成命令
 jaravel-cli/              jaravel 可执行入口:离线/在线分流、命令通道、冷启动启动器

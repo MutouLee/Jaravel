@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import io.jaravel.api.JsonResource;
 import io.jaravel.api.openapi.ApiDoc;
 import io.jaravel.api.openapi.ApiResponse;
 import io.jaravel.console.Artisan;
@@ -35,6 +36,7 @@ class OpenApiTest {
     @AfterEach
     void clearStaticState() {
         Artisan.reset();
+        JsonResource.resetWrapping();
     }
 
     /** 控制器替身 —— 只需要有方法可以被方法引用指住 */
@@ -107,6 +109,38 @@ class OpenApiTest {
         public Object plain() {
             return "ok";
         }
+
+        @ApiDoc(summary = "显式资源", responses = {
+                @ApiResponse(code = 200, description = "成功", resource = FixtureResource.class)
+        })
+        public Object declaredResource(Request request) {
+            return "ok";
+        }
+
+        public FixtureResource autoResource() {
+            return null;
+        }
+
+        @ApiDoc(summary = "201 上的资源", responses = {
+                @ApiResponse(code = 201, description = "创建成功")
+        })
+        public FixtureResource createResource() {
+            return null;
+        }
+
+        @ApiDoc(summary = "未接入索引", responses = {
+                @ApiResponse(code = 200, resource = UnindexedResource.class)
+        })
+        public Object unindexedResource(Request request) {
+            return "ok";
+        }
+
+        @ApiDoc(summary = "非法资源类型", responses = {
+                @ApiResponse(code = 200, resource = String.class)
+        })
+        public Object badResource(Request request) {
+            return "ok";
+        }
     }
 
     /** 注解在父类方法上,注册的是子类 —— 继承来的方法也要能读到 */
@@ -146,6 +180,27 @@ class OpenApiTest {
     @SuppressWarnings("unchecked")
     private Map<String, Object> response(Map<String, Object> operation, String code) {
         return (Map<String, Object>) responses(operation).get(code);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> componentSchema(Map<String, Object> document, String name) {
+        var components = (Map<String, Object>) document.get("components");
+        var schemas = (Map<String, Object>) components.get("schemas");
+        return (Map<String, Object>) schemas.get(name);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> properties(Map<String, Object> schema) {
+        return (Map<String, Object>) schema.get("properties");
+    }
+
+    /** 响应体在根位置默认会被包成 {@code {"data": ...}} —— schema 必须如实写出来 */
+    private Map<String, Object> wrappedFixtureContent(String wrapKey) {
+        return Map.of("application/json", Map.of("schema", Map.of(
+                "type", "object",
+                "properties", Map.of(wrapKey,
+                        Map.of("$ref", "#/components/schemas/FixtureResource")),
+                "required", List.of(wrapKey))));
     }
 
     // ================= 文档骨架 =================
@@ -308,6 +363,112 @@ class OpenApiTest {
                     r.get("/inherited", ChildController::inherited))), "/inherited", "get");
 
             assertThat(operation.get("summary")).isEqualTo("继承来的说明");
+        }
+    }
+
+    // ================= 响应 schema =================
+
+    @Nested
+    @DisplayName("响应 schema")
+    class ResponseSchemas {
+
+        @Test
+        @DisplayName("★ @ApiResponse.resource → $ref + components.schemas")
+        void explicitResource() {
+            var document = document(routes(r ->
+                    r.get("/posts", PostController::declaredResource)));
+            var operation = operation(document, "/posts", "get");
+
+            assertThat(response(operation, "200").get("content"))
+                    .as("""
+                            响应体不是 toArray 的形状 —— 序列化器在根位置还会包一层 data。
+                            直接写 $ref 的话,前端会按 {"id":…} 解析而实际收到 {"data":{"id":…}}。""")
+                    .isEqualTo(wrappedFixtureContent("data"));
+
+            var fixture = componentSchema(document, "FixtureResource");
+            assertThat(fixture.get("type")).isEqualTo("object");
+            assertThat(fixture.get("required"))
+                    .as("nickname 是可选字段,不该进 required")
+                    .isEqualTo(List.of("id", "title"));
+            assertThat(properties(fixture)).containsKeys("id", "title", "nickname");
+            assertThat(properties(fixture).get("nickname"))
+                    .as("索引里没有类型 → schema 里也不写,不猜 string")
+                    .isEqualTo(Map.of());
+        }
+
+        @Test
+        @DisplayName("★ 返回类型是具体 JsonResource → 自动挂 schema")
+        void automaticResourceReturnType() {
+            var document = document(routes(r ->
+                    r.get("/posts", PostController::autoResource)));
+
+            assertThat(response(operation(document, "/posts", "get"), "200").get("content"))
+                    .isEqualTo(wrappedFixtureContent("data"));
+        }
+
+        @Test
+        @DisplayName("自动 schema 挂在第一个 2xx 上 —— 201 的创建接口不塞回 200")
+        void autoSchemaGoesToTheFirst2xx() {
+            var operation = operation(document(routes(r ->
+                    r.get("/posts", PostController::createResource))), "/posts", "get");
+
+            assertThat(responses(operation)).containsOnlyKeys("201");
+            assertThat(response(operation, "201").get("content"))
+                    .isEqualTo(wrappedFixtureContent("data"));
+        }
+
+        @Test
+        @DisplayName("★ 应用改了包裹键(wrapWith)→ schema 跟着用新键")
+        void wrappingKeyIsReadFromTheResource() {
+            JsonResource.wrapWith("result");
+
+            var operation = operation(document(routes(r ->
+                    r.get("/posts", PostController::autoResource))), "/posts", "get");
+
+            assertThat(response(operation, "200").get("content"))
+                    .isEqualTo(wrappedFixtureContent("result"));
+        }
+
+        @Test
+        @DisplayName("应用关掉了包裹(withoutWrapping)→ 响应体就是资源本体")
+        void wrappingCanBeDisabled() {
+            JsonResource.withoutWrapping();
+
+            var operation = operation(document(routes(r ->
+                    r.get("/posts", PostController::autoResource))), "/posts", "get");
+
+            assertThat(response(operation, "200").get("content"))
+                    .isEqualTo(Map.of("application/json", Map.of("schema",
+                            Map.of("$ref", "#/components/schemas/FixtureResource"))));
+        }
+
+        @Test
+        @DisplayName("★ 索引里没有这个资源 → 不编 schema,记一条 note")
+        void missingIndexIsReported() {
+            var generator = new OpenApiGenerator("测试 API", "2.0.0", null);
+            var document = generator.generate(routes(r ->
+                    r.get("/posts", PostController::unindexedResource)));
+
+            var operation = operation(document, "/posts", "get");
+            assertThat(response(operation, "200")).doesNotContainKey("content");
+            assertThat(document).doesNotContainKey("components");
+
+            assertThat(generator.schemaNotes()).singleElement().asString()
+                    .contains("UnindexedResource")
+                    .contains("annotationProcessorPaths");
+        }
+
+        @Test
+        @DisplayName("resource 指向非 JsonResource → 不写 schema,并说明原因")
+        void nonResourceTypeIsReported() {
+            var generator = new OpenApiGenerator("测试 API", "2.0.0", null);
+            var document = generator.generate(routes(r ->
+                    r.get("/posts", PostController::badResource)));
+
+            assertThat(response(operation(document, "/posts", "get"), "200"))
+                    .doesNotContainKey("content");
+            assertThat(generator.schemaNotes()).singleElement().asString()
+                    .contains("只支持 JsonResource 子类");
         }
     }
 

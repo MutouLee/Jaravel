@@ -24,8 +24,8 @@ import io.jaravel.routing.RouteCollection;
  * </pre>
  *
  * <p>数据来自**编译后的路由表** —— 与 {@code route:list} 同一个来源。
- * 这一版能填的字段见 {@link OpenApiGenerator} 的类注释;
- * 请求体与响应体的 schema 还没有(要 APT 做 AST 分析),
+ * 这一版能填的字段见 {@link OpenApiGenerator} 的类注释;响应 schema
+ * 只覆盖返回 {@code JsonResource} 的接口(形状来自 APT 索引),
  * 而**没有的字段不写进文档也不编**。
  */
 @Command(name = "openapi:generate", description = "从路由表生成 OpenAPI 文档")
@@ -66,6 +66,7 @@ public final class OpenApiGenerateCommand extends RuntimeCommand {
         // 有请求体没生成出来就说出来 —— 静默少几个字段的话,
         // 前端会照着一份不完整的文档写请求,然后在 422 上卡住
         List<String> skipped = generator.skippedRequestBodies();
+        List<String> schemaNotes = generator.schemaNotes();
 
         if (toStdout) {
             // ★ 只有这一份 JSON 进 stdout:人看的那几行统计走 stderr。
@@ -88,10 +89,22 @@ public final class OpenApiGenerateCommand extends RuntimeCommand {
                       (读了路由参数之类)—— 生成文档时没有请求可读。""");
         }
 
+        if (!schemaNotes.isEmpty()) {
+            newLine();
+            failure(schemaNotes.size() + " 个响应 schema 没能生成:");
+            schemaNotes.forEach(note -> line("  " + note));
+            line("""
+                      常见原因:
+                        · annotationProcessorPaths 里没有 jaravel-api-processor;
+                        · toArray 用了 merge / 多个 return,静态提取看不到。""");
+        }
+
         newLine();
         line("""
-                ⚠ 这一版的文档里**没有响应体的 schema**:它要从 JsonResource 的
-                  toArray 提取,而那需要 APT 做 AST 分析(docs/12 §5)。
+                ⚠ 响应体的 schema 只覆盖**返回 JsonResource 的接口** —— 形状由
+                  jaravel-api-processor 在编译期从 toArray 提取。返回
+                  Response / View / Object 的接口没有可提取的形状,不会写 schema;
+                  可以用 @ApiResponse(resource = XxxResource.class) 显式指一个。
 
                   summary / description / 状态码可以写在控制器方法的 @ApiDoc
                   上(docs/12 §5)—— 它是运行时注解,不需要 APT。

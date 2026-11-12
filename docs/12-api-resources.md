@@ -549,7 +549,7 @@ jaravel openapi:generate --output=public/openapi.json
 | 路径参数类型 | 控制器方法签名 |
 | 请求体 schema | `FormRequest` 的 `rules()` 或 `@Body` DTO 的 record 组件 |
 | 请求体校验约束 | 验证规则 → `minLength` / `maximum` / `pattern` / `enum` |
-| 响应 schema | `JsonResource` 的 `toArray` 返回键 + 返回类型的 record 结构 |
+| 响应 schema | `JsonResource` 的 `toArray` 返回键(APT 已做);返回类型的 record 结构待做 |
 | 响应状态码 | 异常映射表 + 控制器返回类型 |
 | 安全要求 | 路由上的 `auth:*` 中间件 |
 | 描述与示例 | javadoc + `@ApiDoc` 注解 |
@@ -558,17 +558,21 @@ jaravel openapi:generate --output=public/openapi.json
 @ApiDoc(summary = "创建文章", description = "需要 posts:write 权限",
         tags = "Posts",
         responses = {
-            @ApiResponse(code = 201, description = "创建成功"),
-            @ApiResponse(code = 422)                    // 说明留空 → 「校验失败」
+            @ApiResponse(code = 201, description = "创建成功",
+                         resource = PostResource.class),   // 响应体 schema(APT 索引)
+            @ApiResponse(code = 422)                       // 说明留空 → 「校验失败」
         })
 public JsonResource store(StorePostRequest req) { ... }
 ```
 
-> javadoc 里的那段说明要 APT 才读得到;`@ApiDoc` 是运行时可读的那一半,
-> 它已经实现(见本节末尾)。响应 schema(包括 `resource = PostResource.class`)
-> 仍未做 —— 理由同上。
+> javadoc 里的那段说明要 APT 才读得到;`@ApiDoc` 是运行时可读的那一半。
+> 响应 schema 现在也已落地:`jaravel-api-processor` 在编译期提取,
+> `@ApiResponse.resource` 显式指定或按返回类型自动识别(见本节末尾)。
 
-`JsonResource#toArray` 的键集合从字面量 `Json.map().put("id", ...)` 链中静态提取(APT 做轻量 AST 分析)。若提取失败则退化为「运行时采样」:开发模式下记录实际响应形状生成 schema。两条路径都要有。
+`JsonResource#toArray` 的键集合由 `jaravel-api-processor` 从
+`map(request).put(...)` 链里静态提取。提取失败时**不猜** ——
+编译期 warning 与 `openapi:generate` 的输出都会点名那个资源。
+「运行时采样」这条兜底还没做:它需要一个真实模型实例并执行用户的 `toArray`。
 
 **附带收益**:`jaravel openapi:diff` 可在 CI 中对比上一版 schema,检测破坏性 API 变更。这是企业场景的强需求,Laravel 生态里没有开箱方案。
 
@@ -602,7 +606,7 @@ public JsonResource store(StorePostRequest req) { ... }
 > | 安全要求 | ✅ `auth:*` 中间件 → `security` + 401 |
 > | operationId / tags / summary | ✅ 控制器#方法 / 控制器名 / 路由名 |
 > | 请求体 schema | ✅ **从 `FormRequest.rules()` 提取(不需要 APT,见下)** |
-> | 响应 schema | ❌ 要 APT 对 `toArray` 做 AST 分析 |
+> | 响应 schema | ✅ **部分** —— `JsonResource` 已做(见本节末尾);record 返回类型还没做 |
 > | 描述与示例 | ⚠️ **部分** —— `@ApiDoc` 已实现(见本节末尾);javadoc 与示例仍要 APT |
 >
 > **没填上的行不写进文档,也不编。** 一个带着假 schema 的 OpenAPI 会让前端
@@ -695,7 +699,7 @@ public JsonResource store(StorePostRequest req) { ... }
 > 所以它与 `route:list` 放在一起:都在 starter 的 `commands` 包里,
 > 因为它们要的东西在那里。
 
-> ### v0.5:`openapi:diff` —— 比较契约,不比较文本(25 个测试)
+> ### v0.5:`openapi:diff` —— 比较契约,不比较文本(28 个测试)
 >
 > ```bash
 > jaravel openapi:generate --stdout > /tmp/openapi.json
@@ -754,7 +758,8 @@ public JsonResource store(StorePostRequest req) { ... }
 >
 > #### 已知限制(写在代码注释里,也在这里)
 >
-> - `$ref` 不解析:引用不同就报破坏性,相同则不深入。当前的生成器不产出 `$ref`;
+> - `$ref` 不解析:引用不同就报破坏性;相同则不深入,但 `components.schemas`
+>   会单独比较 —— 资源字段的增删仍然能看到(响应 schema 落地后补的);
 > - 路径级的共享 `parameters` 不单独比较(生成器把它们写在每个 operation 上);
 > - 判断是保守的,不是完备的:无法证明包含关系的正则变化一律按破坏性处理。
 >
@@ -812,12 +817,11 @@ public JsonResource store(StorePostRequest req) { ... }
 > - 说明留空时按状态码给一句默认(201 → 创建成功、422 → 校验失败…),
 >   因为 OpenAPI 要求 `description` 非空。
 >
-> #### ★ `@ApiResponse` 里刻意没有 `resource`
+> #### `@ApiResponse.resource` 在响应 schema 落地后补上了
 >
-> 响应 schema 要从 `JsonResource.toArray` 提取,属于 APT 那一刀。
-> 先声明状态码与说明,比编一个假 schema 诚实 —— 假 schema 会让前端
-> 生成出字段名全错的模型类。等响应 schema 做出来再加 `resource`,
-> 现有写法不用变。
+> 这一刀刻意没写它(没有 schema 时填一个类是空头支票)。
+> 现在它可以指一个 `JsonResource` 子类:形状来自编译期索引,
+> 不是反射调 `toArray`。见下一节。
 >
 > #### 找方法的三个层次
 >
@@ -827,6 +831,107 @@ public JsonResource store(StorePostRequest req) { ... }
 > 多个重载且参数类型对不上时**不猜** —— 猜错会把注解安到另一个方法上,
 > 而那份文档看起来完全正常。找不到注解就让这个接口沿用默认值,
 > 整份文档照常生成。
+
+> ### v0.5:响应 schema —— APT 从 `toArray` 提取(26 个测试)
+>
+> #### 整条链路
+>
+> 1. `jaravel-api-processor` 在**编译期**分析每个 `JsonResource` 的 `toArray`;
+> 2. 写 `META-INF/jaravel/api-resources.idx`(纯文本,一行一条);
+> 3. `openapi:generate` 运行时用 `ResourceSchemaIndex` 读回;
+> 4. 登记进 `components.schemas`,响应里用 `$ref` 指过去。
+>
+> 实测(`examples/blog` 编译产物,不是手写的样例):
+>
+> ```
+> R	app.http.resources.AuthorResource
+> F	id	integer	0
+> F	name	string	0
+> R	app.http.resources.PostResource
+> F	id	integer	0
+> F	title	string	0
+> F	slug	string	0
+> F	views	integer	0
+> F	published_at	string	1
+> F	author		1
+> F	comment_count	integer	1
+> ```
+>
+> 最后一列是「是否可选」。`author` 的 type 为空 —— 嵌套资源的形状
+> 静态分析不知道,就**不写**,而不是猜一个 object。
+>
+> #### 能识别什么
+>
+> - **字段名**:字符串字面量,以及 `static final String` 编译期常量;
+> - **类型**:字面量、强制转换、`model.x` 的字段类型、`model.foo()` 的返回类型。
+>   `model.x` 是怎么知道的:从 `JsonResource<M>` 的类型参数找到模型类 `M`,
+>   再查字段 —— 不需要类型推断器;
+> - **必填**:`put` 必填;`putWhen` / `putWhenLoaded*` / `putIfAbsent` 可选
+>   (它们真的可能不出现)。
+>
+> #### 提取失败会**说出来**
+>
+> `merge` / `mergeWhen` 的键是动态的、`toArray` 有多个 return、
+> 字段名不是字面量/常量 —— 这三种情况下:
+>
+> - 编译期发 warning(不会让编译失败);
+> - 索引里写一条 `X` 记录;
+> - `openapi:generate` 输出点名那个资源与原因。
+>
+> 不按「尽力而为」生成一份缺字段的 schema:前端照它生成模型类,
+> 然后在某个字段上拿到 undefined —— 那种错要到联调才发现。
+>
+> #### ★ 响应体**不是** `toArray` 的形状
+>
+> 序列化器在根位置会再包一层(docs/12 §1.3):实际响应是
+> `{"data": {"id": …}}`,不是 `{"id": …}`。所以生成的响应 schema 是
+>
+> ```json
+> { "type": "object",
+>   "properties": { "data": { "$ref": "#/components/schemas/PostResource" } },
+>   "required": ["data"] }
+> ```
+>
+> 包裹键从 `JsonResource.wrapKey()` 读:应用调了
+> `withoutWrapping()` 时直接写 `$ref`;调了 `wrapWith("result")` 时写 `result`。
+> 直接拿 `toArray` 的字段当响应 schema 的话,前端每个字段都读不到。
+>
+> ⚠ `with(request)` 附加的根字段(比如 `meta`)这一版**没有**提取 ——
+> 那要再分析一个方法体里的 Map 表达式。缺字段比写错字段好。
+>
+> #### 挂在哪一个状态码上
+>
+> - `@ApiResponse.resource = PostResource.class` → 显式挂在那条响应上;
+> - 控制器方法**返回类型本身就是具体资源类** → 自动挂到第一个 2xx(204 除外);
+> - 返回 `Response` / `View` / `Object` → 没有可提取的形状,不挂,也不猜。
+>
+> #### 接进项目
+>
+> ```xml
+> <annotationProcessorPaths>
+>   <path>
+>     <groupId>io.jaravel</groupId>
+>     <artifactId>jaravel-api-processor</artifactId>
+>     <version>${jaravel.version}</version>
+>   </path>
+> </annotationProcessorPaths>
+> ```
+>
+> 没接的话,命令会明说「把 jaravel-api-processor 加进
+> annotationProcessorPaths」—— 而不是让用户对着没有 schema 的文档猜。
+> (docs/16 那个 Maven 插件将来会把这一步自动接上。)
+>
+> #### `openapi:diff` 也跟着补了
+>
+> `components.schemas` 单独比较:operation 里的 `$ref` 字符串一个字没变,
+> 但资源删了一个字段 —— 那正是最容易从门禁下面漏过去的破坏性变更。
+>
+> #### 已知限制
+>
+> - **record 返回类型**还没做(表里那一半);返回 record 的接口暂时没有 schema;
+> - `with()` 的根字段没提取;
+> - 嵌套资源字段只有名字、没有 type;
+> - 「运行时采样」兜底没做 —— 它需要真实模型实例并执行用户的 `toArray`。
 
 ---
 
@@ -980,10 +1085,12 @@ r.post("/payments", PaymentController::store).middleware("idempotent");
 > `exceptions/` · `negotiation/` · `middleware/` · `conditional/`
 > 这几个子包还没有。
 >
-> `openapi/` 也**不在**这里:`openapi:generate` 在 starter
-> (它要 `RouteCollection`),`openapi:diff` 在 `jaravel-console`
-> (离线命令,只读两份 JSON,不需要容器也不需要路由表)。
-> jaravel-api 没有理由为此引入 Jackson。
+> `openapi/` **在这里**,但只是**不依赖路由/HTTP 的那部分**:
+> `@ApiDoc`、`@ApiResponse`,以及响应 schema 的索引模型
+> (`ResourceSchema` / `ResourceSchemaIndex`)。
+> `openapi:generate` 在 starter(它要 `RouteCollection`),
+> `openapi:diff` 在 `jaravel-console`(离线命令),
+> `jaravel-api-processor` 是独立模块(编译期分析,不该把 starter 拖进处理器路径)。
 
 ```
 jaravel-api
@@ -1031,7 +1138,7 @@ jaravel-api
 ## 10. 待决问题
 
 - [ ] `Json.map().put(...)` 这个 builder 是否过于啰嗦?Laravel 的 `return ['id' => $this->id, ...]` 更短。Java 的替代方案:`Map.of(...)` 不支持 null 值且无条件字段;`LinkedHashMap` 需要变量。倾向保留 builder,但提供 `Json.of("id", id, "name", name)` 变参简写用于无条件字段的情况。
-- [ ] `JsonResource#toArray` 的键集合静态提取(用于 OpenAPI)的可靠性。复杂逻辑下必然失败。倾向:静态提取做 best-effort,失败时在 `openapi:generate` 输出中明确标注「该 schema 由运行时采样得出,可能不完整」,而不是静默生成错误文档。
+- [x] `JsonResource#toArray` 的键集合静态提取(用于 OpenAPI)的可靠性。**已实现**:`jaravel-api-processor` 只支持单一的 `map(...).put(...).build()` 链,复杂逻辑(merge / 多个 return / 非常量键)直接失败;失败时编译期 warning + `openapi:generate` 点名,**不**生成不完整 schema。运行时采样兜底仍未做 —— 它需要真实模型实例并执行用户的 `toArray`。
 - [ ] 默认是否带 `data` 包裹?Laravel 带,但很多团队关掉。倾向跟随 Laravel(带),文档显著说明如何关闭。
 - [ ] `Cursored` 分页的 cursor 编码(base64 的 JSON vs 不透明字符串)与排序列的约束(必须包含唯一列)。需要在 API 层给出清晰错误而非返回错误数据。
 - [ ] OpenAPI 生成是 Maven 插件(构建期)还是 Artisan 命令(运行期)?两者都需要:插件用于 CI diff,命令用于本地快速查看。**命令那一半已实现**(`openapi:generate` + `openapi:diff`);docs/16 里那个 `openapi-diff` Maven goal 仍未做。

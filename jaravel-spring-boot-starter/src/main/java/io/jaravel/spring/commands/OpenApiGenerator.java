@@ -1,16 +1,24 @@
 package io.jaravel.spring.commands;
 
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeMap;
 
+import io.jaravel.api.JsonResource;
 import io.jaravel.api.openapi.ApiDoc;
 import io.jaravel.api.openapi.ApiResponse;
+import io.jaravel.api.openapi.ResourceSchema;
+import io.jaravel.api.openapi.ResourceSchemaIndex;
 import io.jaravel.routing.Route;
 import io.jaravel.routing.RouteCollection;
 
@@ -33,7 +41,7 @@ import io.jaravel.routing.RouteCollection;
  *   <tr><td>operationId / tags</td><td>控制器#方法</td><td>✅</td></tr>
  *   <tr><td>请求体 schema</td><td>FormRequest 的 rules()</td><td>✅</td></tr>
  *   <tr><td>请求体校验约束</td><td>规则 → maxLength / maximum / enum / pattern</td><td>✅</td></tr>
- *   <tr><td>响应 schema</td><td>JsonResource 的 toArray</td><td>❌(要 APT 做 AST 分析)</td></tr>
+ *   <tr><td>响应 schema</td><td>APT 从 JsonResource.toArray 提取 + {@code @ApiResponse.resource}</td><td>✅(record 返回类型仍未做)</td></tr>
  *   <tr><td>描述与示例</td><td>{@code @ApiDoc} + javadoc</td><td>⚠ {@code @ApiDoc} ✅;javadoc / 示例要 APT</td></tr>
  * </table>
  *
@@ -50,6 +58,20 @@ final class OpenApiGenerator {
     private final String version;
     private final String serverUrl;
 
+    /** 这一次生成用到的资源 schema(component 名 → schema) */
+    private final Map<String, Object> usedSchemas = new TreeMap<>();
+
+    /** 资源类二进制名 → component 名;同一个资源被多个接口引用时只写一份 */
+    private final Map<String, String> componentNames = new LinkedHashMap<>();
+
+    private final Set<String> takenComponentNames = new HashSet<>();
+
+    /** 没能生成出 schema 的接口 —— 命令会报出来,而不是静默少一段 */
+    private final List<String> schemaNotes = new ArrayList<>();
+
+    private ResourceSchemaIndex.Index schemaIndex = new ResourceSchemaIndex.Index(
+            Map.of(), Map.of());
+
     OpenApiGenerator(String title, String version, String serverUrl) {
         this.title = title;
         this.version = version;
@@ -57,6 +79,13 @@ final class OpenApiGenerator {
     }
 
     Map<String, Object> generate(RouteCollection routes) {
+        usedSchemas.clear();
+        componentNames.clear();
+        takenComponentNames.clear();
+        schemaNotes.clear();
+        skipped.clear();
+        schemaIndex = ResourceSchemaIndex.load();
+
         var document = new LinkedHashMap<String, Object>();
         document.put("openapi", OPENAPI_VERSION);
         document.put("info", Map.of("title", title, "version", version));
@@ -65,29 +94,42 @@ final class OpenApiGenerator {
         }
 
         // 路径按字典序:同一份路由表两次生成的文档必须逐字节一致,
-        // 否则 openapi:diff 会把顺序变化报成 API 变更
+        // 否则 openapi:diff 会把顺序变化报成 API 变更。
+        // 路由也按同样顺序遍历:component 名的分配依赖「谁先用到」,
+        // 不排序的话同名的两个资源可能在不同次生成里拿到不同的 component 名
         var paths = new TreeMap<String, Map<String, Object>>();
         boolean anySecured = false;
 
-        for (Route route : routes.all()) {
+        var ordered = new ArrayList<>(routes.all());
+        ordered.sort(Comparator.comparing(Route::uri).thenComparing(Route::method));
+
+        for (Route route : ordered) {
             Map<String, Object> operation = operationOf(route);
             if (operation.containsKey("security")) anySecured = true;
 
             paths.computeIfAbsent(route.uri(), uri -> new LinkedHashMap<>())
-                    .put(route.method().toLowerCase(java.util.Locale.ROOT), operation);
+                    .put(route.method().toLowerCase(Locale.ROOT), operation);
         }
         document.put("paths", paths);
 
+        var components = new LinkedHashMap<String, Object>();
         if (anySecured) {
-            document.put("components", Map.of("securitySchemes", Map.of(
-                    BEARER_SCHEME, Map.of("type", "http", "scheme", "bearer"))));
+            components.put("securitySchemes", Map.of(
+                    BEARER_SCHEME, Map.of("type", "http", "scheme", "bearer")));
+        }
+        if (!usedSchemas.isEmpty()) {
+            components.put("schemas", usedSchemas);
+        }
+        if (!components.isEmpty()) {
+            document.put("components", components);
         }
         return document;
     }
 
     private Map<String, Object> operationOf(Route route) {
         var operation = new LinkedHashMap<String, Object>();
-        ApiDoc doc = apiDocOf(route).orElse(null);
+        Method action = actionMethodOf(route).orElse(null);
+        ApiDoc doc = action == null ? null : action.getAnnotation(ApiDoc.class);
 
         operation.put("operationId", route.controller().getSimpleName() + "." + route.action());
 
@@ -115,25 +157,9 @@ final class OpenApiGenerator {
             operation.put("security", List.of(Map.of(BEARER_SCHEME, List.of())));
         }
 
-        operation.put("responses", responsesOf(doc, secured));
+        operation.put("responses", responsesOf(doc, secured, action, route));
 
         return operation;
-    }
-
-    /**
-     * 控制器方法上的 {@code @ApiDoc}(docs/12 §5)。
-     *
-     * <h2>为什么能直接读</h2>
-     * <p>它是 {@code RUNTIME} 注解,而生成器跑在应用进程里 —— 不需要 APT。
-     * 找方法时先按 {@code action + parameterTypes()} 精确匹配
-     * (路由表里那对参数就是方法引用内省出来的);找不到时再在 public 方法里
-     * 找继承来的,最后才在「唯一同名」时兜底。
-     *
-     * <p>⚠ 找不到就让这个接口没有注解信息,而不是让整份文档失败 ——
-     * 与请求体生成失败时同一条取舍:少一点文档好过没有文档。
-     */
-    private static Optional<ApiDoc> apiDocOf(Route route) {
-        return actionMethodOf(route).map(method -> method.getAnnotation(ApiDoc.class));
     }
 
     private static Optional<Method> actionMethodOf(Route route) {
@@ -162,32 +188,195 @@ final class OpenApiGenerator {
     }
 
     /**
-     * 响应状态码。
+     * 响应状态码与响应体 schema。
      *
      * <p>没写 {@code @ApiDoc.responses} 时与之前一样:200 + (受保护时)401。
      * 写了就**以作者为准** —— 创建接口返回 201,自动补一个 200 是错的。
      * 401 仍然自动补,因为它由中间件保证;作者显式写了 401 时用作者的说明。
+     *
+     * <h2>响应 schema 挂在哪一个状态码上</h2>
+     * <p>{@code @ApiResponse.resource} 显式指定的,挂在那个状态码上;
+     * 没指定的,自动挂到**第一个 2xx(204 除外)** —— 那通常是实体返回的那条。
+     * 返回类型不是 {@code JsonResource} 的接口没有可提取的形状,不挂。
      */
-    private Map<String, Object> responsesOf(ApiDoc doc, boolean secured) {
+    private Map<String, Object> responsesOf(ApiDoc doc, boolean secured,
+                                            Method action, Route route) {
         var responses = new LinkedHashMap<String, Object>();
+        String location = route.method().toUpperCase(Locale.ROOT) + " " + route.uri();
 
         if (doc != null && doc.responses().length > 0) {
+            String autoCode = null;
+            for (ApiResponse declared : doc.responses()) {
+                if (declared.code() >= 200 && declared.code() < 300
+                        && declared.code() != 204) {
+                    autoCode = String.valueOf(declared.code());
+                    break;
+                }
+            }
+
+            // 延迟计算:每条 2xx 都显式指了 resource 时,不该为返回类型
+            // 再查一次索引 —— 那只会多出一条没人用得上的 note
+            Map<String, Object> autoSchema = null;
+            boolean autoComputed = false;
+
             for (ApiResponse declared : doc.responses()) {
                 String code = String.valueOf(declared.code());
                 String description = declared.description().isBlank()
                         ? defaultDescriptionOf(declared.code())
                         : declared.description();
+
+                var response = new LinkedHashMap<String, Object>();
+                response.put("description", description);
+
+                Map<String, Object> schema;
+                if (declared.resource() != Void.class) {
+                    schema = responseBodySchemaOf(declared.resource(), location + " " + code);
+                } else if (code.equals(autoCode)) {
+                    if (!autoComputed) {
+                        autoSchema = autoSchemaOf(action, location + " " + autoCode);
+                        autoComputed = true;
+                    }
+                    schema = autoSchema;
+                } else {
+                    schema = null;
+                }
+                if (schema != null) {
+                    response.put("content", Map.of("application/json",
+                            Map.of("schema", schema)));
+                }
+
                 // 同一个 code 写两次时以第一次为准,不静默覆盖
-                responses.putIfAbsent(code, Map.of("description", description));
+                responses.putIfAbsent(code, response);
             }
         } else {
-            responses.put("200", Map.of("description", "成功"));
+            var response = new LinkedHashMap<String, Object>();
+            response.put("description", "成功");
+
+            Map<String, Object> autoSchema = autoSchemaOf(action, location + " 200");
+            if (autoSchema != null) {
+                response.put("content", Map.of("application/json",
+                        Map.of("schema", autoSchema)));
+            }
+            responses.put("200", response);
         }
 
         if (secured) {
             responses.putIfAbsent("401", Map.of("description", "未认证"));
         }
         return responses;
+    }
+
+    /**
+     * 返回类型本身就是一个资源时,自动挂上它的 schema。
+     *
+     * <p>只认**具体**的 {@code JsonResource} 子类:返回类型写成
+     * 抽象的 {@code JsonResource} / 基类时,索引里没有对应条目,
+     * 硬挂只会得到一条「找不到 schema」的噪音。
+     */
+    private Map<String, Object> autoSchemaOf(Method action, String location) {
+        if (action == null) return null;
+
+        Class<?> type = action.getReturnType();
+        if (!JsonResource.class.isAssignableFrom(type)
+                || type == JsonResource.class
+                || Modifier.isAbstract(type.getModifiers())) {
+            return null;
+        }
+        return responseBodySchemaOf(type, location);
+    }
+
+    /**
+     * 响应体的 schema:资源本体 + 根位置的 {@code data} 包裹。
+     *
+     * <h2>★ 为什么必须把包裹写进 schema</h2>
+     * <p>{@code toArray} 的形状**不是**响应体的形状:序列化器在根位置
+     * 调的是 {@code toRootBody},默认外面还有一层
+     * {@code {"data": ...}}(docs/12 §1.3)。直接拿 {@code toArray}
+     * 的字段当响应 schema,前端会按 {@code {"id":...}} 解析,
+     * 而实际收到的是 {@code {"data":{"id":...}}} —— 每个字段都读不到。
+     *
+     * <p>包裹键从 {@link JsonResource#wrapKey()} 读:应用可能在启动时
+     * 调了 {@code withoutWrapping()} 或 {@code wrapWith("result")}。
+     * 关掉包裹时响应体就是资源本体。
+     *
+     * <p>⚠ {@code with(request)} 附加的根字段(比如 {@code meta})
+     * 这一版**没有**提取:那需要再分析一个方法体里的 Map 表达式。
+     * 文档里不写它们 —— 缺字段比写错字段好;而它们通常不参与客户端逻辑。
+     */
+    private Map<String, Object> responseBodySchemaOf(Class<?> resource, String location) {
+        Map<String, Object> ref = schemaRefOf(resource, location);
+        if (ref == null) return null;
+
+        String wrapKey = JsonResource.wrapKey();
+        if (wrapKey == null) return ref;
+
+        var properties = new LinkedHashMap<String, Object>();
+        properties.put(wrapKey, ref);
+
+        var envelope = new LinkedHashMap<String, Object>();
+        envelope.put("type", "object");
+        envelope.put("properties", properties);
+        envelope.put("required", List.of(wrapKey));
+        return envelope;
+    }
+
+    /**
+     * 一个资源类 → {@code $ref},并把它的 schema 登记进 components。
+     *
+     * <p>查的是 APT 在编译期写下的索引,不是反射调用 {@code toArray} ——
+     * 后者需要一个真实的模型实例,而且会执行用户的代码。
+     * 索引里没有时**不编**:记一条 note,由命令报出来。
+     */
+    private Map<String, Object> schemaRefOf(Class<?> resource, String location) {
+        if (!JsonResource.class.isAssignableFrom(resource)) {
+            schemaNotes.add(location + " → " + resource.getSimpleName()
+                    + ":响应 schema 只支持 JsonResource 子类");
+            return null;
+        }
+
+        String className = resource.getName();
+        String existing = componentNames.get(className);
+        if (existing != null) return schemaRef(existing);
+
+        Optional<ResourceSchema> schema = schemaIndex.schemaOf(resource);
+        if (schema.isEmpty()) {
+            String reason = schemaIndex.failureOf(resource).orElse(
+                    "没有 APT 生成的 schema —— 把 jaravel-api-processor 加进 annotationProcessorPaths");
+            schemaNotes.add(location + " → " + resource.getSimpleName() + ":" + reason);
+            return null;
+        }
+
+        String component = componentNameFor(resource);
+        componentNames.put(className, component);
+        usedSchemas.put(component, schema.get().toOpenApiSchema());
+        return schemaRef(component);
+    }
+
+    private static Map<String, Object> schemaRef(String component) {
+        return Map.of("$ref", "#/components/schemas/" + component);
+    }
+
+    /**
+     * component 名:优先简单类名;两个不同包的同名资源撞车时用限定名。
+     *
+     * <p>这条规则必须是确定性的:路由按 uri 排序遍历,于是
+     * 「谁先拿到简单名」在同一份路由表上永远一样。
+     */
+    private String componentNameFor(Class<?> resource) {
+        String simple = resource.getSimpleName();
+        if (!simple.isEmpty() && takenComponentNames.add(simple)) return simple;
+
+        String qualified = resource.getName().replace('$', '.');
+        if (takenComponentNames.add(qualified)) return qualified;
+
+        int suffix = 2;
+        while (!takenComponentNames.add(qualified + suffix)) suffix++;
+        return qualified + suffix;
+    }
+
+    /** 响应 schema 没能生成出来的接口 —— 给命令报 */
+    List<String> schemaNotes() {
+        return List.copyOf(schemaNotes);
     }
 
     /** 只给常见状态码;其余用「响应 N」—— OpenAPI 要求 description 非空 */

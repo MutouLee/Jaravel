@@ -12,7 +12,7 @@
 
   <artifactId>jaravel-api</artifactId>
   <name>Jaravel :: API 资源</name>
-  <description>JsonResource / 资源集合 / 输出形状(docs/12)</description>
+  <description>JsonResource / 资源集合 / 输出形状 / OpenAPI 注解与响应 schema 索引(docs/12)</description>
 
   <!--
     ★ 它必须同时依赖 http 与 eloquent,而那正是它要单独成一个模块的理由。

@@ -105,6 +105,16 @@
               <artifactId>jaravel-eloquent-processor</artifactId>
               <version>${jaravel.version}</version>
             </path>
+            <!--
+              JsonResource.toArray → 响应 schema 索引(api-resources.idx)。
+              没有它 openapi:generate 的响应体只有字段名都没有:
+              schemaNotes 会说「把 jaravel-api-processor 加进 annotationProcessorPaths」。
+            -->
+            <path>
+              <groupId>io.jaravel</groupId>
+              <artifactId>jaravel-api-processor</artifactId>
+              <version>${jaravel.version}</version>
+            </path>
           </annotationProcessorPaths>
         </configuration>
       </plugin>

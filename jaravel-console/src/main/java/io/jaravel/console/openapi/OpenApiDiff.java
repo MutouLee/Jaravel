@@ -56,8 +56,8 @@ import io.jaravel.console.ConsoleException;
  *
  * <h2>已知限制</h2>
  * <ul>
- *   <li>{@code $ref} 不解析:两个引用不同就报破坏性,引用相同则不深入。
- *       这一版的生成器不产出 {@code $ref}。</li>
+ *   <li>{@code $ref} 不解析:两个引用不同就报破坏性;引用相同则不深入,
+ *       但 {@code components/schemas} 会单独比较 —— 资源字段的变化仍然能看到。</li>
  *   <li>路径级的共享 {@code parameters} 不单独比较 —— 生成器把它们
  *       写在每个 operation 上。</li>
  *   <li>{@code info.version} 刻意忽略:每次发布它都会变,
@@ -128,6 +128,7 @@ final class OpenApiDiff {
         }
 
         compareSecuritySchemes(base, current, changes);
+        compareSchemas(base, current, changes);
 
         // 排序后再交给调用方:输出稳定,否则同一份比较两次的顺序都可能不同,
         // 而 CI 日志里那种「这次和上次的红不一样」最难查
@@ -172,6 +173,35 @@ final class OpenApiDiff {
             if (after != null && !before.equals(after)) {
                 out.add(new Change(Severity.BREAKING, "文档 · 安全方案 " + name,
                         "定义变了 —— 旧客户端带的凭据类型可能不再被接受。"));
+            }
+        }
+    }
+
+    /**
+     * {@code components.schemas}。
+     *
+     * <p>响应体是 {@code $ref} 进来的:operation 里那个引用字符串没变,
+     * 但组件里的字段可能已经删了一个。不比较这里的话,
+     * 那一类破坏性变更会从门禁下面漏过去。
+     */
+    private static void compareSchemas(JsonNode base, JsonNode current, List<Change> out) {
+        Map<String, JsonNode> before = fieldsOf(base.path("components").path("schemas"));
+        Map<String, JsonNode> after = fieldsOf(current.path("components").path("schemas"));
+
+        var names = new TreeSet<>(before.keySet());
+        names.addAll(after.keySet());
+
+        for (String name : names) {
+            String location = "schema " + name;
+
+            if (before.get(name) == null) {
+                out.add(new Change(Severity.ADDED, location, "新增响应 schema。"));
+            } else if (after.get(name) == null) {
+                out.add(new Change(Severity.BREAKING, location,
+                        "响应 schema 被删除 —— 引用它的响应在文档里失效。"));
+            } else {
+                compareSchema(location, before.get(name), after.get(name),
+                        Direction.RESPONSE, out);
             }
         }
     }

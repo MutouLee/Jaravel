@@ -119,6 +119,17 @@ class OpenApiDiffTest {
                 + "\"required\":" + required + ",\"schema\":" + schema + "}]";
     }
 
+    /** 一个响应用 $ref 指向组件的文档 —— 用来验证组件里的字段变化也会被抓到 */
+    private static String documentWithSchema(String properties) {
+        return """
+                {"openapi":"3.1.0","info":{"title":"Test","version":"1.0.0"},
+                 "paths":{"/posts":{"get":{"operationId":"PostController.index",
+                   "responses":{"200":{"description":"ok","content":{
+                     "application/json":{"schema":{"$ref":"#/components/schemas/PostResource"}}}}}}}},
+                 "components":{"schemas":{"PostResource":{
+                   "type":"object","properties":%s}}}}""".formatted(properties);
+    }
+
     // ================= 没有变化 =================
 
     @Test
@@ -371,6 +382,52 @@ class OpenApiDiffTest {
 
         assertThat(result.code()).isEqualTo(1);
         assertThat(result.out()).contains("类型 string → string | null");
+    }
+
+    // ================= 组件 schema =================
+
+    @Test
+    @DisplayName("★ 响应 schema 的字段被删 → 破坏性 —— operation 里的 $ref 一个字都没变")
+    void removedResponseSchemaPropertyIsBreaking(@TempDir Path tmp) throws IOException {
+        String rich = documentWithSchema(
+                "{\"id\":{\"type\":\"integer\"},\"title\":{\"type\":\"string\"}}");
+        String poor = documentWithSchema("{\"id\":{\"type\":\"integer\"}}");
+
+        Outcome result = diff(tmp, rich, poor);
+
+        assertThat(result.code()).isEqualTo(1);
+        assertThat(result.out())
+                .contains("schema PostResource")
+                .contains("响应不再包含这个字段")
+                .contains("title");
+    }
+
+    @Test
+    @DisplayName("响应 schema 加字段 → 非破坏")
+    void addedResponseSchemaPropertyIsNotBreaking(@TempDir Path tmp) throws IOException {
+        String poor = documentWithSchema("{\"id\":{\"type\":\"integer\"}}");
+        String rich = documentWithSchema(
+                "{\"id\":{\"type\":\"integer\"},\"title\":{\"type\":\"string\"}}");
+
+        Outcome result = diff(tmp, poor, rich);
+
+        assertThat(result.code()).isZero();
+        assertThat(result.out()).contains("响应新增字段").contains("title");
+    }
+
+    @Test
+    @DisplayName("删除整个组件 schema → 破坏性")
+    void removedSchemaComponentIsBreaking(@TempDir Path tmp) throws IOException {
+        String rich = documentWithSchema("{\"id\":{\"type\":\"integer\"}}");
+        String poor = """
+                {"openapi":"3.1.0","info":{"title":"Test","version":"1.0.0"},
+                 "paths":{"/posts":{"get":{"operationId":"PostController.index",
+                   "responses":{"200":{"description":"ok"}}}}}}""";
+
+        Outcome result = diff(tmp, rich, poor);
+
+        assertThat(result.code()).isEqualTo(1);
+        assertThat(result.out()).contains("响应 schema 被删除");
     }
 
     // ================= 门槛与输出 =================

@@ -1,0 +1,5 @@
+# 测试夹具:与 src/test/java/io/jaravel/spring/commands/FixtureResource.java 对应
+R	io.jaravel.spring.commands.FixtureResource
+F	id	integer	0
+F	title	string	0
+F	nickname		1

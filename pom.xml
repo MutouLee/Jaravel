@@ -41,6 +41,7 @@
     <module>jaravel-console</module>
     <module>jaravel-cli</module>
     <module>jaravel-api</module>
+    <module>jaravel-api-processor</module>
     <module>jaravel-http-client</module>
     <module>jaravel-notifications</module>
     <module>jaravel-storage</module>

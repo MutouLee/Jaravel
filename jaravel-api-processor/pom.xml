@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.jaravel</groupId>
+    <artifactId>jaravel-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>jaravel-api-processor</artifactId>
+  <name>Jaravel :: API 注解处理器</name>
+  <description>从 JsonResource.toArray 提取响应 schema,写 META-INF/jaravel/api-resources.idx</description>
+
+  <dependencies>
+    <!-- 只为了认得 JsonResource 类型与复用 ResourceSchema/ResourceProperty -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-api</artifactId>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <!--
+            处理器自身编译时不要跑处理器。
+            不加这一条的话 javac 会读到 src/main/resources 里的
+            META-INF/services(资源先被拷到 target),然后尝试加载
+            一个还没编译出来的类 —— 报「Provider not found」。
+          -->
+          <proc>none</proc>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+</project>

@@ -26,6 +26,7 @@ jaravel/                                  (git 仓库根)
 ├── jaravel-queue/  ·  jaravel-events/  ·  jaravel-scheduler/
 ├── jaravel-mail/  ·  jaravel-notifications/  ·  jaravel-storage/
 ├── jaravel-api/
+├── jaravel-api-processor/                 JsonResource.toArray → 响应 schema 索引
 ├── jaravel-console/
 ├── jaravel-testing/
 ├── jaravel-devtools/                      热重载、错误页、调试栏(provided scope)

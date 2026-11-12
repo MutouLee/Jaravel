@@ -311,8 +311,9 @@ Cursored<User> c  = User.query().cursorPaginate(15);     // 游标(大表/无限
 >
 > #### 还没有的
 >
-> `links()` 模板辅助(§2.4)· §4 版本化 · §5 OpenAPI ·
-> §6.2 的 XML / CSV 协商 · §6.5 幂等性(文档自己列在 v0.7)。
+> `links()` 模板辅助(§2.4)· §4 版本化 ·
+> §6.5 幂等性(文档自己列在 v0.7)。
+> §5 OpenAPI 与 §6.2 内容协商已经实现(见各自的小节)。
 
 ### 2.3 与 Resource 结合
 
@@ -1057,8 +1058,8 @@ r.post("/payments", PaymentController::store).middleware("idempotent");
 >                  Vary: Origin     Access-Control-Allow-Methods: POST
 > ```
 >
-> **§6.2(XML / CSV 内容协商)与 §6.5(幂等性)没做** —— 后者文档自己就
-> 写着「列入 v0.7」。
+> **§6.5(幂等性)没做** —— 文档自己写着「列入 v0.7」。
+> §6.2(XML / CSV 内容协商)后来做了,见下一节。
 >
 > #### ★ ETag 只能在写出字节的那一刻算
 >
@@ -1115,6 +1116,67 @@ r.post("/payments", PaymentController::store).middleware("idempotent");
 >    而手工验证不留痕迹。
 > 2. **没有 `options(...)`。** 于是预检那条路径在测试里根本发不出来。
 
+> ### v0.5:§6.2 内容协商 —— JSON / XML / CSV(13 个测试)
+>
+> ```java
+> return Response.negotiated(posts)
+>         .json()
+>         .xml()
+>         .csv(c -> c.headers("id", "title", "slug"));
+> ```
+>
+> 实测(`examples/blog`,GET `/api/posts/formats`):
+>
+> ```
+> Accept: application/xml
+> → 200 application/xml
+> <?xml version="1.0" encoding="UTF-8"?><response><item>…<title>…
+>
+> Accept: text/csv
+> → 200 text/csv
+> id,title,slug
+> 1,…
+> ```
+>
+> 每个协商响应都带 `Vary: Accept` —— 同一 URL 的表示随头变化,
+> 缓存不知道的话会把 XML 发给下一个要 JSON 的请求。
+>
+> #### Accept 怎么选
+>
+> 对**每个启用的格式**分别算「最具体的那条媒体范围」的 q,再取最高者:
+> 精确(含 `+json` / `+xml` 后缀)> `type/*` > 全通配。
+> 不能只按 Accept 里的顺序取第一条 —— `application/json;q=0, */*;q=0.8`
+> 里 JSON 被显式排除,按顺序会把它又选回来。一个都不接受 → 406,
+> 不悄悄退回 JSON(那会让调用方以为自己拿到的是 XML)。
+>
+> #### 三种表示共用一条序列化路径
+>
+> XML 和 CSV 都是**先生成 JSON 树再转换**,用的是应用自己的 ObjectMapper:
+> 日期格式、包含策略、`JsonResource` / 分页信封与 JSON 完全一致 ——
+> 不会出现「两种表示的数据不一样」。
+>
+> - XML:根 `<response>`,数组用 `<item>`;非法元素名(空格、数字开头…)
+>   用 `<entry name="原键">`,而不是生成一份解析不了的 XML;
+> - CSV:对象数组(单个对象视为一行);列由调用方显式给出(没给就用
+>   第一行的字段);RFC 4180 转义(逗号 / 引号 / 换行);嵌套值写成 JSON 文本。
+>
+> ⚠ 两个已知限制:
+>
+> - **CSV 不防公式注入**:以 `= + - @` 开头的单元格在 Excel 里是公式。
+>   导出内容来自不可信输入时,调用方要自己消毒 —— 框架默认改数据会让
+>   「原始数据导出」不再原始;
+> - 错误响应仍按 JSON/HTML 二选一:XML 客户端失败时拿到的错误体目前
+>   仍是 JSON(未接受时会走到重定向/HTML 那条路)。错误体的内容协商
+>   是后续项。
+>
+> #### ★ FeatureTest 里一个隐式的 Accept 会顶掉客户端的
+>
+> `withHeader("Accept", "application/xml")` 一开始永远选不中:测试助手
+> 在默认情况下会 `addHeader("Accept", "text/html")`,而 servlet 的
+> `getHeader` 取**第一条** —— 客户端设置的那条排在后面,内容协商读到的
+> 永远是 text/html。修法是「用户显式设了 Accept 就不加默认值」。
+> 这不是测试专用的坑:任何往同一个头追加值的中间件都有同样的顺序问题。
+
 ---
 
 ## 7. 内部架构
@@ -1143,6 +1205,10 @@ r.post("/payments", PaymentController::store).middleware("idempotent");
 > `openapi:generate` 在 starter(它要 `RouteCollection`),
 > `openapi:diff` 在 `jaravel-console`(离线命令),
 > `jaravel-api-processor` 是独立模块(编译期分析,不该把 starter 拖进处理器路径)。
+>
+> `negotiation/` 也**不在这里**:`Response.Negotiated` 在 `jaravel-http`
+> (它只记「要协商」的意图),`Accept` 解析与 XML/CSV 写在 starter ——
+> 那里才有应用配置的 `ObjectMapper`,而三种表示必须共用同一条序列化路径。
 
 ```
 jaravel-api

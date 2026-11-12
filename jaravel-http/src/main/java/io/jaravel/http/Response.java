@@ -30,6 +30,47 @@ public class Response {
         record Bytes(byte[] content) implements Body {}
         /** 空 */
         record None() implements Body {}
+        /**
+         * 待内容协商的数据(docs/12 §6.2)。
+         *
+         * <p>{@code formats} 是控制器声明支持的格式 —— 具体选哪一个由
+         * starter 按请求的 {@code Accept} 决定,{@code jaravel-http}
+         * 不依赖任何序列化器。
+         */
+        record Negotiated(Object value, java.util.Set<Format> formats,
+                          List<String> csvHeaders) implements Body {}
+    }
+
+    /** 内容协商支持的三种表示 */
+    public enum Format {
+        JSON("application/json"),
+        XML("application/xml"),
+        CSV("text/csv");
+
+        private final String mediaType;
+
+        Format(String mediaType) {
+            this.mediaType = mediaType;
+        }
+
+        public String mediaType() {
+            return mediaType;
+        }
+    }
+
+    /** {@code Response.negotiated(...).csv(c -> c.headers(...))} 的配置 */
+    public static final class CsvOptions {
+        private final List<String> headers = new ArrayList<>();
+
+        public CsvOptions headers(String... names) {
+            headers.clear();
+            headers.addAll(List.of(names));
+            return this;
+        }
+
+        List<String> headerList() {
+            return List.copyOf(headers);
+        }
     }
 
     private int status = 200;
@@ -47,6 +88,65 @@ public class Response {
         r.body = new Body.Json(value);
         r.contentType = "application/json;charset=UTF-8";
         return r;
+    }
+
+    /**
+     * 按 {@code Accept} 协商输出(docs/12 §6.2)。
+     *
+     * <pre>{@code
+     * return Response.negotiated(data)
+     *         .json()
+     *         .xml()
+     *         .csv(c -> c.headers("id", "name"));
+     * }</pre>
+     *
+     * <p>一个格式都不声明时默认 JSON。声明了哪些,就只接受哪些:
+     * 客户端要一个没声明的格式会得到 406,而不是悄悄退回 JSON ——
+     * 后者会让调用方以为自己拿到的是 XML。
+     */
+    public static Negotiated negotiated(Object value) {
+        return new Negotiated(value);
+    }
+
+    /** {@link #negotiated(Object)} 的链式配置。它本身就是 {@link Response},可以直接返回。 */
+    public static final class Negotiated extends Response {
+
+        private final Object value;
+        private final java.util.EnumSet<Format> formats = java.util.EnumSet.noneOf(Format.class);
+        private final CsvOptions csv = new CsvOptions();
+
+        private Negotiated(Object value) {
+            this.value = value;
+        }
+
+        public Negotiated json() {
+            formats.add(Format.JSON);
+            return this;
+        }
+
+        public Negotiated xml() {
+            formats.add(Format.XML);
+            return this;
+        }
+
+        public Negotiated csv(java.util.function.Consumer<CsvOptions> configure) {
+            formats.add(Format.CSV);
+            java.util.Objects.requireNonNull(configure, "csv(...) 需要一个配置回调")
+                    .accept(csv);
+            return this;
+        }
+
+        @Override
+        public Negotiated status(int status) {
+            super.status(status);
+            return this;
+        }
+
+        @Override
+        public Body body() {
+            return new Body.Negotiated(
+                    value, java.util.Set.copyOf(formats), csv.headerList());
+        }
     }
 
     public static Response text(String content) {

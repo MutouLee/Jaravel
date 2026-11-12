@@ -363,9 +363,14 @@ public abstract class FeatureTest {
         request.setServerName("localhost");
         if (query >= 0) request.setQueryString(uri.substring(query + 1));
 
-        if (!expectsJson) {
-            // 不含 "/json" —— Request.wantsJson() 按这个判断,
-            // 于是默认拿到的是「浏览器」那套契约
+        // 不含 "/json" —— Request.wantsJson() 按这个判断,
+        // 于是默认拿到的是「浏览器」那套契约。
+        // ⚠ 用了 withHeader("Accept", ...) 时不要加这个默认值:
+        // addHeader 是追加,而 getHeader 取第一条 —— 客户端的 Accept
+        // 会被一个隐式的 text/html 顶掉,内容协商永远选中 HTML。
+        boolean acceptProvided = headers.keySet().stream()
+                .anyMatch(name -> name.equalsIgnoreCase("Accept"));
+        if (!expectsJson && !acceptProvided) {
             request.addHeader("Accept", "text/html");
         }
         headers.forEach(request::addHeader);

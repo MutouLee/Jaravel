@@ -65,7 +65,7 @@ public class ResponseWriter {
         byte[] body = null;
 
         if (tag == null) {
-            body = renderToBytes(response);
+            body = renderToBytes(response, servletResponse);
             tag = weakEtagOf(body);
         }
 
@@ -77,7 +77,9 @@ public class ResponseWriter {
             servletResponse.setStatus(304);
             servletResponse.setHeader("ETag", tag);
             response.headers().forEach((name, values) -> {
-                if (name.equalsIgnoreCase("Cache-Control") || name.equalsIgnoreCase("Last-Modified")) {
+                if (name.equalsIgnoreCase("Cache-Control")
+                        || name.equalsIgnoreCase("Last-Modified")
+                        || name.equalsIgnoreCase("Vary")) {
                     values.forEach(v -> servletResponse.addHeader(name, v));
                 }
             });
@@ -136,9 +138,10 @@ public class ResponseWriter {
         return out;
     }
 
-    private byte[] renderToBytes(Response response) throws IOException {
+    private byte[] renderToBytes(Response response, HttpServletResponse servletResponse)
+            throws IOException {
         if (response.body() instanceof Response.Body.Bytes b) return b.content();
-        String rendered = renderBody(response);
+        String rendered = renderBody(response, servletResponse);
         return rendered == null || rendered.isEmpty()
                 ? new byte[0]
                 : rendered.getBytes(StandardCharsets.UTF_8);
@@ -200,7 +203,7 @@ public class ResponseWriter {
             return b.content();
         }
 
-        String body = renderBody(response);
+        String body = renderBody(response, servletResponse);
         return body == null || body.isEmpty()
                 ? new byte[0]
                 : body.getBytes(StandardCharsets.UTF_8);
@@ -211,18 +214,76 @@ public class ResponseWriter {
         if (body.length > 0) servletResponse.getOutputStream().write(body);
     }
 
-    private String renderBody(Response response) throws IOException {
+    private String renderBody(Response response, HttpServletResponse servletResponse)
+            throws IOException {
         return switch (response.body()) {
             case Response.Body.None n -> null;
             case Response.Body.Text t -> t.content();
             case Response.Body.ViewRef v -> views.render(v.name(), v.data());
             case Response.Body.Json j -> json.writeValueAsString(j.value());
+            case Response.Body.Negotiated n -> renderNegotiated(n, servletResponse);
 
             // 到不了这里 —— serialize 在调 renderBody 之前就把它拦走了。
             // 写成抛异常而不是「转成 String」:后者正是这个分支要防的那个 bug
             case Response.Body.Bytes b -> throw new IllegalStateException(
                     "二进制正文不该走 renderBody —— 见 serialize 里的那个分支。");
         };
+    }
+
+    /**
+     * 内容协商(docs/12 §6.2)。
+     *
+     * <p>{@code Accept} 从当前请求作用域读。没有可接受的格式时回 406,
+     * 而不是「悄悄退回 JSON」—— 后者会让调用方以为自己拿到的是 XML。
+     */
+    private String renderNegotiated(Response.Body.Negotiated body,
+                                    HttpServletResponse servletResponse) throws IOException {
+        addVary(servletResponse, "Accept");
+
+        var enabled = body.formats().isEmpty()
+                ? java.util.Set.of(Response.Format.JSON)
+                : body.formats();
+        Response.Format format = ContentNegotiation.select(enabled, acceptHeader());
+
+        if (format == null) {
+            servletResponse.setStatus(406);
+            servletResponse.setContentType("application/json;charset=UTF-8");
+            var supported = enabled.stream()
+                    .map(Response.Format::mediaType)
+                    .sorted()
+                    .toList();
+            var error = new java.util.LinkedHashMap<String, Object>();
+            error.put("message", "Not Acceptable");
+            error.put("supported", supported);
+            return json.writeValueAsString(error);
+        }
+
+        servletResponse.setContentType(format.mediaType() + ";charset=UTF-8");
+
+        return switch (format) {
+            case JSON -> json.writeValueAsString(body.value());
+            case XML -> ContentNegotiation.xml(json, body.value());
+            case CSV -> ContentNegotiation.csv(json, body.value(), body.csvHeaders());
+        };
+    }
+
+    private static String acceptHeader() {
+        return io.jaravel.http.RequestScope.tryRequest()
+                .flatMap(request -> request.header("Accept"))
+                .orElse(null);
+    }
+
+    /** {@code Vary: Accept} —— 同一 URL 的响应随 Accept 变化,缓存必须知道 */
+    private static void addVary(HttpServletResponse response, String value) {
+        String current = response.getHeader("Vary");
+        if (current == null || current.isBlank()) {
+            response.setHeader("Vary", value);
+            return;
+        }
+        for (String existing : current.split(",")) {
+            if (existing.trim().equalsIgnoreCase(value)) return;
+        }
+        response.setHeader("Vary", current + ", " + value);
     }
 
     /**

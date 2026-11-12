@@ -461,7 +461,7 @@ v0.4 的上传演示把三条 `/avatar` 路由加进了
 > 这是写结果文档时才发现的一处**验收条目本身**与现实的脱节
 > (与 v0.4 那次对账同一个性质:没人对过账的声明)。
 >
-> API 线收口时覆盖率重测:指令 **74.8%**、分支 **66.0%**
+> API 线收口时覆盖率重测:指令 **74.9%**、分支 **66.0%**
 > (V0.5-RESULT §8.2;新代码分支更多,分支率略降)。
 
 **API 线已收口**:资源 + 分页 + 异常映射 + Problem JSON 已交付;
@@ -469,8 +469,9 @@ OpenAPI 线里 `openapi:generate`(路由、路径参数、请求体、响应 sch
 `openapi:diff` 与 `@ApiDoc` / `@ApiResponse` 都已交付。
 响应 schema 由 `jaravel-api-processor` 从 `JsonResource.toArray` 提取,
 record 返回类型由运行时反射得到;`with()` 的根字段由 APT 从
-`return Map.of(...)` 提取。`with()` 的其它写法与 record 的自定义
-Jackson 序列化仍是后续项,不妨碍 v0.5 收口。
+`return Map.of(...)` 提取。§6.2 内容协商(JSON / XML / CSV)也已交付。
+`with()` 的其它写法、record 的自定义 Jackson 序列化与错误体的内容协商
+仍是后续项,不妨碍 v0.5 收口。§6.5 幂等性按计划在 v0.7。
 `jaravel-testing` 在 v0.3 之后已提前交付。
 
 ---

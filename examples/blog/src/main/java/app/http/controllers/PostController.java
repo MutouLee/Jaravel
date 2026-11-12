@@ -122,6 +122,21 @@ public class PostController {
     }
 
     /**
+     * GET /api/posts/formats —— 内容协商(docs/12 §6.2)。
+     *
+     * <p>同一个 URL 按 {@code Accept} 返回 JSON / XML / CSV。
+     * CSV 的列由调用方显式给出 —— 它不知道该展开哪些字段,
+     * 猜一个列集合会让导出文件在字段变化时悄悄错位。
+     */
+    public Object apiFormats() {
+        return io.jaravel.http.Response.negotiated(
+                        Post.query().published().get().toList())
+                .json()
+                .xml()
+                .csv(c -> c.headers("id", "title", "slug"));
+    }
+
+    /**
      * GET /api/posts/{id} —— 单个资源(docs/12 §1)。
      *
      * <p>这个接口预加载了 author **与** comments,所以两个字段都在。

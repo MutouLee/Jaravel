@@ -205,6 +205,38 @@ class ApplicationSmokeTest extends FeatureTest {
     }
 
     @Test
+    @DisplayName("★ 内容协商:同一个路由按 Accept 返回 JSON / XML / CSV")
+    void contentNegotiation() {
+        var json = asJson().get("/api/posts/formats").assertOk();
+        assertThat(json.header("Content-Type").orElseThrow()).contains("application/json");
+        assertThat(json.header("Vary").orElseThrow())
+                .as("响应随 Accept 变化,缓存必须知道")
+                .contains("Accept");
+
+        var xml = withHeader("Accept", "application/xml")
+                .get("/api/posts/formats").assertOk();
+        assertThat(xml.header("Content-Type").orElseThrow()).contains("application/xml");
+        assertThat(xml.content()).startsWith("<?xml").contains("<response>").contains("<title>");
+
+        var csv = withHeader("Accept", "text/csv")
+                .get("/api/posts/formats").assertOk();
+        assertThat(csv.header("Content-Type").orElseThrow()).contains("text/csv");
+        assertThat(csv.content())
+                .as("列由控制器显式给出,顺序稳定")
+                .startsWith("id,title,slug\r\n");
+    }
+
+    @Test
+    @DisplayName("★ 客户端只接受一个没声明的格式 → 406,而不是悄悄退回 JSON")
+    void unacceptableFormatIs406() {
+        var response = withHeader("Accept", "text/html")
+                .get("/api/posts/formats");
+
+        assertThat(response.status()).isEqualTo(406);
+        assertThat(response.content()).contains("Not Acceptable");
+    }
+
+    @Test
     @DisplayName("★ 游标分页:带着 next_cursor 回来能翻到不同的一页")
     void cursorPaginationWalks() throws Exception {
         var mapper = new com.fasterxml.jackson.databind.ObjectMapper();

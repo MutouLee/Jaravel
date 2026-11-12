@@ -327,7 +327,7 @@ jblade **不发明表达式语言**,直接把表达式原样当作 Java 表达�
 > classpath 回落的。那边记了两处被「不引入 Markdown 解析器」逼出来的
 > 设计偏差。
 
-> ### v0.6:类组件已实现(9 个测试)
+> ### v0.6:类组件已实现(12 个测试)
 >
 > 类组件现在能用了,而**没有引入 APT 索引**:转写器从组件模板的
 > `@params` 读出类名、加载它,把**公开构造函数**当属性表 ——
@@ -363,10 +363,24 @@ jblade **不发明表达式语言**,直接把表达式原样当作 Java 表达�
 >   缺了会直接报错并说清怎么加,而不是把 `arg0` 当成属性名;
 > - `examples/blog` 的首页卡片就是类组件 `<x-post-card :post="post" />`。
 >
+> **slot**:组件模板的 `@params` 里把 slot 声明成
+> `gg.jte.Content` 参数(默认 slot 叫 `slot`,具名 slot 叫 `__slot_<name>`):
+>
+> ```html
+> @params(PostCard self, gg.jte.Content slot = null, gg.jte.Content __slot_footer = null)
+> ```
+> ```html
+> <x-post-card :post="post">
+>   正文
+>   <x-slot:footer>页脚</x-slot:footer>
+> </x-post-card>
+> ```
+>
+> 没声明的 slot 在转写期报错;自闭合调用时这些参数保持默认值(null)。
+> 模板的 `@params` 要写在一行 —— 与普通模板一样,它要求是第一个非注释行。
+>
 > **这一版的限制**:
 >
-> - 只能自闭合;带 body / 具名 slot 的类组件需要先定
->   「`Content` 怎么进构造器」;
 > - `shouldRender()` 不在标签调用里强制执行(先构造再判断会构造两次);
 > - `view()` 不参与标签解析 —— 标签按 `components/<tag>` 约定;
 > - 类组件没有属性袋(`{{ attributes }}`),多传的属性是错误;

@@ -5,9 +5,11 @@ import java.lang.reflect.Modifier;
 import java.lang.reflect.Parameter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -53,26 +55,39 @@ final class ClassComponentResolver {
         int line = (int) source.get().substring(0, params.start())
                 .lines().count() + 1;
 
-        String first = firstParameter(params.group(1));
-        if (first == null) return Optional.empty();
+        List<ParamDecl> declared = parametersOf(params.group(1));
 
-        int space = lastWhitespace(first);
-        if (space < 0) {
-            throw new JbladeException(view + JbladeEngine.SUFFIX, line,
-                    "类组件的 @params 缺少参数名。\n"
-                  + "  写成 @params(PostCard self) —— 第二个词是模板里用的变量名。");
+        String selfType = null;
+        String selfName = null;
+        Set<String> contentParams = new LinkedHashSet<>();
+
+        for (ParamDecl parameter : declared) {
+            if (isContent(parameter.type())) {
+                contentParams.add(parameter.name());
+                continue;
+            }
+
+            String resolved = resolveTypeName(parameter.type(), source.get());
+            if (resolved == null) continue;
+
+            Class<?> candidate = load(resolved, loader);
+            if (candidate == null || !Component.class.isAssignableFrom(candidate)) continue;
+
+            if (selfType != null) {
+                throw new JbladeException(view + JbladeEngine.SUFFIX, line,
+                        "类组件的 @params 里有两个组件类参数:"
+                      + simpleName(selfType) + " 与 " + simpleName(parameter.type()) + "。\n"
+                      + "  只保留一个 —— 标签调用需要知道 new 哪一个。");
+            }
+            selfType = parameter.type();
+            selfName = parameter.name();
         }
 
-        String typeName = stripGenerics(first.substring(0, space).trim());
-        String selfName = first.substring(space + 1).trim();
+        if (selfType == null) return Optional.empty();
 
-        String sourceName = resolveTypeName(typeName, source.get());
-        if (sourceName == null) return Optional.empty();
-
+        String sourceName = resolveTypeName(selfType, source.get());
         Class<?> type = load(sourceName, loader);
-        if (type == null || !Component.class.isAssignableFrom(type)) {
-            return Optional.empty();
-        }
+        if (type == null) return Optional.empty();
 
         if (!Modifier.isPublic(type.getModifiers())) {
             throw new JbladeException(view + JbladeEngine.SUFFIX, line,
@@ -95,24 +110,52 @@ final class ClassComponentResolver {
         }
 
         return Optional.of(new JbladeTranspiler.ClassComponent(
-                sourceName, view, selfName, List.copyOf(parameters)));
+                sourceName, view, selfName, List.copyOf(parameters),
+                Set.copyOf(contentParams)));
     }
 
     // ================= @params =================
 
-    private static String firstParameter(String raw) {
+    private record ParamDecl(String type, String name) {}
+
+    private static List<ParamDecl> parametersOf(String raw) {
+        var parameters = new ArrayList<ParamDecl>();
         int depth = 0;
         int start = 0;
 
-        for (int i = 0; i < raw.length(); i++) {
-            char c = raw.charAt(i);
+        for (int i = 0; i <= raw.length(); i++) {
+            char c = i < raw.length() ? raw.charAt(i) : ',';
+
             if (c == '<') depth++;
             else if (c == '>') depth--;
             else if (c == ',' && depth == 0) {
-                return stripDefault(raw.substring(start, i));
+                addParameter(parameters, raw.substring(start, i));
+                start = i + 1;
             }
         }
-        return stripDefault(raw.substring(start));
+        return parameters;
+    }
+
+    private static void addParameter(List<ParamDecl> parameters, String raw) {
+        String parameter = stripDefault(raw).trim();
+        if (parameter.isEmpty()) return;
+
+        int space = lastWhitespace(parameter);
+        if (space < 0) return;
+
+        parameters.add(new ParamDecl(
+                stripGenerics(parameter.substring(0, space).trim()),
+                parameter.substring(space + 1).trim()));
+    }
+
+    /** jte 的 Content;简写 {@code Content} 也算(模板自带 import 的常见写法) */
+    private static boolean isContent(String type) {
+        return type.equals("Content") || type.equals("gg.jte.Content");
+    }
+
+    private static String simpleName(String type) {
+        int dot = type.lastIndexOf('.');
+        return dot < 0 ? type : type.substring(dot + 1);
     }
 
     private static String stripDefault(String parameter) {

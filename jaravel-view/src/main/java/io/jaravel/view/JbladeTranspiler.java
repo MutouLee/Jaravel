@@ -118,11 +118,19 @@ public final class JbladeTranspiler {
         final Map<String, List<Piece>> namedSlots = new LinkedHashMap<>();
         /** 当前正在收集哪个具名 slot;null = 收集默认 slot */
         String capturing;
+        /** 类组件的信息;匿名组件为 null —— slot 声明要从它查 */
+        final ClassComponent classComponent;
 
         ComponentFrame(String name, int line, String callPrefix) {
+            this(name, line, callPrefix, null);
+        }
+
+        ComponentFrame(String name, int line, String callPrefix,
+                       ClassComponent classComponent) {
             this.name = name;
             this.line = line;
             this.callPrefix = callPrefix;
+            this.classComponent = classComponent;
         }
 
         List<Piece> target() {
@@ -131,6 +139,8 @@ public final class JbladeTranspiler {
     }
 
     private final Deque<ComponentFrame> componentFrames = new ArrayDeque<>();
+    /** CO 哨兵 → 类组件信息(匿名组件不在这里) */
+    private final Map<Integer, ClassComponent> classComponentTags = new HashMap<>();
 
     private final ComponentProps componentProps;
     private final ClassComponents classComponents;
@@ -171,9 +181,20 @@ public final class JbladeTranspiler {
     /** 一个类组件的构造参数(名字与类型只用于报错,类型检查交给 javac) */
     public record ConstructorParam(String name, String typeName) {}
 
-    /** 类组件的模板声明(@params)所指向的类与它的属性表 */
+    /**
+     * 类组件的模板声明(@params)所指向的类、属性表,以及它声明的 slot 参数。
+     *
+     * @param contentParams 模板里声明为 {@code gg.jte.Content} 的参数名
+     *                      ({@code slot} / {@code __slot_footer} …)
+     */
     public record ClassComponent(String typeName, String view, String selfName,
-                                 List<ConstructorParam> parameters) {}
+                                 List<ConstructorParam> parameters,
+                                 java.util.Set<String> contentParams) {
+
+        public boolean hasDefaultSlot() {
+            return contentParams.contains("slot");
+        }
+    }
 
     /**
      * 组件视图 → 类组件信息。
@@ -868,13 +889,6 @@ public final class JbladeTranspiler {
     private String classComponentTag(ClassComponent component, String tagName,
                                      String rawAttributes, boolean selfClosing,
                                      int sourceLine) {
-        if (!selfClosing) {
-            throw new JbladeException(templateName, sourceLine,
-                    "<x-" + tagName + "> 是类组件,目前只支持自闭合写法\n"
-                  + "  写成 <x-" + tagName + " … />。\n"
-                  + "  带 body 的类组件需要把 Content 传进构造器的约定,还没做。");
-        }
-
         calledComponents.add(component.view());
 
         Map<String, TagAttribute> attributes =
@@ -909,9 +923,17 @@ public final class JbladeTranspiler {
                   + "  类组件没有属性袋({{ attributes }})。");
         }
 
-        return "@template." + component.view()
-             + "(ctx = ctx, " + component.selfName() + " = new "
-             + component.typeName() + "(" + String.join(", ", arguments) + "))";
+        // 还没闭模板调用那一层括号 —— 带 body 时 slot 参数要接在后面
+        String call = "@template." + component.view()
+                    + "(ctx = ctx, " + component.selfName() + " = new "
+                    + component.typeName() + "(" + String.join(", ", arguments) + ")";
+
+        if (selfClosing) return call + ")";
+
+        open("component", sourceLine);
+        int id = tag(tagName, sourceLine, call);
+        classComponentTags.put(id, component);
+        return sentinel("CO", id);
     }
 
     private record TagAttribute(String name, boolean expression, String value) {}
@@ -1379,13 +1401,30 @@ public final class JbladeTranspiler {
 
     private void handleSentinel(String kind, int id, int sourceLine) {
         switch (kind) {
-            case "CO" -> componentFrames.push(
-                    new ComponentFrame(tags.get(id).name(), tags.get(id).line(),
-                                       tags.get(id).text()));
+            case "CO" -> {
+                TagInfo tag = tags.get(id);
+                ClassComponent classComponent = classComponentTags.remove(id);
+                componentFrames.push(new ComponentFrame(
+                        tag.name(), tag.line(), tag.text(), classComponent));
+            }
             case "SO" -> {
                 ComponentFrame frame = componentFrames.peek();
-                frame.capturing = tags.get(id).name();
-                frame.namedSlots.putIfAbsent(frame.capturing, new ArrayList<>());
+                String name = tags.get(id).name();
+
+                if (frame.classComponent != null) {
+                    String parameter = slotParam(name);
+                    if (!frame.classComponent.contentParams().contains(parameter)) {
+                        throw new JbladeException(templateName, sourceLine,
+                                "类组件 <x-" + frame.name + "> 的模板没有声明 "
+                              + parameter + "。\n"
+                              + "  在组件模板的 @params 里加 "
+                              + "gg.jte.Content " + parameter + " = null,"
+                              + "或者删掉这个 <x-slot:" + name + ">。");
+                    }
+                }
+
+                frame.capturing = name;
+                frame.namedSlots.putIfAbsent(name, new ArrayList<>());
             }
             case "SC" -> componentFrames.peek().capturing = null;
             case "CC" -> assembleComponent(componentFrames.pop(), sourceLine);
@@ -1429,17 +1468,42 @@ public final class JbladeTranspiler {
         var pieces = new ArrayList<Piece>();
 
         for (var entry : frame.namedSlots.entrySet()) {
-            glue.append(", ").append(slotParam(entry.getKey())).append(" = @`");
+            String parameter = slotParam(entry.getKey());
+            if (frame.classComponent != null
+                    && !frame.classComponent.contentParams().contains(parameter)) {
+                throw new JbladeException(templateName, closeLine,
+                        "类组件 <x-" + frame.name + "> 的模板没有声明 "
+                      + parameter + "。\n"
+                      + "  在组件模板的 @params 里加 gg.jte.Content "
+                      + parameter + " = null。");
+            }
+
+            glue.append(", ").append(parameter).append(" = @`");
             pieces.add(new Piece(glue.toString(), frame.line, false));
             glue.setLength(0);
             pieces.addAll(entry.getValue());
             glue.append('`');
         }
 
-        glue.append(", slot = @`");
-        pieces.add(new Piece(glue.toString(), frame.line, false));
-        pieces.addAll(frame.defaultSlot);
-        pieces.add(new Piece("`)", closeLine, false));
+        boolean passDefaultSlot = frame.classComponent == null
+                || frame.classComponent.hasDefaultSlot();
+
+        if (passDefaultSlot) {
+            glue.append(", slot = @`");
+            pieces.add(new Piece(glue.toString(), frame.line, false));
+            glue.setLength(0);
+            pieces.addAll(frame.defaultSlot);
+            glue.append('`');
+        } else if (frame.defaultSlot.stream().anyMatch(piece -> !piece.text().isBlank())) {
+            throw new JbladeException(templateName, closeLine,
+                    "类组件 <x-" + frame.name + "> 的模板没有声明 gg.jte.Content slot "
+                  + "—— 它接不了 body。\n"
+                  + "  在组件模板的 @params 里加 gg.jte.Content slot = null,"
+                  + "或者写成自闭合 <x-" + frame.name + " … />。");
+        }
+
+        glue.append(')');
+        pieces.add(new Piece(glue.toString(), closeLine, false));
 
         // 落到上一层:外层帧的缓冲区,或产物
         ComponentFrame parent = componentFrames.peek();

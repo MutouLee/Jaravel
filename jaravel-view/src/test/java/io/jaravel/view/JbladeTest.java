@@ -1722,7 +1722,62 @@ class JbladeTest {
 
             assertThatThrownBy(() -> e.render("t", Map.of()))
                     .isInstanceOf(JbladeException.class)
-                    .hasMessageContaining("只支持自闭合");
+                    .hasMessageContaining("没有声明 gg.jte.Content slot");
+        }
+
+        @Test
+        @DisplayName("★ 类组件的 slot:默认 slot 与具名 slot 都按 Content 参数传")
+        void slotsArePassed(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of(
+                    "components.test-slot", """
+                        @params(io.jaravel.view.TestCard self, gg.jte.Content slot = null, gg.jte.Content __slot_footer = null)
+                        <article><h2>{{ self.title }}</h2><div>{{ slot }}</div><footer>{{ __slot_footer }}</footer></article>
+                        """,
+                    "t", """
+                        <x-test-slot title="T" :count="1">
+                          正文
+                          <x-slot:footer>页脚</x-slot:footer>
+                        </x-test-slot>
+                        """));
+
+            assertThat(e.render("t", Map.of()))
+                    .contains("<h2>T</h2>")
+                    .contains("正文")
+                    .contains("<footer>页脚</footer>");
+        }
+
+        @Test
+        @DisplayName("具名 slot 没在类组件模板里声明 → 转写期报错")
+        void undeclaredNamedSlot(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of(
+                    "components.test-slot", """
+                        @params(io.jaravel.view.TestCard self, gg.jte.Content slot = null)
+                        <article>{{ slot }}</article>
+                        """,
+                    "t", """
+                        <x-test-slot title="T" :count="1">
+                          <x-slot:footer>页脚</x-slot:footer>
+                        </x-test-slot>
+                        """));
+
+            assertThatThrownBy(() -> e.render("t", Map.of()))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("没有声明 __slot_footer");
+        }
+
+        @Test
+        @DisplayName("自闭合调用时,声明的 slot 参数保持 null")
+        void selfClosingKeepsSlotsNull(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of(
+                    "components.test-slot", """
+                        @params(io.jaravel.view.TestCard self, gg.jte.Content slot = null)
+                        <article>@if(slot != null){{ slot }}@endif{{ self.title }}</article>
+                        """,
+                    "t", """
+                        <x-test-slot title="T" :count="1" />
+                        """));
+
+            assertThat(e.render("t", Map.of())).contains("<article>T</article>");
         }
 
         @Test

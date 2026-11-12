@@ -1,11 +1,16 @@
 package io.jaravel.spring.commands;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeMap;
 
+import io.jaravel.api.openapi.ApiDoc;
+import io.jaravel.api.openapi.ApiResponse;
 import io.jaravel.routing.Route;
 import io.jaravel.routing.RouteCollection;
 
@@ -29,7 +34,7 @@ import io.jaravel.routing.RouteCollection;
  *   <tr><td>请求体 schema</td><td>FormRequest 的 rules()</td><td>✅</td></tr>
  *   <tr><td>请求体校验约束</td><td>规则 → maxLength / maximum / enum / pattern</td><td>✅</td></tr>
  *   <tr><td>响应 schema</td><td>JsonResource 的 toArray</td><td>❌(要 APT 做 AST 分析)</td></tr>
- *   <tr><td>描述与示例</td><td>javadoc + {@code @ApiDoc}</td><td>❌(javadoc 要 APT)</td></tr>
+ *   <tr><td>描述与示例</td><td>{@code @ApiDoc} + javadoc</td><td>⚠ {@code @ApiDoc} ✅;javadoc / 示例要 APT</td></tr>
  * </table>
  *
  * <p>**没填上的行不写进文档,也不编**:一个带着假 schema 的 OpenAPI
@@ -82,10 +87,23 @@ final class OpenApiGenerator {
 
     private Map<String, Object> operationOf(Route route) {
         var operation = new LinkedHashMap<String, Object>();
+        ApiDoc doc = apiDocOf(route).orElse(null);
 
         operation.put("operationId", route.controller().getSimpleName() + "." + route.action());
-        operation.put("tags", List.of(tagOf(route)));
-        route.routeName().ifPresent(name -> operation.put("summary", name));
+
+        // 注解优先,路由/控制器名兜底 —— 没写注解的接口与这一刀之前完全一样
+        operation.put("tags", doc != null && doc.tags().length > 0
+                ? List.of(doc.tags())
+                : List.of(tagOf(route)));
+
+        String summary = doc != null && !doc.summary().isBlank()
+                ? doc.summary()
+                : route.routeName().orElse(null);
+        if (summary != null) operation.put("summary", summary);
+
+        if (doc != null && !doc.description().isBlank()) {
+            operation.put("description", doc.description());
+        }
 
         List<Map<String, Object>> parameters = parametersOf(route);
         if (!parameters.isEmpty()) operation.put("parameters", parameters);
@@ -97,15 +115,96 @@ final class OpenApiGenerator {
             operation.put("security", List.of(Map.of(BEARER_SCHEME, List.of())));
         }
 
-        var responses = new LinkedHashMap<String, Object>();
-        // 只写**知道**的:成功一条,受保护的加 401。
-        // 404 / 422 得等 FormRequest 与返回类型的 schema 做出来 ——
-        // 现在写上去只是猜
-        responses.put("200", Map.of("description", "成功"));
-        if (secured) responses.put("401", Map.of("description", "未认证"));
-        operation.put("responses", responses);
+        operation.put("responses", responsesOf(doc, secured));
 
         return operation;
+    }
+
+    /**
+     * 控制器方法上的 {@code @ApiDoc}(docs/12 §5)。
+     *
+     * <h2>为什么能直接读</h2>
+     * <p>它是 {@code RUNTIME} 注解,而生成器跑在应用进程里 —— 不需要 APT。
+     * 找方法时先按 {@code action + parameterTypes()} 精确匹配
+     * (路由表里那对参数就是方法引用内省出来的);找不到时再在 public 方法里
+     * 找继承来的,最后才在「唯一同名」时兜底。
+     *
+     * <p>⚠ 找不到就让这个接口没有注解信息,而不是让整份文档失败 ——
+     * 与请求体生成失败时同一条取舍:少一点文档好过没有文档。
+     */
+    private static Optional<ApiDoc> apiDocOf(Route route) {
+        return actionMethodOf(route).map(method -> method.getAnnotation(ApiDoc.class));
+    }
+
+    private static Optional<Method> actionMethodOf(Route route) {
+        Class<?> controller = route.controller();
+        Class<?>[] types = route.parameterTypes().toArray(Class<?>[]::new);
+
+        try {
+            return Optional.of(controller.getDeclaredMethod(route.action(), types));
+        } catch (NoSuchMethodException ignored) {
+            // 继承来的方法不在 declared 里;参数类型也可能没被内省到 —— 再找一次
+        }
+
+        for (Method method : controller.getMethods()) {
+            if (method.getName().equals(route.action())
+                    && Arrays.equals(method.getParameterTypes(), types)) {
+                return Optional.of(method);
+            }
+        }
+
+        // 参数类型对不上(比如 lambda 路由没有内省出参数)时,
+        // 只有唯一同名方法才敢用 —— 多个重载里猜一个会把注解安错方法
+        var byName = Arrays.stream(controller.getMethods())
+                .filter(method -> method.getName().equals(route.action()))
+                .toList();
+        return byName.size() == 1 ? Optional.of(byName.get(0)) : Optional.empty();
+    }
+
+    /**
+     * 响应状态码。
+     *
+     * <p>没写 {@code @ApiDoc.responses} 时与之前一样:200 + (受保护时)401。
+     * 写了就**以作者为准** —— 创建接口返回 201,自动补一个 200 是错的。
+     * 401 仍然自动补,因为它由中间件保证;作者显式写了 401 时用作者的说明。
+     */
+    private Map<String, Object> responsesOf(ApiDoc doc, boolean secured) {
+        var responses = new LinkedHashMap<String, Object>();
+
+        if (doc != null && doc.responses().length > 0) {
+            for (ApiResponse declared : doc.responses()) {
+                String code = String.valueOf(declared.code());
+                String description = declared.description().isBlank()
+                        ? defaultDescriptionOf(declared.code())
+                        : declared.description();
+                // 同一个 code 写两次时以第一次为准,不静默覆盖
+                responses.putIfAbsent(code, Map.of("description", description));
+            }
+        } else {
+            responses.put("200", Map.of("description", "成功"));
+        }
+
+        if (secured) {
+            responses.putIfAbsent("401", Map.of("description", "未认证"));
+        }
+        return responses;
+    }
+
+    /** 只给常见状态码;其余用「响应 N」—— OpenAPI 要求 description 非空 */
+    private static String defaultDescriptionOf(int code) {
+        return switch (code) {
+            case 200 -> "成功";
+            case 201 -> "创建成功";
+            case 204 -> "无内容";
+            case 400 -> "请求有误";
+            case 401 -> "未认证";
+            case 403 -> "无权限";
+            case 404 -> "不存在";
+            case 409 -> "冲突";
+            case 422 -> "校验失败";
+            case 500 -> "服务器错误";
+            default -> "响应 " + code;
+        };
     }
 
     /**

@@ -555,14 +555,18 @@ jaravel openapi:generate --output=public/openapi.json
 | 描述与示例 | javadoc + `@ApiDoc` 注解 |
 
 ```java
-/**
- * 创建一篇文章。
- * 需要 `posts:write` 权限。
- */
-@ApiDoc(summary = "创建文章", tags = "Posts",
-        responses = { @ApiResponse(201, PostResource.class), @ApiResponse(422) })
+@ApiDoc(summary = "创建文章", description = "需要 posts:write 权限",
+        tags = "Posts",
+        responses = {
+            @ApiResponse(code = 201, description = "创建成功"),
+            @ApiResponse(code = 422)                    // 说明留空 → 「校验失败」
+        })
 public JsonResource store(StorePostRequest req) { ... }
 ```
+
+> javadoc 里的那段说明要 APT 才读得到;`@ApiDoc` 是运行时可读的那一半,
+> 它已经实现(见本节末尾)。响应 schema(包括 `resource = PostResource.class`)
+> 仍未做 —— 理由同上。
 
 `JsonResource#toArray` 的键集合从字面量 `Json.map().put("id", ...)` 链中静态提取(APT 做轻量 AST 分析)。若提取失败则退化为「运行时采样」:开发模式下记录实际响应形状生成 schema。两条路径都要有。
 
@@ -599,7 +603,7 @@ public JsonResource store(StorePostRequest req) { ... }
 > | operationId / tags / summary | ✅ 控制器#方法 / 控制器名 / 路由名 |
 > | 请求体 schema | ✅ **从 `FormRequest.rules()` 提取(不需要 APT,见下)** |
 > | 响应 schema | ❌ 要 APT 对 `toArray` 做 AST 分析 |
-> | 描述与示例 | ❌ javadoc 要 APT;`@ApiDoc` 注解还不存在 |
+> | 描述与示例 | ⚠️ **部分** —— `@ApiDoc` 已实现(见本节末尾);javadoc 与示例仍要 APT |
 >
 > **没填上的行不写进文档,也不编。** 一个带着假 schema 的 OpenAPI 会让前端
 > 生成出字段名全错的模型类,而那种错要等到联调才发现;
@@ -764,6 +768,65 @@ public JsonResource store(StorePostRequest req) { ... }
 > 这没有造成分流错误(本地注册表优先),但那份前缀表是在**声明**
 > 哪些命令需要容器,而 openapi:diff 不需要。改成 `openapi:generate` 之后,
 > 声明与实际一致;将来再加在线的 openapi 子命令,也会被迫显式写出来。
+
+> ### v0.5:`@ApiDoc` / `@ApiResponse` —— 运行时可读的那一半(7 个测试)
+>
+> ```java
+> @ApiDoc(summary = "创建文章", description = "需要 posts:write 权限",
+>         tags = "Posts",
+>         responses = {
+>             @ApiResponse(code = 201, description = "创建成功"),
+>             @ApiResponse(code = 422)
+>         })
+> public JsonResource store(StorePostRequest req) { ... }
+> ```
+>
+> 生成结果:
+>
+> ```json
+> "post": {
+>   "summary": "创建文章",
+>   "description": "需要 posts:write 权限",
+>   "tags": ["Posts"],
+>   "responses": {
+>     "201": { "description": "创建成功" },
+>     "422": { "description": "校验失败" }
+>   }
+> }
+> ```
+>
+> #### ★ 为什么是注解,不是 javadoc
+>
+> `openapi:generate` 跑在应用进程里,`RUNTIME` 注解直接反射可读。
+> javadoc 不在运行时的类信息里,要读它得再写一个 APT —— 那是另一刀。
+> 这一版先把「现在就能读到的」做掉,而不是等 APT 把两件事一起做。
+>
+> #### 覆盖规则
+>
+> - `summary` 非空 → 用它;否则退回路由名;都没有就不写;
+> - `tags` 非空 → 用它;否则退回控制器名去掉 `Controller` 后缀;
+> - **写了 `responses` 就以作者为准**,不追加默认的 200 ——
+>   创建接口返回 201,自动补一个 200 是错的;
+> - 受保护的路由仍自动补 401;作者显式写了 401 时用作者的说明
+>   (`putIfAbsent`:只补缺,不覆盖);
+> - 说明留空时按状态码给一句默认(201 → 创建成功、422 → 校验失败…),
+>   因为 OpenAPI 要求 `description` 非空。
+>
+> #### ★ `@ApiResponse` 里刻意没有 `resource`
+>
+> 响应 schema 要从 `JsonResource.toArray` 提取,属于 APT 那一刀。
+> 先声明状态码与说明,比编一个假 schema 诚实 —— 假 schema 会让前端
+> 生成出字段名全错的模型类。等响应 schema 做出来再加 `resource`,
+> 现有写法不用变。
+>
+> #### 找方法的三个层次
+>
+> 生成器要拿到**那个控制器方法**上的注解:先按 `action + parameterTypes()`
+> 精确匹配(路由表里的参数类型就是方法引用内省出来的);找不到再在
+> public 方法里找继承来的;最后只有「唯一同名方法」时才兜底。
+> 多个重载且参数类型对不上时**不猜** —— 猜错会把注解安到另一个方法上,
+> 而那份文档看起来完全正常。找不到注解就让这个接口沿用默认值,
+> 整份文档照常生成。
 
 ---
 

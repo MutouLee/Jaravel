@@ -93,6 +93,9 @@ public final class OpenApiGenerateCommand extends RuntimeCommand {
                 ⚠ 这一版的文档里**没有响应体的 schema**:它要从 JsonResource 的
                   toArray 提取,而那需要 APT 做 AST 分析(docs/12 §5)。
 
+                  summary / description / 状态码可以写在控制器方法的 @ApiDoc
+                  上(docs/12 §5)—— 它是运行时注解,不需要 APT。
+
                   请求体有了(来自 FormRequest 的 rules()),但要注意:
                   exists / unique / after 这类**语义**规则在 schema 里没有
                   表达方式,所以「schema 校验通过」不等于「服务端会接受」。

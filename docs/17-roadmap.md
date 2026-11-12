@@ -461,9 +461,9 @@ v0.4 的上传演示把三条 `/avatar` 路由加进了
 > 这是写结果文档时才发现的一处**验收条目本身**与现实的脱节
 > (与 v0.4 那次对账同一个性质:没人对过账的声明)。
 
-**API 这条线还在收尾**:资源 + 分页 + 异常映射 + Problem JSON 已交付;
-OpenAPI 线里 `openapi:generate`(路由、路径参数、请求体)与
-`openapi:diff` 已交付,**响应 schema 与 `@ApiDoc` 还没做**。
+**API 这条线只剩响应 schema**:资源 + 分页 + 异常映射 + Problem JSON 已交付;
+OpenAPI 线里 `openapi:generate`(路由、路径参数、请求体)、`openapi:diff`
+与 `@ApiDoc` / `@ApiResponse` 已交付,**响应 schema 还没做**。
 `jaravel-testing` 在 v0.3 之后已提前交付。
 
 ---

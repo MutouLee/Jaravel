@@ -13,6 +13,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import io.jaravel.api.openapi.ApiDoc;
+import io.jaravel.api.openapi.ApiResponse;
 import io.jaravel.console.Artisan;
 import io.jaravel.console.CommandRegistry;
 import io.jaravel.core.config.ConfigLoader;
@@ -72,6 +74,50 @@ class OpenApiTest {
         public Object storeValidated(StorePostRequest form) {
             return "created " + form.validated().string("title");
         }
+
+        @ApiDoc(summary = "创建文章", description = "需要 posts:write 权限",
+                tags = {"Posts", "Write"},
+                responses = {
+                        @ApiResponse(code = 201, description = "创建成功"),
+                        @ApiResponse(code = 422)
+                })
+        public Object create(Request request) {
+            return "created";
+        }
+
+        @ApiDoc(summary = "显式 401",
+                responses = {
+                        @ApiResponse(code = 200, description = "成功"),
+                        @ApiResponse(code = 401, description = "要先登录")
+                })
+        public Object secureCreate(Request request) {
+            return "ok";
+        }
+
+        @ApiDoc(summary = "只有说明", description = "说明在这里")
+        public Object described(Request request) {
+            return "ok";
+        }
+
+        @ApiDoc(description = "没有 summary 与方法级说明")
+        public Object summaryFromRouteName() {
+            return "ok";
+        }
+
+        public Object plain() {
+            return "ok";
+        }
+    }
+
+    /** 注解在父类方法上,注册的是子类 —— 继承来的方法也要能读到 */
+    public static class BaseController {
+        @ApiDoc(summary = "继承来的说明")
+        public Object inherited() {
+            return "ok";
+        }
+    }
+
+    public static class ChildController extends BaseController {
     }
 
     private RouteCollection routes(java.util.function.Consumer<Router> definition) {
@@ -90,6 +136,16 @@ class OpenApiTest {
         var paths = (Map<String, Object>) document.get("paths");
         var methods = (Map<String, Object>) paths.get(uri);
         return (Map<String, Object>) methods.get(verb);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> responses(Map<String, Object> operation) {
+        return (Map<String, Object>) operation.get("responses");
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> response(Map<String, Object> operation, String code) {
+        return (Map<String, Object>) responses(operation).get(code);
     }
 
     // ================= 文档骨架 =================
@@ -164,6 +220,94 @@ class OpenApiTest {
 
             assertThat(operation(document, "/posts", "get").get("summary"))
                     .isEqualTo("posts.index");
+        }
+    }
+
+    // ================= @ApiDoc =================
+
+    @Nested
+    @DisplayName("@ApiDoc")
+    class Annotations {
+
+        @Test
+        @DisplayName("★ summary / description / tags 覆盖路由名与控制器名")
+        void apiDocOverridesDefaults() {
+            var operation = operation(document(routes(r ->
+                    r.get("/posts", PostController::create))), "/posts", "get");
+
+            assertThat(operation.get("summary")).isEqualTo("创建文章");
+            assertThat(operation.get("description")).isEqualTo("需要 posts:write 权限");
+            assertThat(operation.get("tags")).isEqualTo(List.of("Posts", "Write"));
+        }
+
+        @Test
+        @DisplayName("★ 显式 responses 替换默认 200;空白说明按状态码补")
+        void explicitResponsesReplaceTheDefault() {
+            var operation = operation(document(routes(r ->
+                    r.get("/posts", PostController::create))), "/posts", "get");
+
+            assertThat(operation.get("responses"))
+                    .as("""
+                            创建接口返回 201,自动补一个 200 是错的。
+                            写了 responses 就以作者为准 —— 这不是追加,是替换。""")
+                    .isEqualTo(Map.of(
+                            "201", Map.of("description", "创建成功"),
+                            "422", Map.of("description", "校验失败")));
+        }
+
+        @Test
+        @DisplayName("受保护的路由即使显式声明响应,仍自动补 401")
+        void securedRoutesStillGet401() {
+            var operation = operation(document(routes(r ->
+                    r.get("/posts", PostController::create).middleware("auth:api"))), "/posts", "get");
+
+            assertThat(response(operation, "401")).isNotNull();
+            assertThat(response(operation, "401").get("description")).isEqualTo("未认证");
+            assertThat(responses(operation)).containsKeys("201", "422", "401");
+        }
+
+        @Test
+        @DisplayName("显式声明 401 时用作者的说明,不被自动补的那条盖掉")
+        void explicit401Wins() {
+            var operation = operation(document(routes(r ->
+                    r.get("/posts", PostController::secureCreate).middleware("auth:api"))), "/posts", "get");
+
+            assertThat(response(operation, "401").get("description"))
+                    .as("自动补 401 只补缺,不覆盖")
+                    .isEqualTo("要先登录");
+            assertThat(responses(operation)).containsKey("200");
+        }
+
+        @Test
+        @DisplayName("summary 留空退回路由名;tags 留空退回控制器名")
+        void blanksFallBack() {
+            var operation = operation(document(routes(r ->
+                    r.get("/posts", PostController::summaryFromRouteName).name("posts.list"))), "/posts", "get");
+
+            assertThat(operation.get("summary")).isEqualTo("posts.list");
+            assertThat(operation.get("tags")).isEqualTo(List.of("Post"));
+            assertThat(operation.get("description")).isEqualTo("没有 summary 与方法级说明");
+        }
+
+        @Test
+        @DisplayName("没有注解的接口与这一刀之前完全一样")
+        void unannotatedMethodKeepsDefaults() {
+            var operation = operation(document(routes(r ->
+                    r.get("/posts", PostController::plain))), "/posts", "get");
+
+            assertThat(operation).doesNotContainKey("summary");
+            assertThat(operation).doesNotContainKey("description");
+            assertThat(operation.get("tags")).isEqualTo(List.of("Post"));
+            assertThat(responses(operation)).containsOnlyKeys("200");
+        }
+
+        @Test
+        @DisplayName("★ 注解写在父类方法上、注册的是子类 —— 也要读得到")
+        void inheritedMethodAnnotationIsFound() {
+            var operation = operation(document(routes(r ->
+                    r.get("/inherited", ChildController::inherited))), "/inherited", "get");
+
+            assertThat(operation.get("summary")).isEqualTo("继承来的说明");
         }
     }
 

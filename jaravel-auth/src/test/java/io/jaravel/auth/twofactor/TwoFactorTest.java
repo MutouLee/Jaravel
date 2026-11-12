@@ -155,6 +155,112 @@ class TwoFactorTest {
     }
 
     @Nested
+    @DisplayName("用户侧流程")
+    class UserFlow {
+
+        static final class FakeUser implements TwoFactorAuthenticatable {
+            private String secret;
+            private boolean enabled;
+            private List<String> codes = List.of();
+
+            @Override public String twoFactorSecret() { return secret; }
+            @Override public void twoFactorSecret(String value) { secret = value; }
+            @Override public boolean twoFactorEnabled() { return enabled; }
+            @Override public void twoFactorEnabled(boolean value) { enabled = value; }
+            @Override public List<String> twoFactorRecoveryCodes() { return codes; }
+            @Override public void twoFactorRecoveryCodes(List<String> value) {
+                codes = List.copyOf(value);
+            }
+            @Override public String twoFactorAccount() { return "tom@example.com"; }
+        }
+
+        private static final Instant TIME = Instant.ofEpochSecond(1_700_000_000L);
+
+        @Test
+        @DisplayName("★ enable:生成密钥与恢复码,但还没启用")
+        void enableReturnsSetupOnce() {
+            var user = new FakeUser();
+
+            var setup = user.enableTwoFactor("MyApp", "tom@example.com");
+
+            assertThat(setup.secret()).isNotBlank();
+            assertThat(Base32.decode(setup.secret())).hasSize(20);
+            assertThat(setup.otpauthUri()).startsWith("otpauth://totp/")
+                    .contains("tom%40example.com");
+            assertThat(setup.recoveryCodes()).hasSize(10);
+
+            assertThat(user.twoFactorEnabled()).as("要等确认").isFalse();
+            assertThat(user.twoFactorSecret()).isEqualTo(setup.secret());
+            assertThat(user.twoFactorRecoveryCodes())
+                    .as("库里存的是哈希,不是明文")
+                    .hasSize(10)
+                    .doesNotContainAnyElementsOf(setup.recoveryCodes());
+        }
+
+        @Test
+        @DisplayName("★ confirm 一次后才启用;错误码不启用")
+        void confirmEnables() {
+            var user = new FakeUser();
+            var setup = user.enableTwoFactor();
+
+            assertThat(user.confirmTwoFactor("000000", TIME)).isFalse();
+            assertThat(user.twoFactorEnabled()).isFalse();
+
+            assertThat(user.confirmTwoFactor(Totp.code(setup.secret(), TIME), TIME)).isTrue();
+            assertThat(user.twoFactorEnabled()).isTrue();
+        }
+
+        @Test
+        @DisplayName("启用后 verify 才有效,且受时间窗口约束")
+        void verifyOnlyWhenEnabled() {
+            var user = new FakeUser();
+            var setup = user.enableTwoFactor();
+
+            assertThat(user.verifyTwoFactor(Totp.code(setup.secret(), TIME), TIME))
+                    .as("未确认启用")
+                    .isFalse();
+
+            user.confirmTwoFactor(Totp.code(setup.secret(), TIME), TIME);
+
+            assertThat(user.verifyTwoFactor(Totp.code(setup.secret(), TIME), TIME)).isTrue();
+            assertThat(user.verifyTwoFactor(Totp.code(setup.secret(), TIME.plusSeconds(300)), TIME))
+                    .as("十个窗口之外")
+                    .isFalse();
+        }
+
+        @Test
+        @DisplayName("★ 恢复码用一次就删,输入的大小写与连字符不影响")
+        void recoveryCodesAreSingleUse() {
+            var user = new FakeUser();
+            var setup = user.enableTwoFactor();
+
+            String code = setup.recoveryCodes().get(0);
+            String sloppy = code.toLowerCase().replace("-", "");
+
+            assertThat(user.useRecoveryCode(sloppy)).isTrue();
+            assertThat(user.twoFactorRecoveryCodes()).hasSize(9);
+            assertThat(user.useRecoveryCode(code))
+                    .as("同一个码不能第二次使用")
+                    .isFalse();
+            assertThat(user.useRecoveryCode("AAAAA-AAAAA")).isFalse();
+            assertThat(user.useRecoveryCode("")).isFalse();
+        }
+
+        @Test
+        @DisplayName("disable 清空密钥、恢复码与启用状态")
+        void disableClearsEverything() {
+            var user = new FakeUser();
+            user.enableTwoFactor();
+
+            user.disableTwoFactor();
+
+            assertThat(user.twoFactorSecret()).isNull();
+            assertThat(user.twoFactorEnabled()).isFalse();
+            assertThat(user.twoFactorRecoveryCodes()).isEmpty();
+        }
+    }
+
+    @Nested
     @DisplayName("恢复码")
     class RecoveryCodesTest {
 

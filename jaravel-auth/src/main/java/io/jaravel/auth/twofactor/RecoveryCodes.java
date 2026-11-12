@@ -12,8 +12,9 @@ import java.util.Locale;
 /**
  * 二步验证的恢复码(docs/08 §6.4)。
  *
- * <p>用户丢了手机时用它登录。每个码只能用一次 —— 框架只提供生成、哈希与
- * 验证;「用过就删」是应用侧那次更新的责任(把该码的哈希从列表里移除)。
+ * <p>用户丢了手机时用它登录。每个码只能用一次 —— 本类只提供生成、哈希与
+ * 验证;{@link TwoFactorAuthenticatable#useRecoveryCode(String)} 会在匹配后
+ * 把哈希从列表里删掉,应用负责把改过的列表存回去。
  *
  * <pre>{@code
  * List<String> codes = RecoveryCodes.generate();  // 显示给用户,只显示这一次

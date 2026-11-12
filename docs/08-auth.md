@@ -400,7 +400,7 @@ boolean ok = user.confirmTwoFactor(code);
 
 列入 v0.6。
 
-> ### v0.6:原语已实现(14 个测试)
+> ### v0.6:原语 + 用户侧流程已实现(19 个测试)
 >
 > `io.jaravel.auth.twofactor`:
 >
@@ -418,14 +418,18 @@ boolean ok = user.confirmTwoFactor(code);
 >   窗口边界与跨步长才测得到;
 > - 校验用常数时间比较;恢复码只存 SHA-256,输入接受大小写/连字符差异。
 >
+> 用户模型实现 `TwoFactorAuthenticatable` 的七个访问器,就得到
+> `user.enableTwoFactor()` / `user.confirmTwoFactor(code)` /
+> `user.verifyTwoFactor(code)` / `user.useRecoveryCode(code)` /
+> `user.disableTwoFactor()`。存储形状由应用决定(与 `Authenticatable`
+> 同一个取舍);`useRecoveryCode` 会**删掉用过的哈希** —— 同一个码不能用两次。
+>
 > **还没做的**:
 >
-> - `User.enableTwoFactor()` 这类**用户模型集成** —— 存 secret/恢复码的
->   列与迁移属于应用侧;
 > - 二维码 **SVG**:`otpauth://` URI 是任何二维码库的输入,框架不引入
 >   一整个 QR 实现;
-> - 恢复码的**一次性**语义:框架提供生成/哈希/验证,「用过就删」
->   需要应用在一次更新里完成(否则同一个码可以重复登录)。
+> - 登录流程里的**挑战步骤**(密码通过后先跳验证码页)是应用侧的
+>   controller/middleware;框架提供原语与用户方法,不规定 UI。
 
 ### 6.5 API Token(TokenGuard)
 

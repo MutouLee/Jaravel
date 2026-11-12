@@ -549,7 +549,7 @@ jaravel openapi:generate --output=public/openapi.json
 | 路径参数类型 | 控制器方法签名 |
 | 请求体 schema | `FormRequest` 的 `rules()` 或 `@Body` DTO 的 record 组件 |
 | 请求体校验约束 | 验证规则 → `minLength` / `maximum` / `pattern` / `enum` |
-| 响应 schema | `JsonResource` 的 `toArray` 返回键(APT 已做);返回类型的 record 结构待做 |
+| 响应 schema | `JsonResource` 的 `toArray` 返回键(APT)+ 返回类型的 record 组件(运行时反射) |
 | 响应状态码 | 异常映射表 + 控制器返回类型 |
 | 安全要求 | 路由上的 `auth:*` 中间件 |
 | 描述与示例 | javadoc + `@ApiDoc` 注解 |
@@ -606,7 +606,7 @@ public JsonResource store(StorePostRequest req) { ... }
 > | 安全要求 | ✅ `auth:*` 中间件 → `security` + 401 |
 > | operationId / tags / summary | ✅ 控制器#方法 / 控制器名 / 路由名 |
 > | 请求体 schema | ✅ **从 `FormRequest.rules()` 提取(不需要 APT,见下)** |
-> | 响应 schema | ✅ **部分** —— `JsonResource` 已做(见本节末尾);record 返回类型还没做 |
+> | 响应 schema | ✅ —— `JsonResource`(APT)与 record(反射)都已做(见本节末尾) |
 > | 描述与示例 | ⚠️ **部分** —— `@ApiDoc` 已实现(见本节末尾);javadoc 与示例仍要 APT |
 >
 > **没填上的行不写进文档,也不编。** 一个带着假 schema 的 OpenAPI 会让前端
@@ -832,7 +832,7 @@ public JsonResource store(StorePostRequest req) { ... }
 > 而那份文档看起来完全正常。找不到注解就让这个接口沿用默认值,
 > 整份文档照常生成。
 
-> ### v0.5:响应 schema —— APT 从 `toArray` 提取(26 个测试)
+> ### v0.5:响应 schema —— `toArray` 的 APT + record 反射(31 个测试)
 >
 > #### 整条链路
 >
@@ -903,10 +903,23 @@ public JsonResource store(StorePostRequest req) { ... }
 > ⚠ `with(request)` 附加的根字段(比如 `meta`)这一版**没有**提取 ——
 > 那要再分析一个方法体里的 Map 表达式。缺字段比写错字段好。
 >
+> #### record 返回类型
+>
+> docs/12 §1.4 推荐的另一条输出路径。它**不是** `JsonResource`,所以:
+>
+> - **没有 `data` 包裹** —— Jackson 直接序列化 record 的组件;
+> - 组件由运行时反射得到,不需要 APT;
+> - 嵌套 record 内联展开(深度上限 3;自引用时在环上停下,只写 `object`);
+> - 只有**原始类型**组件进 `required` —— 引用类型可能是 null,
+>   应用配了 `non_null` 输出时那个键会消失;
+> - `@JsonProperty` 改名、`@JsonIgnore` 跳过;
+> - 自定义序列化器 / `@JsonNaming` / `@JsonUnwrapped` 会改变形状,
+>   静态反射看不到 —— 已知限制。
+>
 > #### 挂在哪一个状态码上
 >
-> - `@ApiResponse.resource = PostResource.class` → 显式挂在那条响应上;
-> - 控制器方法**返回类型本身就是具体资源类** → 自动挂到第一个 2xx(204 除外);
+> - `@ApiResponse.resource = PostResource.class / PostDto.class` → 显式挂在那条响应上;
+> - 控制器方法**返回类型本身就是具体资源类或 record** → 自动挂到第一个 2xx(204 除外);
 > - 返回 `Response` / `View` / `Object` → 没有可提取的形状,不挂,也不猜。
 >
 > #### 接进项目
@@ -932,9 +945,10 @@ public JsonResource store(StorePostRequest req) { ... }
 >
 > #### 已知限制
 >
-> - **record 返回类型**还没做(表里那一半);返回 record 的接口暂时没有 schema;
+> - record 的自定义 Jackson 序列化器 / `@JsonNaming` / `@JsonUnwrapped` 不识别;
 > - `with()` 的根字段没提取;
 > - 嵌套资源字段只有名字、没有 type;
+> - `required` 按 `put` / 原始类型判定,尚未结合应用的 null 输出策略;
 > - 「运行时采样」兜底没做 —— 它需要真实模型实例并执行用户的 `toArray`。
 
 ---

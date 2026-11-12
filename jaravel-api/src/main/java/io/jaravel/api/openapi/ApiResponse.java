@@ -11,16 +11,17 @@ import java.lang.annotation.Target;
  * <p>只能作为 {@link ApiDoc#responses()} 的元素使用,不能单独标在方法上 ——
  * 所以 {@code @Target({})}。
  *
- * <h2>★ {@code resource} 指向的是**已经提取好的**形状</h2>
- * <p>生成器不会去实例化它、也不会调用 {@code toArray}:形状来自
- * {@code jaravel-api-processor} 在编译期写下的索引。所以:
+ * <h2>★ {@code resource} 指向的是**已经知道**的形状</h2>
+ * <p>两种来源:
  * <ul>
- *   <li>没把处理器接进 {@code annotationProcessorPaths} 时,
- *       这个元素填了也不会出现 schema —— {@code openapi:generate}
- *       会在输出里明确说明;</li>
- *   <li>处理器提取失败({@code merge}、多个 return…)时同样如此,
- *       输出里会带上失败原因。</li>
+ *   <li>{@code JsonResource} 子类 —— 字段来自 {@code jaravel-api-processor}
+ *       在编译期从 {@code toArray} 写下的索引。生成器不会实例化它、
+ *       也不会调用 {@code toArray};</li>
+ *   <li>record —— 字段由运行时反射组件得到,不需要 APT。</li>
  * </ul>
+ * 前一种情况下,没把处理器接进 {@code annotationProcessorPaths}、或者
+ * 处理器提取失败({@code merge}、多个 return…)时,这个元素填了也不会
+ * 出现 schema —— {@code openapi:generate} 会在输出里明确说明。
  * 宁可少一个 schema,也不编一个字段名可能错的。
  */
 @Retention(RetentionPolicy.RUNTIME)
@@ -36,8 +37,8 @@ public @interface ApiResponse {
     /**
      * 响应体的形状。默认 {@code Void.class} 表示没有。
      *
-     * <p>只支持 {@code JsonResource} 的子类 —— 它的字段由 APT 从
-     * {@code toArray} 提取。填别的类型会被忽略并由命令报出来。
+     * <p>支持 {@code JsonResource} 子类与 record。填别的类型会被忽略
+     * 并由命令报出来。
      */
     Class<?> resource() default Void.class;
 }

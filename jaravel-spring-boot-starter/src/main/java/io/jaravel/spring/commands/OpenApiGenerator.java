@@ -2,6 +2,7 @@ package io.jaravel.spring.commands;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.lang.reflect.RecordComponent;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -13,6 +14,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import io.jaravel.api.JsonResource;
 import io.jaravel.api.openapi.ApiDoc;
@@ -41,7 +45,7 @@ import io.jaravel.routing.RouteCollection;
  *   <tr><td>operationId / tags</td><td>控制器#方法</td><td>✅</td></tr>
  *   <tr><td>请求体 schema</td><td>FormRequest 的 rules()</td><td>✅</td></tr>
  *   <tr><td>请求体校验约束</td><td>规则 → maxLength / maximum / enum / pattern</td><td>✅</td></tr>
- *   <tr><td>响应 schema</td><td>APT 从 JsonResource.toArray 提取 + {@code @ApiResponse.resource}</td><td>✅(record 返回类型仍未做)</td></tr>
+ *   <tr><td>响应 schema</td><td>APT 从 JsonResource.toArray 提取 / record 组件反射 + {@code @ApiResponse.resource}</td><td>✅</td></tr>
  *   <tr><td>描述与示例</td><td>{@code @ApiDoc} + javadoc</td><td>⚠ {@code @ApiDoc} ✅;javadoc / 示例要 APT</td></tr>
  * </table>
  *
@@ -277,6 +281,10 @@ final class OpenApiGenerator {
         if (action == null) return null;
 
         Class<?> type = action.getReturnType();
+
+        // record 是 docs/12 §1.4 推荐的另一条输出路径:形状固定、没有条件字段
+        if (type.isRecord()) return responseBodySchemaOf(type, location);
+
         if (!JsonResource.class.isAssignableFrom(type)
                 || type == JsonResource.class
                 || Modifier.isAbstract(type.getModifiers())) {
@@ -302,8 +310,14 @@ final class OpenApiGenerator {
      * <p>⚠ {@code with(request)} 附加的根字段(比如 {@code meta})
      * 这一版**没有**提取:那需要再分析一个方法体里的 Map 表达式。
      * 文档里不写它们 —— 缺字段比写错字段好;而它们通常不参与客户端逻辑。
+     *
+     * <p>record 不走这里:Jackson 直接序列化它,根位置**没有** {@code data}
+     * 包裹(docs/12 §1.4)。所以 record 的响应 schema 就是它自己的
+     * {@code $ref},见 {@link #recordSchemaRefOf}。
      */
     private Map<String, Object> responseBodySchemaOf(Class<?> resource, String location) {
+        if (resource.isRecord()) return recordSchemaRefOf(resource, location);
+
         Map<String, Object> ref = schemaRefOf(resource, location);
         if (ref == null) return null;
 
@@ -330,7 +344,7 @@ final class OpenApiGenerator {
     private Map<String, Object> schemaRefOf(Class<?> resource, String location) {
         if (!JsonResource.class.isAssignableFrom(resource)) {
             schemaNotes.add(location + " → " + resource.getSimpleName()
-                    + ":响应 schema 只支持 JsonResource 子类");
+                    + ":响应 schema 只支持 JsonResource 子类与 record");
             return null;
         }
 
@@ -354,6 +368,134 @@ final class OpenApiGenerator {
 
     private static Map<String, Object> schemaRef(String component) {
         return Map.of("$ref", "#/components/schemas/" + component);
+    }
+
+    // ================= record 的响应 schema =================
+
+    /** 嵌套 record 内联展开的深度上限 —— 再深就没有信息量了,还可能撞上递归 */
+    private static final int RECORD_DEPTH_LIMIT = 3;
+
+    /**
+     * 一个 record 返回类型 → {@code $ref} + components.schemas。
+     *
+     * <p>不需要 APT:record 的组件在运行时就能反射读到。也不需要
+     * {@code data} 包裹 —— 那是 {@code JsonResource} 专有的输出约定,
+     * Jackson 序列化 record 时直接是它自己的字段。
+     *
+     * <p>只标**原始类型**的组件为 required:引用类型可能是 null,
+     * 而应用若配了「不输出 null 字段」,那个键会消失。
+     */
+    private Map<String, Object> recordSchemaRefOf(Class<?> record, String location) {
+        String className = record.getName();
+        String existing = componentNames.get(className);
+        if (existing != null) return schemaRef(existing);
+
+        String component = componentNameFor(record);
+        componentNames.put(className, component);
+        usedSchemas.put(component, recordSchemaOf(record, new HashSet<>(), 0));
+        return schemaRef(component);
+    }
+
+    private Map<String, Object> recordSchemaOf(Class<?> record,
+                                               Set<Class<?>> visiting, int depth) {
+        visiting.add(record);
+        try {
+            var properties = new LinkedHashMap<String, Object>();
+            var required = new ArrayList<String>();
+
+            for (RecordComponent component : record.getRecordComponents()) {
+                if (ignored(component)) continue;
+
+                String name = jsonNameOf(component);
+                properties.put(name, propertySchemaOf(component.getType(), visiting, depth + 1));
+                if (component.getType().isPrimitive()) required.add(name);
+            }
+
+            var schema = new LinkedHashMap<String, Object>();
+            schema.put("type", "object");
+            schema.put("properties", properties);
+            if (!required.isEmpty()) schema.put("required", required);
+            return schema;
+        } finally {
+            visiting.remove(record);
+        }
+    }
+
+    private Map<String, Object> propertySchemaOf(Class<?> type,
+                                                 Set<Class<?>> visiting, int depth) {
+        if (type.isArray()) return Map.of("type", "array");
+
+        String scalar = scalarTypeOf(type);
+        if (scalar != null) return Map.of("type", scalar);
+
+        if (type.isRecord()) {
+            // 环(record 可以引用自己)或太深 → 只说是 object,不展开
+            if (depth >= RECORD_DEPTH_LIMIT || visiting.contains(type)) {
+                return Map.of("type", "object");
+            }
+            return recordSchemaOf(type, visiting, depth);
+        }
+
+        if (List.class.isAssignableFrom(type)
+                || Set.class.isAssignableFrom(type)
+                || Iterable.class.isAssignableFrom(type)
+                || java.util.Collection.class.isAssignableFrom(type)
+                || java.util.stream.Stream.class.isAssignableFrom(type)) {
+            return Map.of("type", "array");
+        }
+        if (Map.class.isAssignableFrom(type)) return Map.of("type", "object");
+
+        // 枚举 / 模型 / 自定义序列化器 —— 表示形式不是静态可知的,不写 type
+        return Map.of();
+    }
+
+    private String scalarTypeOf(Class<?> type) {
+        if (type == String.class || type == CharSequence.class
+                || type == java.util.UUID.class || type == java.util.Date.class
+                || java.time.temporal.Temporal.class.isAssignableFrom(type)
+                || type == java.time.Duration.class || type == java.time.Period.class) {
+            return "string";
+        }
+        if (type == int.class || type == long.class || type == short.class || type == byte.class
+                || type == Integer.class || type == Long.class
+                || type == Short.class || type == Byte.class
+                || type == java.math.BigInteger.class) {
+            return "integer";
+        }
+        if (type == float.class || type == double.class
+                || type == Float.class || type == Double.class
+                || type == java.math.BigDecimal.class) {
+            return "number";
+        }
+        if (type == boolean.class || type == Boolean.class) return "boolean";
+        if (type == char.class || type == Character.class) return "string";
+        return null;
+    }
+
+    /**
+     * record 组件上的 Jackson 注解。
+     *
+     * <p>只认最常见的两个:{@code @JsonIgnore}(不输出)与
+     * {@code @JsonProperty}(改名)。自定义序列化器、{@code @JsonUnwrapped}、
+     * {@code @JsonNaming} 会改变形状,但静态反射看不到它们 ——
+     * 那种情况文档会不准,属于已知限制。
+     */
+    private static boolean ignored(RecordComponent component) {
+        JsonIgnore ignore = component.getAnnotation(JsonIgnore.class);
+        if (ignore == null) {
+            ignore = component.getAccessor().getAnnotation(JsonIgnore.class);
+        }
+        return ignore != null && ignore.value();
+    }
+
+    private static String jsonNameOf(RecordComponent component) {
+        JsonProperty property = component.getAnnotation(JsonProperty.class);
+        if (property == null) {
+            property = component.getAccessor().getAnnotation(JsonProperty.class);
+        }
+        return property != null && !property.value().isBlank()
+                ? property.value()
+                : component.getName();
     }
 
     /**

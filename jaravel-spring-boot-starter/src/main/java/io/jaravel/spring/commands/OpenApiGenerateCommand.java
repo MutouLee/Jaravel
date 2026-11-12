@@ -25,8 +25,8 @@ import io.jaravel.routing.RouteCollection;
  *
  * <p>数据来自**编译后的路由表** —— 与 {@code route:list} 同一个来源。
  * 这一版能填的字段见 {@link OpenApiGenerator} 的类注释;响应 schema
- * 只覆盖返回 {@code JsonResource} 的接口(形状来自 APT 索引),
- * 而**没有的字段不写进文档也不编**。
+ * 覆盖返回 {@code JsonResource} 的接口(形状来自 APT 索引)与返回
+ * record 的接口(形状来自反射),而**没有的字段不写进文档也不编**。
  */
 @Command(name = "openapi:generate", description = "从路由表生成 OpenAPI 文档")
 public final class OpenApiGenerateCommand extends RuntimeCommand {
@@ -101,10 +101,11 @@ public final class OpenApiGenerateCommand extends RuntimeCommand {
 
         newLine();
         line("""
-                ⚠ 响应体的 schema 只覆盖**返回 JsonResource 的接口** —— 形状由
-                  jaravel-api-processor 在编译期从 toArray 提取。返回
-                  Response / View / Object 的接口没有可提取的形状,不会写 schema;
-                  可以用 @ApiResponse(resource = XxxResource.class) 显式指一个。
+                ⚠ 响应体的 schema 覆盖**返回 JsonResource 或 record 的接口** ——
+                  JsonResource 的形状由 jaravel-api-processor 在编译期从 toArray
+                  提取,record 的形状由运行时反射得到。返回 Response / View /
+                  Object 的接口没有可提取的形状,不会写 schema;可以用
+                  @ApiResponse(resource = XxxResource.class / XxxDto.class) 显式指一个。
 
                   summary / description / 状态码可以写在控制器方法的 @ApiDoc
                   上(docs/12 §5)—— 它是运行时注解,不需要 APT。

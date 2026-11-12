@@ -13,6 +13,9 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import io.jaravel.api.JsonResource;
 import io.jaravel.api.openapi.ApiDoc;
 import io.jaravel.api.openapi.ApiResponse;
@@ -141,6 +144,52 @@ class OpenApiTest {
         public Object badResource(Request request) {
             return "ok";
         }
+
+        public PostDto recordResponse() {
+            return null;
+        }
+
+        @ApiDoc(summary = "嵌套 record", responses = @ApiResponse(code = 200))
+        public NestedDto nestedRecord() {
+            return null;
+        }
+
+        public NodeDto recursiveRecord() {
+            return null;
+        }
+
+        public AnnotatedDto annotatedRecord() {
+            return null;
+        }
+
+        @ApiDoc(summary = "显式 record", responses = {
+                @ApiResponse(code = 200, resource = PostDto.class)
+        })
+        public Object explicitRecord(Request request) {
+            return null;
+        }
+    }
+
+    // ================= record 返回类型 =================
+
+    public record AuthorDto(String name) {
+    }
+
+    public record PostDto(Long id, String title, int views, boolean published,
+                          List<String> tags, AuthorDto author) {
+    }
+
+    public record NestedDto(PostDto post, int count) {
+    }
+
+    /** record 可以引用自己 —— 内联展开必须在环上停下 */
+    public record NodeDto(int value, NodeDto next) {
+    }
+
+    public record AnnotatedDto(
+            @JsonProperty("post_id") Long id,
+            @JsonIgnore String secret,
+            String title) {
     }
 
     /** 注解在父类方法上,注册的是子类 —— 继承来的方法也要能读到 */
@@ -183,10 +232,14 @@ class OpenApiTest {
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, Object> componentSchema(Map<String, Object> document, String name) {
+    private Map<String, Object> componentSchemas(Map<String, Object> document) {
         var components = (Map<String, Object>) document.get("components");
-        var schemas = (Map<String, Object>) components.get("schemas");
-        return (Map<String, Object>) schemas.get(name);
+        return (Map<String, Object>) components.get("schemas");
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> componentSchema(Map<String, Object> document, String name) {
+        return (Map<String, Object>) componentSchemas(document).get(name);
     }
 
     @SuppressWarnings("unchecked")
@@ -469,6 +522,94 @@ class OpenApiTest {
                     .doesNotContainKey("content");
             assertThat(generator.schemaNotes()).singleElement().asString()
                     .contains("只支持 JsonResource 子类");
+        }
+    }
+
+    // ================= record 响应 schema =================
+
+    @Nested
+    @DisplayName("record 响应 schema")
+    class RecordSchemas {
+
+        @Test
+        @DisplayName("★ 返回 record → 自动生成 schema,而且**没有** data 包裹")
+        void recordReturnTypeIsAutomatic() {
+            var document = document(routes(r ->
+                    r.get("/stats", PostController::recordResponse)));
+            var operation = operation(document, "/stats", "get");
+
+            assertThat(response(operation, "200").get("content"))
+                    .as("record 不是 JsonResource —— Jackson 直接序列化它,根位置没有 data")
+                    .isEqualTo(Map.of("application/json", Map.of("schema",
+                            Map.of("$ref", "#/components/schemas/PostDto"))));
+
+            var post = componentSchema(document, "PostDto");
+            assertThat(properties(post))
+                    .containsKeys("id", "title", "views", "published", "tags", "author");
+            assertThat(properties(post).get("tags")).isEqualTo(Map.of("type", "array"));
+            assertThat(properties(post).get("author")).isEqualTo(Map.of(
+                    "type", "object",
+                    "properties", Map.of("name", Map.of("type", "string"))));
+            assertThat(post.get("required"))
+                    .as("只把原始类型标 required —— 引用类型可能是 null,non_null 输出时会缺席")
+                    .isEqualTo(List.of("views", "published"));
+        }
+
+        @Test
+        @DisplayName("嵌套 record 内联展开,不单独占一个 component")
+        void nestedRecordIsInlined() {
+            var document = document(routes(r ->
+                    r.get("/stats", PostController::nestedRecord)));
+            var nested = componentSchema(document, "NestedDto");
+
+            assertThat(properties(nested).get("count")).isEqualTo(Map.of("type", "integer"));
+
+            @SuppressWarnings("unchecked")
+            var post = (Map<String, Object>) properties(nested).get("post");
+            assertThat(post.get("type")).isEqualTo("object");
+            assertThat(properties(post)).containsKeys("id", "author");
+
+            assertThat(componentSchemas(document)).containsOnlyKeys("NestedDto");
+        }
+
+        @Test
+        @DisplayName("★ record 自引用 → 在环上停下,不无限展开")
+        void recursiveRecordStops() {
+            var document = document(routes(r ->
+                    r.get("/node", PostController::recursiveRecord)));
+            var node = componentSchema(document, "NodeDto");
+
+            assertThat(properties(node).get("next"))
+                    .as("环上只说是 object,不再展开")
+                    .isEqualTo(Map.of("type", "object"));
+            assertThat(node.get("required")).isEqualTo(List.of("value"));
+        }
+
+        @Test
+        @DisplayName("record 组件上的 @JsonProperty / @JsonIgnore 要生效")
+        void jacksonAnnotationsAreRespected() {
+            var document = document(routes(r ->
+                    r.get("/annotated", PostController::annotatedRecord)));
+            var dto = componentSchema(document, "AnnotatedDto");
+
+            assertThat(properties(dto))
+                    .containsKey("post_id")
+                    .containsKey("title")
+                    .doesNotContainKey("secret")
+                    .doesNotContainKey("id");
+        }
+
+        @Test
+        @DisplayName("@ApiResponse(resource = Record.class) 也走 record schema")
+        void explicitRecordResource() {
+            var document = document(routes(r ->
+                    r.get("/stats", PostController::explicitRecord)));
+            var operation = operation(document, "/stats", "get");
+
+            assertThat(response(operation, "200").get("content"))
+                    .isEqualTo(Map.of("application/json", Map.of("schema",
+                            Map.of("$ref", "#/components/schemas/PostDto"))));
+            assertThat(componentSchema(document, "PostDto")).isNotNull();
         }
     }
 

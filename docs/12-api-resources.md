@@ -869,6 +869,10 @@ public JsonResource store(StorePostRequest req) { ... }
 > - **必填**:`put` 必填;`putWhen` / `putWhenLoaded*` / `putIfAbsent` 可选
 >   (它们真的可能不出现)。
 >
+>   ⚠ 这里的「必填」只表示 `toArray` 一定会 put 那个键。应用若把 Jackson
+>   配成「不输出 null 字段」,值为 null 时那个键仍会从响应里消失 ——
+>   精确判定要按值类型(原始类型 / 非 null 字面量),还没做。
+>
 > #### 提取失败会**说出来**
 >
 > `merge` / `mergeWhen` 的键是动态的、`toArray` 有多个 return、

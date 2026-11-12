@@ -2,13 +2,14 @@
 
 > Laravel 级开发体验,构建在 Spring Boot 之上的 Java 应用框架。
 
-**当前状态:v0.4 完成,v0.5 的 Artisan 线完成。**
-31 个模块、**2181 个测试**全绿,四个示例应用都在构建里
+**当前状态:v0.5 完成。**
+33 个模块、**2381 个测试**全绿,四个示例应用都在构建里
 (`examples/{todo,blog,auth,queue}`)。
 队列 / 事件 / 调度 / 邮件 / 通知 / 存储到位(v0.4),
-终端上有 **38 条命令**、本地命令通道、冷启动启动器、`jaravelw`、`tinker`(v0.5)。
-还差:统一异常处理 + OpenAPI(v0.5 的剩余部分)、native 二进制(v0.9)。
-分页与 API 资源已实现(docs/12 §1 / §2)。
+终端上有 **40 条命令**、本地命令通道、冷启动启动器、`jaravelw`、`tinker`;
+Resource 层、分页、统一异常处理、Problem JSON、`openapi:generate` /
+`openapi:diff`、`@ApiDoc` 与响应 schema 的 APT 都已到位(v0.5,docs/12)。
+还差:native 二进制(v0.9);v0.6 的 jblade 组件系统与调试工具栏等。
 
 ```bash
 jaravel make:model Post -mcr     # 182ms,不启动任何容器
@@ -113,7 +114,7 @@ p.save();                  // 与快照比对,只 UPDATE 变化的列
 
 ```
 DESIGN.md                 设计总纲:可行性结论、三条顶层决策、模块结构、路线图
-V0.5-RESULT.md            v0.5 Artisan 线结果(含 14 个真缺陷与被打破又修回的门禁)
+V0.5-RESULT.md            v0.5 结果:Artisan + API(含 14 个真缺陷与被打破又修回的门禁)
 V0.3-RESULT.md            v0.3 落地结果(含 12 个真缺陷与 1 条部分未达成的验收)
 V0.2-RESULT.md            v0.2 落地结果(含 8 个真 bug 与 1 条定错了的验收标准)
 V0.1-RESULT.md            v0.1 验收结果(含未达成项与修掉的 bug)
@@ -164,7 +165,7 @@ benchmark/jpa-comparison/ 与 Spring Data JPA 的单条主键查询对照基准
 ## 快速开始
 
 ```bash
-mvn install                                  # 构建 + 2181 个测试(约 70 秒,-T1C)
+mvn install                                  # 构建 + 2381 个测试(-T1C)
 
 # Todo 切片(:8000)
 cd examples/todo && mvn spring-boot:run

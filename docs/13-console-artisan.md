@@ -47,7 +47,8 @@
 >
 > **未实现**:native 二进制、`optimize` 这一批(它要 config / route /
 > view / event 四种缓存,而那四种缓存本身都还没有 —— 一条
-> 「什么都缓存了」而实际什么都没做的命令比没有这条命令更糟)、
+> 「什么都缓存了」而实际什么都没做的命令比没有这条命令更糟;
+> **v0.6 也没有做**,见 §10 的待决项)、
 > `queue:restart` / `queue:monitor` /
 > `schedule:work`、`analyze:*`、
 > 其余 `make:*`(见下面那条注记)、
@@ -370,16 +371,17 @@ jaravel new <name>                      # 新项目,交互式选择:数据库/�
 jaravel new <name> --preset=api         # 预设:api / web / minimal
 jaravel install:auth                    # 在已有项目中加认证脚手架(登录/注册/重置)
 jaravel install:api                     # 加 API 脚手架(token 认证 + 异常格式)
-jaravel install:broadcasting            # v0.6
+jaravel install:broadcasting            # v0.6 计划 —— 仍未实现(见下)
 ```
 
-> ### ⚠ v0.5:这一组**一条都没实现**
+> ### ⚠ v0.5 / v0.6:这一组**一条都没实现**
 >
 > `jaravel new` 要先回答 §10 里那个还没定的问题(模板内嵌在二进制里
 > 还是从 GitHub 下载),而 `install:*` 要先有可装的脚手架。
->
-> 今天新建项目的办法是照 `examples/` 里那四个抄 —— 它们现在都在构建里
-> (v0.5 把它们纳入了 reactor,见 docs/14),所以至少保证**能跑起来**。
+> v0.6 的广播功能本身已落地(docs/19),但 `install:broadcasting`
+> 这条**安装器**跟着整组一起没做 —— 广播不需要额外依赖,
+> 应用侧只差一个 `config/broadcasting.yml` 与 `Channels.java`,
+> 照 `examples/queue` 抄即可。
 
 ### 2.2 代码生成
 
@@ -1458,7 +1460,11 @@ CLI 与 Maven 不是竞争关系:
 - [ ] `analyze:n-plus-one` 的静态分析可靠性:误报率高会让人关掉它。倾向以运行时数据为主(开发期收集查询模式),静态分析为辅。
 - [ ] `optimize` 这一组要先有四种缓存(config / route / view / event)。
       在那之前**不提供** `optimize` —— 一条「什么都缓存了」而实际什么都没做的
-      命令比没有这条命令更糟。
+      命令比没有这条命令更糟。v0.6 已过,仍未排期;按收益排序,
+      config / route 先做(view 的预编译在 v0.9)。
+- [ ] v0.6 遗留的「再议」项(本文件之外):`CacheKey<T>`(docs/09)、
+      工厂类型化 setter(docs/14)、`approximatePaginate`(docs/05)
+      —— 都没有真实使用反馈支撑,未做,候选 v0.7。
 - [ ] §7 的 `jaravel-maven-plugin` 整节仍是设计:那个插件不存在。
       `compile-views` / `verify-migrations` / `openapi` 三个 goal 都还没有,
       而 §8 原先写的 `mvn jaravel:run` 就是它造成的一条假逃生口(已修)。

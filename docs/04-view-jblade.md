@@ -566,7 +566,12 @@ public interface JbOutput {
 
 转义实现:逐字符扫描 `& < > " '`,使用预分配的 `byte[]` 缓冲 + 快速路径(无需转义时直接整段写出)。参照 jte 的 `escapeHtml` 实现。
 
-**上下文感知转义**(v0.6):`<a href="{{ url }}">` 自动用 URL 转义,`<script>var x = {{ v }}</script>` 自动用 JS 转义。需要 Lexer 跟踪 HTML 解析状态,属于安全加分项,非首版必需。
+**上下文感知转义**:`<a href="{{ url }}">` 自动用 URL 转义,`<script>var x = {{ v }}</script>` 自动用 JS 转义。
+
+> **v0.6 对账:这一条自 v0.1 起就已经可用,不是 v0.6 的工作。**
+> ADR-011 把模板后端换成 jte 时白得了它 —— jte 按 HTML 解析位置
+> (文本 / 属性 / URL / JS / CSS)选择转义方式。上面这套自研
+> `JbOutput` 方案整体作废(见文首说明),不要照着它实现。
 
 ### 2.3 布局继承的实现
 
@@ -698,7 +703,7 @@ loadViewsFrom("classpath:/vendor/sms/views", "sms");
 | 组件自动发现 | 约定目录 | 约定目录 + 模板 `@params`(类组件) | 类名只有一个出处 |
 | 调用视图 | `view('a.b', $data)` | `Views.aB(data)` 或 `View.of("a.b")` | 前者类型安全 |
 | 文件后缀 | `.blade.php` | `.jblade.html` | 让编辑器按 HTML 高亮 |
-| 上下文感知转义 | 无 | v0.6 规划 | 安全增强 |
+| 上下文感知转义 | 无 | **有**(jte 按上下文转义,自 v0.1) | 安全增强 |
 
 ---
 

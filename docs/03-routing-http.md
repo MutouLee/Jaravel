@@ -630,7 +630,7 @@ JaravelHandlerAdapter implements HandlerAdapter
 | Jaravel 路由不够用 | 照常写 `@RestController`,未命中自动回落 |
 | 需要 Servlet 原语 | `request.raw()` / `response.raw()` |
 | 需要 Spring `HandlerInterceptor` | 照常注册,在 Jaravel 管道之外执行 |
-| 需要 WebSocket / SSE | SSE:`Response.stream()`;WebSocket:用 Spring 原生,v0.6 提供 Jaravel 风格封装 |
+| 需要 WebSocket / SSE | SSE:`Response.stream()`;WebSocket:v0.6 的 `jaravel-broadcasting` 提供了面向广播的 WS 端点(Pusher 协议子集,docs/19);通用处理器仍用 Spring 原生,与 Jaravel 端点并存 |
 | 需要自定义参数解析器 | 注册 `ArgumentResolver` 到容器 |
 
 ---

@@ -357,6 +357,6 @@ Jaravel 的 `CacheRepository` 底层可以**注册为 Spring 的 `CacheManager`*
 ## 7. 待决问题
 
 - [ ] 缓存值的默认序列化用 Jackson JSON 还是二进制?JSON 可读性强、调试友好,但体积与速度劣于二进制。倾向 JSON 为默认(DX 优先),提供 `serializer: kryo` 配置项。
-- [ ] `Cache.get(key, Class)` 的 API 噪音是否可接受?考虑提供 `CacheKey<T>` 类型化键:`static final CacheKey<User> USER_1 = CacheKey.of("user:1", User.class);` 然后 `Cache.get(USER_1)`。倾向 v0.6 补充,两者并存。
+- [ ] `Cache.get(key, Class)` 的 API 噪音是否可接受?考虑提供 `CacheKey<T>` 类型化键:`static final CacheKey<User> USER_1 = CacheKey.of("user:1", User.class);` 然后 `Cache.get(USER_1)`。**v0.6 未做**,两种写法仍并存;`CacheKey<T>` 候选 v0.7。
 - [ ] `tiered` 驱动的 L1 失效传播:单实例 `Cache.forget()` 无法清其他实例的 L1。需要 Redis pub/sub 广播失效消息。实现复杂度中等,但不做的话 `tiered` 就是个陷阱。倾向:要么做完整(含广播),要么不提供此驱动。
 - [ ] session 的 `cookie` 驱动 4KB 限制如何给出友好报错(超限时数据静默丢失是最糟的结果)。需在写回时检测并抛异常。

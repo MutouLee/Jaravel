@@ -490,6 +490,11 @@ record 返回类型由运行时反射得到;`with()` 的根字段由 APT 从
 > 频道与鉴权、Pusher 协议子集、通知 broadcast 渠道、ws/null/log 驱动,
 > 含真实 WS 端点 e2e);`make:view` / `make:component` 已实现
 > (docs/13 §2.2 —— 类组件落地后补上的生成器,含模板与两文件原子性)。
+>
+> **v0.6 已收口**:逐项证据、明确没做的事、文档对账与 parity 复测
+> 见 [V0.6-RESULT.md](../V0.6-RESULT.md)。
+> 全仓 2545 条测试全绿,parity 最差 1.29 / 1.30。
+> 下一站 v0.7,第一刀是 redis 驱动(见下表的 v0.7 一行)。
 | v0.7 | `jaravel-dashboard`(Horizon 等价);幂等性中间件;`jaravel-permissions`(RBAC);Kafka/RabbitMQ/SQS 驱动 | 5 |
 | v0.8 | 浏览器测试(Playwright);多租户支持包;Inertia 适配;并行测试 | 4 |
 

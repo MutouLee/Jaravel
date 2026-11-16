@@ -1,0 +1,6 @@
+@params({{ pkg }}.{{ class }} self, gg.jte.Content slot = null)
+
+{{-- {{ tag }}:构造参数就是标签属性;\{{ slot }} 是调用方的 body --}}
+<div>
+  \{{ slot }}
+</div>

@@ -47,13 +47,20 @@ import io.jaravel.console.ConsoleException;
  * <p>模板里写了 {@code {{ tableName }}} 而调用方没给,
  * 静默留下那串字面量的话,生成出来的是一个**编译不过的 Java 文件**,
  * 而报错会指向用户的新文件,与真正的原因(stub 的参数少给了一个)无关。
+ *
+ * <h2>★ 要输出字面量 {@code {{ … }}} 时用 {@code \{{ … }}}</h2>
+ * <p>生成 jblade 模板的 stub 会遇到这个冲突:模板里的
+ * {@code {{ slot }}} 是 jblade 自己的输出语法,而 Stub 会把它当成
+ * 一个没给值的变量。写 {@code \{{ slot }}} 即可 —— 反斜杠只在这一层
+ * 起作用,渲染结果就是 {@code {{ slot }}}。
  */
 public final class Stub {
 
     /** 项目里放覆盖版 stub 的目录(docs/13 §4.2) */
     public static final String PROJECT_DIRECTORY = "stubs";
 
-    private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{\\s*(\\w+)\\s*}}");
+    /** {@code {{ 变量 }}};前面带反斜杠的不算({@code \{{ … }}} 输出字面量) */
+    private static final Pattern PLACEHOLDER = Pattern.compile("(?<!\\\\)\\{\\{\\s*(\\w+)\\s*}}");
 
     private final String name;
     private final Path projectRoot;
@@ -106,7 +113,8 @@ public final class Stub {
                     .formatted(name, String.join("、", missing),
                                values.isEmpty() ? "(什么都没给)" : String.join("、", values.keySet())));
         }
-        return out.toString();
+        // \{{ → {{:反斜杠只在这一层起作用,渲染结果里不该留下它
+        return out.toString().replace("\\{{", "{{");
     }
 
     private String read() {
@@ -146,6 +154,7 @@ public final class Stub {
                        "request", "job", "middleware", "event",
                        "listener", "listener.event", "policy", "seeder",
                        "mail", "notification", "command",
+                       "view", "component", "component.view",
                        "test.feature", "test.unit");
     }
 }

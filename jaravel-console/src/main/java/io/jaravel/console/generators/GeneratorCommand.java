@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 import io.jaravel.console.ConsoleCommand;
 import io.jaravel.console.ConsoleException;
@@ -47,6 +49,9 @@ public abstract class GeneratorCommand extends ConsoleCommand {
     /** 测试源码根。{@code make:test} 覆盖它 */
     public static final String TEST_SOURCE_ROOT = "src/test/java";
 
+    /** 视图根。{@code make:view} / {@code make:component} 用它 */
+    public static final String VIEW_ROOT = "src/main/resources/views";
+
     protected String sourceRoot() {
         return SOURCE_ROOT;
     }
@@ -56,6 +61,30 @@ public abstract class GeneratorCommand extends ConsoleCommand {
         return projectRoot.resolve(sourceRoot())
                 .resolve(packageName.replace('.', '/'))
                 .resolve(className + ".java");
+    }
+
+    /** {@code posts/index.jblade.html} → {@code src/main/resources/views/posts/index.jblade.html} */
+    protected Path viewFile(String relativePath) {
+        return projectRoot.resolve(VIEW_ROOT).resolve(relativePath);
+    }
+
+    /**
+     * 写入前先确认这些文件都不存在。
+     *
+     * <p>一次生成多个文件时(比如类组件 = 类 + 模板),必须**先全查一遍**再写 ——
+     * 否则第一个文件写成功、第二个撞到已存在,留下的是一个只有一半的组件:
+     * 类在、模板不在,调用方按约定找不到视图。
+     */
+    protected void ensureWritable(Path... files) {
+        if (force) return;
+        for (Path file : files) {
+            if (Files.exists(file)) {
+                throw new ConsoleException("""
+                        %s 已经存在。
+
+                          要覆盖它:加 --force(⚠ 文件里现有的内容会没了)""".formatted(relative(file)));
+            }
+        }
     }
 
     /**
@@ -71,12 +100,7 @@ public abstract class GeneratorCommand extends ConsoleCommand {
      * 真要覆盖的人不用去翻文档。
      */
     protected String write(Path file, String contents) {
-        if (Files.exists(file) && !force) {
-            throw new ConsoleException("""
-                    %s 已经存在。
-
-                      要覆盖它:加 --force(⚠ 文件里现有的内容会没了)""".formatted(relative(file)));
-        }
+        ensureWritable(file);
         try {
             Files.createDirectories(file.getParent());
             Files.writeString(file, contents, StandardCharsets.UTF_8);
@@ -110,5 +134,40 @@ public abstract class GeneratorCommand extends ConsoleCommand {
         if (slash >= 0) name = name.substring(slash + 1);
         if (name.isEmpty()) throw new ConsoleException("名字不能为空");
         return io.jaravel.support.Str.studly(name);
+    }
+
+    /**
+     * 点号 / 斜杠 / 反斜杠分隔的名字 → 片段。
+     *
+     * <p>{@code posts.index}、{@code posts/index}、{@code posts\index}
+     * 都是同一件事 —— 视图名与组件名在命令行上三种写法都有人写。
+     *
+     * <h2>★ 空片段直接报错,不静默跳过</h2>
+     * <p>{@code ..} 会被点号分隔成一个空片段。跳过它的话,
+     * {@code ../secrets} 会在去掉所有空片段后变成一个合法的
+     * {@code secrets} —— 一次路径穿越被**规整**成了一次正常生成。
+     * 首尾与连续的斜杠则无害({@code /posts//index} 就是
+     * {@code posts/index}),所以只跳过斜杠产生的空片段。
+     */
+    protected static List<String> nameSegments(String raw, String what) {
+        var segments = new ArrayList<String>();
+        for (String slashPart : raw.replace('\\', '/').split("/")) {
+            if (slashPart.isEmpty()) continue;
+            for (String part : slashPart.split("\\.", -1)) {
+                if (part.isEmpty() || !part.matches("[A-Za-z0-9_-]+")) {
+                    throw new ConsoleException("""
+                            %s里的 "%s" 不合法。
+
+                              只允许字母、数字、下划线与连字符;层级用点或斜杠分隔。
+                              连续的点(比如 "..")会得到空片段,同样不合法。"""
+                            .formatted(what, part.isEmpty() ? slashPart : part));
+                }
+                segments.add(part);
+            }
+        }
+        if (segments.isEmpty()) {
+            throw new ConsoleException(what + "不能为空");
+        }
+        return segments;
     }
 }

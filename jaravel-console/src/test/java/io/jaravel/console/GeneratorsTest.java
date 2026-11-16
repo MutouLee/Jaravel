@@ -17,6 +17,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import io.jaravel.console.generators.GeneratorCommand;
+import io.jaravel.console.generators.MakeComponent;
 import io.jaravel.console.generators.MakeConsoleCommand;
 import io.jaravel.console.generators.MakeController;
 import io.jaravel.console.generators.MakeEvent;
@@ -31,6 +32,7 @@ import io.jaravel.console.generators.MakePolicy;
 import io.jaravel.console.generators.MakeRequest;
 import io.jaravel.console.generators.MakeSeeder;
 import io.jaravel.console.generators.MakeTest;
+import io.jaravel.console.generators.MakeView;
 import io.jaravel.console.generators.Stub;
 
 /**
@@ -54,7 +56,8 @@ class GeneratorsTest {
                         MakeRequest.class, MakeJob.class, MakeMiddleware.class,
                         MakeEvent.class, MakeListener.class, MakePolicy.class,
                         MakeSeeder.class, MakeMail.class, MakeNotification.class,
-                        MakeConsoleCommand.class, MakeTest.class)
+                        MakeConsoleCommand.class, MakeTest.class,
+                        MakeView.class, MakeComponent.class)
                 .forEach(registry::register);
         registry.configure(command -> {
             if (command instanceof GeneratorCommand generator) generator.inProject(projectRoot);
@@ -138,6 +141,7 @@ class GeneratorsTest {
         Artisan.call("make:listener", "NotifyShipped", "--event=OrderPaid");
         Artisan.call("make:test", "PostTest");
         Artisan.call("make:test", "StrTest", "--unit");
+        Artisan.call("make:component", "Alert");
 
         try (var walk = Files.walk(tmp)) {
             List<Path> files = walk.filter(p -> p.toString().endsWith(".java")).toList();
@@ -299,6 +303,103 @@ class GeneratorsTest {
             assertThat(read(tmp.resolve("src/test/java/apptest/StrTest.java")))
                     .doesNotContain("FeatureTest")
                     .contains("单元测试");
+        }
+    }
+
+    @Nested
+    @DisplayName("make:view")
+    class Views {
+
+        @Test
+        @DisplayName("落在 src/main/resources/views,点号是视图名里的层级")
+        void generatesToViewsRoot(@TempDir Path tmp) {
+            generate(tmp, "make:view", "posts.index");
+
+            Path file = tmp.resolve("src/main/resources/views/posts/index.jblade.html");
+            assertThat(file).exists();
+            assertThat(read(file)).contains("{{-- posts.index --}}");
+        }
+
+        @Test
+        @DisplayName("带路径与扩展名也收:posts/index.jblade.html")
+        void acceptsSlashAndExtension(@TempDir Path tmp) {
+            generate(tmp, "make:view", "posts/index.jblade.html");
+
+            assertThat(tmp.resolve("src/main/resources/views/posts/index.jblade.html")).exists();
+        }
+
+        @Test
+        @DisplayName("★ .. 不被静默规整 —— 那是一次路径穿越")
+        void rejectsTraversal(@TempDir Path tmp) {
+            registry(tmp);
+
+            assertThat(Artisan.call("make:view", "../secrets")).isEqualTo(1);
+            assertThat(Artisan.output()).contains("不合法").contains("..");
+            assertThat(tmp.resolve("src/main/resources/views/secrets.jblade.html"))
+                    .as("跳过空片段的话,../secrets 会被规整成一个正常的 secrets 视图")
+                    .doesNotExist();
+        }
+    }
+
+    @Nested
+    @DisplayName("make:component")
+    class Components {
+
+        @Test
+        @DisplayName("类 + 模板一起生成,@params 指向这个类")
+        void generatesClassAndView(@TempDir Path tmp) {
+            generate(tmp, "make:component", "Alert");
+
+            assertThat(read(tmp.resolve("src/main/java/app/http/components/Alert.java")))
+                    .contains("package app.http.components;")
+                    .contains("public class Alert extends Component")
+                    .contains("return \"components.alert\";");
+
+            assertThat(read(tmp.resolve("src/main/resources/views/components/alert.jblade.html")))
+                    .contains("@params(app.http.components.Alert self, gg.jte.Content slot = null)")
+                    .as("模板里的 {{ slot }} 是 jblade 语法;\\{{ slot }} 只是 Stub 的转义")
+                    .contains("{{ slot }}")
+                    .doesNotContain("\\{{");
+        }
+
+        @Test
+        @DisplayName("点号嵌套 → 类在子包里,标签是 <x-forms.input>")
+        void nestedComponent(@TempDir Path tmp) {
+            generate(tmp, "make:component", "Forms.Input");
+
+            assertThat(read(tmp.resolve("src/main/java/app/http/components/forms/Input.java")))
+                    .contains("package app.http.components.forms;")
+                    .contains("public class Input extends Component");
+            assertThat(read(tmp.resolve(
+                    "src/main/resources/views/components/forms/input.jblade.html")))
+                    .contains("@params(app.http.components.forms.Input self");
+        }
+
+        @Test
+        @DisplayName("kebab 名字 → 类是大驼峰,文件是 kebab")
+        void normalisesName(@TempDir Path tmp) {
+            generate(tmp, "make:component", "user-avatar");
+
+            assertThat(tmp.resolve("src/main/java/app/http/components/UserAvatar.java")).exists();
+            assertThat(tmp.resolve(
+                    "src/main/resources/views/components/user-avatar.jblade.html")).exists();
+        }
+
+        @Test
+        @DisplayName("★ 只写一半就失败:两个文件要么都生成、要么都不生成")
+        void refusesHalfway(@TempDir Path tmp) throws Exception {
+            Path existing = tmp.resolve(
+                    "src/main/resources/views/components/alert.jblade.html");
+            Files.createDirectories(existing.getParent());
+            Files.writeString(existing, "已有内容");
+
+            registry(tmp);
+            assertThat(Artisan.call("make:component", "Alert")).isEqualTo(1);
+            assertThat(Artisan.output()).contains("已经存在").contains("--force");
+            assertThat(tmp.resolve("src/main/java/app/http/components/Alert.java"))
+                    .as("模板已存在时不能先把类写出来 —— 留下的是一个只有一半的组件")
+                    .doesNotExist();
+            assertThat(read(existing)).isEqualTo("已有内容");
         }
     }
 

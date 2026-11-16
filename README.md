@@ -3,14 +3,15 @@
 > Laravel 级开发体验,构建在 Spring Boot 之上的 Java 应用框架。
 
 **当前状态:v0.6 进行中(v0.5 已收口)。**
-34 个模块、**2537 个测试**全绿,四个示例应用都在构建里
+34 个模块、**2545 个测试**全绿,四个示例应用都在构建里
 (`examples/{todo,blog,auth,queue}`)。
 队列 / 事件 / 调度 / 邮件 / 通知 / 存储到位(v0.4),
-终端上有 **40 条命令**、本地命令通道、冷启动启动器、`jaravelw`、`tinker`;
+终端上有 **42 条命令**、本地命令通道、冷启动启动器、`jaravelw`、`tinker`;
 Resource 层、分页、统一异常处理、Problem JSON、内容协商(JSON / XML / CSV)、
 `openapi:generate` / `openapi:diff`、`@ApiDoc` 与响应 schema 的 APT
 都已到位(v0.5,docs/12)。
 v0.6 进行中:jblade **类组件**已落地(`<x-post-card :post="post" />`);
+模板生成器 `make:view` / `make:component` 已落地;
 `LazyColl` 与数据库 `lazy()` 已落地;调试工具栏已落地(路由/视图/SQL/N+1/缓存/队列/事件/耗时/内存);
 二步验证(TOTP + 恢复码 + 用户侧默认方法)已落地;
 **广播已落地**(docs/19):`ShouldBroadcast` 事件广播、频道与鉴权(`Channels.java`)、
@@ -152,7 +153,7 @@ jaravel-broadcasting/     广播:ShouldBroadcast、频道与鉴权、Pusher 协�
 jaravel-storage/          Filesystem、local 驱动、上传安全(内容嗅探 / 路径穿越 / 随机命名)
 jaravel-api/              API 资源:JsonResource / 资源集合 / 输出形状 / OpenAPI 注解与 schema 索引(分页在 support)
 jaravel-http-client/      Http 客户端门面(重试、超时、假实现)
-jaravel-console/          Artisan 内核:命令基类、参数绑定、注册表、stub、16 条生成命令
+jaravel-console/          Artisan 内核:命令基类、参数绑定、注册表、stub、16 条 make:* 生成命令
 jaravel-cli/              jaravel 可执行入口:离线/在线分流、命令通道、冷启动启动器
 jaravel-testing/          FeatureTest 三层基类、HTTP 断言、数据库断言、回滚隔离
 jaravel-devtools/         热重载:文件监听、变更分类、重启闸门(请求挂起 + 按需重启)

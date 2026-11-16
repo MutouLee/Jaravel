@@ -406,6 +406,21 @@ class ConsoleTest {
         }
 
         @Test
+        @DisplayName("\\{{ x }} 是转义:输出字面量,不当作变量")
+        void escapesLiteralPlaceholders() {
+            String rendered = Stub.of("component.view")
+                    .with("pkg", "app.http.components")
+                    .with("class", "Alert")
+                    .with("tag", "alert")
+                    .render();
+
+            assertThat(rendered)
+                    .as("生成 jblade 模板时 {{ slot }} 是模板语法,不是 stub 变量")
+                    .contains("{{ slot }}")
+                    .doesNotContain("\\{{");
+        }
+
+        @Test
         @DisplayName("自带的 stub 名单与实际打包进去的资源一致")
         void bundledListMatchesResources() {
             for (String name : Stub.bundled()) {

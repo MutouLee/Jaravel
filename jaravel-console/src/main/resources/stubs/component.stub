@@ -1,0 +1,24 @@
+package {{ pkg }};
+
+import io.jaravel.view.Component;
+
+/**
+ * jblade 类组件(docs/04 §1.7)。
+ *
+ * <p>模板 {{ view }}.jblade.html 的 {@code @params} 指向它,调用方写
+ * {@code <x-{{ tag }} />}。构造函数参数就是标签属性名
+ * (kebab 与 camel 两种写法都认),类型由 javac 检查。
+ *
+ * <p>要 body / 具名 slot 时,在模板的 {@code @params} 里声明
+ * {@code gg.jte.Content slot} —— 框架已经允许带 body 调用类组件。
+ */
+public class {{ class }} extends Component {
+
+    public {{ class }}() {
+    }
+
+    @Override
+    public String view() {
+        return "{{ view }}";
+    }
+}

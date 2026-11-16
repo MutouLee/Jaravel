@@ -316,6 +316,7 @@ blog/
 │   │   │   │   │   │   └── auth/
 │   │   │   │   │   ├── middleware/
 │   │   │   │   │   ├── requests/
+│   │   │   │   │   ├── components/            类组件的 Java 类(make:component)
 │   │   │   │   │   └── resources/
 │   │   │   │   ├── models/User.java
 │   │   │   │   ├── services/

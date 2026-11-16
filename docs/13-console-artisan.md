@@ -2,7 +2,7 @@
 
 `php artisan` 是 Laravel 体验的半壁江山。Java 侧没有等价物(`mvn spring-boot:run` 不是同一个东西)。本模块补齐这块,目标是**让 `jaravel` 命令的手感与 `artisan` 一致**。
 
-> ### v0.5 实现状态:内核 + 16 条生成命令 + 通道 + 启动器 + 包装脚本 + 检视 + doctor + tinker
+> ### v0.5 实现状态:内核 + 16 条 `make:*` 生成命令 + 通道 + 启动器 + 包装脚本 + 检视 + doctor + tinker
 >
 > 测试:`jaravel-console` **73** · `jaravel-cli` **42** ·
 > starter 里控制台相关的 **120**(`ArgumentBinder` 12 · `Doctor` 19 ·
@@ -11,6 +11,10 @@
 > 报三个模块的数而不是一个总数:总数要手维护,而**手维护的数字会漂**——
 > 前几轮它就是每次 +N 累加上来的,到这次对账时已经对不上了。
 > 模块数跑一次 `mvn -pl <模块> test` 就能核。
+>
+> **v0.6 补记**:`make:view` / `make:component` 落地后,
+> `jaravel-console` 从 73 涨到 **110**(两条命令、Stub 的字面量转义,
+> 以及模板/组件的落点与原子性测试)。
 >
 > **已实现(`jaravel-console`)**
 >
@@ -23,6 +27,7 @@
 > | stub 机制 + 项目覆盖 | `Stub`(§4) |
 > | `make:model`(含 `-mcr`)· `make:migration` · `make:controller` | §2.2 |
 > | `make:request` · `make:job` · `make:middleware` · `make:event` · `make:listener` · `make:policy` · `make:seeder` · `make:mail` · `make:notification` · `make:command` · `make:test` | §2.2 |
+> | **`make:view`** · **`make:component`**(v0.6:类 + 模板) | §2.2 |
 > | `list` · `help`(用法从注解生成) | `Usage`(§3.1) |
 > | **`jaravel` 命令本身**:离线/在线分流、`--version` | `jaravel-cli`(§1) |
 > | **本地命令通道**:在线命令在已跑着的应用进程里执行 | `ChannelServer` / `ChannelClient`(§1.2) |
@@ -471,12 +476,47 @@ jaravel make:record UserDto
 >    应用里一条叫 `migrate` 的命令会悄悄遮住框架那条,
 >    而那种冲突在运行时表现为「migrate 的行为变了」。
 >
-> **还没有的几条,各有原因**:`make:resource` 要 `jaravel-api`
-> (模块还不存在);`make:factory` 的「工厂类」在仓库里还没有先例
+> **还没有的几条,各有原因**:`make:resource` 的模块(`jaravel-api`)
+> 在 v0.5 已经落地了,但这条命令还没有 —— 它要生成 `JsonResource`
+> 与一组 OpenAPI 注解,与上面这批「一个类名 → 一个 stub」不同;
+> `make:factory` 的「工厂类」在仓库里还没有先例
 > (`BlogSeeder` 是在 seeder 里就地 `Factory.of(...)`),
-> 给它一个 stub 等于凭空发明一个约定;`make:view` / `make:component`
-> 生成的是 jblade 模板而不是 Java,落点与后处理都不同,
-> 单独一批做。
+> 给它一个 stub 等于凭空发明一个约定。
+>
+> ### v0.6:`make:view` / `make:component` 已实现
+>
+> 这两条原先记的是「生成的是 jblade 模板而不是 Java,落点与后处理都不同,
+> 单独一批做」—— 类组件落地之后,它们就是那批。
+>
+> ```bash
+> jaravel make:view posts.index
+> #   → src/main/resources/views/posts/index.jblade.html
+>
+> jaravel make:component Alert
+> #   → src/main/java/app/http/components/Alert.java
+> #   → src/main/resources/views/components/alert.jblade.html
+> #   调用方:<x-alert>…</x-alert>
+>
+> jaravel make:component Forms.Input
+> #   → app/http/components/forms/Input.java(package app.http.components.forms)
+> #   → views/components/forms/input.jblade.html
+> #   调用方:<x-forms.input />
+> ```
+>
+> - `make:view` 收 `posts.index` / `posts/index` / `posts.index.jblade.html`
+>   三种写法,都落到同一个文件 —— 视图名用点号、文件路径用斜杠,
+>   命令行上两种都会有人写;
+> - `make:component` 生成的是**类组件**(与 Laravel 一致):模板的
+>   `@params` 指向类,构造函数参数就是标签属性;
+> - 嵌套组件用点号或斜杠(`Forms.Input`),与转写器的
+>   `<x-forms.input>` → `components/forms/input.jblade.html` 对应;
+> - **两个文件要么都生成、要么都不生成**。只写一半的话,类在模板不在
+>   (调用方找不到视图)或模板在类不在(`@params` 引用一个不存在的类),
+>   症状与真正的原因都不在同一个地方。所以先查两个路径再写。
+>
+> 生成模板里的 `{{ slot }}` 需要绕开 Stub 的插值规则(它只认
+> `{{ 变量 }}`),做法是 `\{{ slot }}` —— 反斜杠只在这一层起作用,
+> 详见 §4.1。
 
 ### 2.3 数据库
 
@@ -1107,6 +1147,11 @@ public class {{ class }} extends {{ class }}Base {
 > ⚠ 没替换掉的变量**报错**。留着那串 `{{ x }}` 字面量的话,生成出来的是
 > 一个编译不过的 Java 文件,而 javac 的报错会指向用户的新文件,
 > 与真正的原因(stub 的参数少给了一个)无关。
+>
+> **要输出字面量 `{{ … }}` 时写 `\{{ … }}`。** 生成 jblade 模板的 stub
+> 一定会撞上这个冲突:模板里的 `{{ slot }}` 是 jblade 自己的输出语法,
+> 而 Stub 会把它当成一个没给值的变量。反斜杠只在这一层起作用 ——
+> `make:component` 生成的模板里就是 `\{{ slot }}`。
 
 ### 4.2 用户覆盖
 
@@ -1273,7 +1318,7 @@ jaravel-console(羽量级;CLI 与应用都依赖它)
 ├── Artisan (facade)              程序化调用
 ├── ConsoleIo                     System / Recording(测试用)
 ├── CommandLine                   命令行字符串 ↔ 参数表(冷启动那条路用)
-├── generators/                   Stub 渲染 + 命名推断 + 16 条生成命令
+├── generators/                   Stub 渲染 + 命名推断 + 16 条 make:* 生成命令
 └── channel/ ChannelServer · CommandChannel   AF_UNIX 服务端与协议
 
 jaravel-spring-boot-starter(应用进程内)

@@ -3,6 +3,7 @@ package io.jaravel.console;
 import java.util.List;
 
 import io.jaravel.console.generators.KeyGenerateCommand;
+import io.jaravel.console.generators.MakeComponent;
 import io.jaravel.console.generators.MakeConsoleCommand;
 import io.jaravel.console.generators.MakeController;
 import io.jaravel.console.generators.MakeEvent;
@@ -17,6 +18,7 @@ import io.jaravel.console.generators.MakePolicy;
 import io.jaravel.console.generators.MakeRequest;
 import io.jaravel.console.generators.MakeSeeder;
 import io.jaravel.console.generators.MakeTest;
+import io.jaravel.console.generators.MakeView;
 import io.jaravel.console.generators.WrapperInstallCommand;
 import io.jaravel.console.openapi.OpenApiDiffCommand;
 
@@ -70,6 +72,7 @@ public final class BuiltInCommands {
             MakeEvent.class, MakeListener.class, MakePolicy.class,
             MakeSeeder.class, MakeMail.class, MakeNotification.class,
             MakeConsoleCommand.class, MakeTest.class,
+            MakeView.class, MakeComponent.class,
             KeyGenerateCommand.class, WrapperInstallCommand.class,
             OpenApiDiffCommand.class);
 

@@ -515,7 +515,7 @@ user.unreadNotifications().markAllAsRead();
 > | `slack` | ✅ Incoming Webhook |
 > | `webhook` | ✅ 通用 HTTP 回调 |
 > | `sms` | ✅ **只有抽象** —— 应用提供一个 `SmsSender` |
-> | `broadcast` | ❌ v0.6 |
+> | `broadcast` | ✅ v0.6(docs/19 §4)|
 > | `dingtalk` / `wechat-work` / `feishu` | ❌ 扩展包 |
 >
 > **sms 只有抽象是刻意的**:短信服务商的 API 差异极大(阿里云的签名
@@ -1041,4 +1041,4 @@ jaravel-storage
 - [ ] `Storage` 的 `temporaryUrl` 在 `local` 驱动下如何实现?需要一个签名路由(`/storage/tmp/{sig}/{path}`)。要实现,否则「开发用 local、生产用 s3」的代码无法通用。
 - [ ] 文件上传的流式处理:大文件直传 S3 应该走 `temporaryUploadUrl` 让浏览器直传,而不是经过应用服务器。需要提供前端 helper 与文档章节。
 - [ ] 通知的 `uniqueId` 去重窗口存储在哪里(Cache?数据库?)。倾向 Cache + 可配置 TTL。
-- [ ] 是否提供 `broadcast` 渠道(WebSocket)?依赖广播系统(v0.6)。在此之前 `via()` 返回 `"broadcast"` 应给出明确的「未启用」错误而非静默跳过。
+- [x] 是否提供 `broadcast` 渠道(WebSocket)?**v0.6 已提供**(docs/19 §4);未引入 jaravel-broadcasting 时 `via()` 返回 `"broadcast"` 给出明确错误(报错里带依赖指引)。

@@ -51,6 +51,7 @@
 | [09-cache-session.md](09-cache-session.md) | 缓存契约与驱动、标签、原子锁、会话驱动、限流器 | v0.3 |
 | [10-queue-events-scheduler.md](10-queue-events-scheduler.md) | 队列契约与驱动、Worker 模型、失败重试、事件总线、调度器 | v0.4 |
 | [11-mail-notifications-storage.md](11-mail-notifications-storage.md) | Mailable、通知多通道、文件存储抽象与驱动 | v0.4 |
+| [19-broadcasting.md](19-broadcasting.md) | 广播:ShouldBroadcast、频道与鉴权、Pusher 协议子集、通知 broadcast 渠道 | v0.6 |
 
 ### 工具链
 

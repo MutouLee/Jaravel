@@ -1,0 +1,6 @@
+# 广播(docs/19)。driver: ws 让 /app/jaravel 的 WebSocket 端点生效。
+broadcast:
+  driver: ws
+  app-key: jaravel
+  origins: []            # 空 = 仅同源
+  activity-timeout: 120s

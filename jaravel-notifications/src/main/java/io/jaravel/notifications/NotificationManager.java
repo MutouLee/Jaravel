@@ -72,8 +72,9 @@ public final class NotificationManager {
                 通知 %s 的 via() 里有 "%s",但没有这个渠道。%s
                   已注册:%s
                   自定义渠道用 Notifications.extend("%s", channel) 注册。
-                  docs/11 §2.5 里的 broadcast(v0.6)与
-                  dingtalk / wechat-work / feishu(扩展包)尚未实现。"""
+                  "broadcast" 渠道在 jaravel-broadcasting 里 —— 引入依赖即可
+                  (docs/19 §4);dingtalk / wechat-work / feishu 是扩展包
+                  (docs/11 §2.5)。"""
                 .formatted(notification.displayName(), name,
                            Arr.closest(name, channels.keySet().stream().toList())
                               .map(c -> "\n  是否想写 \"" + c + "\" ?").orElse(""),

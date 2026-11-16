@@ -63,6 +63,9 @@ public final class EventBus {
     /** 队列化监听器的投递通道。没装时遇到队列化监听器就报错 */
     private QueuedListenerDispatcher queueDispatcher;
 
+    /** 广播钩子(docs/19 §2.2)。没装时零开销 —— 它只在一个 null 检查里 */
+    private Broadcaster broadcaster;
+
     /** 当前在不在数据库事务里 + 注册提交后回调。没装时 afterCommit 退化成立即 */
     private TransactionHook transactions = TransactionHook.NONE;
 
@@ -202,6 +205,25 @@ public final class EventBus {
         return this;
     }
 
+    /**
+     * 装上广播钩子(docs/19 §2.2)。
+     *
+     * <p>事件模块不知道「广播」这个概念 —— 它只承诺「监听器全部跑完后,
+     * 把事件交给外部消费者看一眼」。实现(在 jaravel-broadcasting 里)
+     * 自行判断 {@code instanceof ShouldBroadcast}。
+     *
+     * <p>语义随 {@code deliver()} 免费成立:
+     * <ul>
+     *   <li>被监听器中止 → 钩子不触发(中止的事件没有发生过);</li>
+     *   <li>{@code dispatchAfterCommit} → 提交后才触发(跟着 deliver 走);</li>
+     *   <li>{@code fake()} → 不触发(不走 deliver,没有真实分发就没有真实广播)。</li>
+     * </ul>
+     */
+    public EventBus broadcaster(Broadcaster broadcaster) {
+        this.broadcaster = broadcaster;
+        return this;
+    }
+
     // ================= 分发 =================
 
     /**
@@ -321,6 +343,12 @@ public final class EventBus {
                 // 见类注释
                 return false;
             }
+        }
+
+        // 所有监听器都跑完了(没被中止)→ 交给广播钩子。
+        // 广播的失败向上抛 —— 与同步监听器同语义,见 Broadcaster 的 javadoc
+        if (broadcaster != null) {
+            broadcaster.broadcast(event);
         }
         return true;
     }
@@ -486,6 +514,18 @@ public final class EventBus {
     /** 把队列化监听器投进队列。由 starter 装配 */
     public interface QueuedListenerDispatcher {
         void dispatch(ListenerBinding binding, Object event);
+    }
+
+    /**
+     * 广播钩子(docs/19 §2.2)。由 starter 装配 {@code jaravel-broadcasting}
+     * 的实现;未装时 {@code deliver()} 不做任何事。
+     *
+     * <p>抛出的异常会传播给 {@code dispatch} 的调用方 —— 广播是同步分发
+     * 的一部分,序列化失败这类**程序员错误**该在调用栈离原因最近的地方炸。
+     * (网络层的失败由实现自行吞掉:推送尽力而为。)
+     */
+    public interface Broadcaster {
+        void broadcast(Object event);
     }
 
     /** 监听器实例化不出来。**不可重试** —— 代码不改,再试也一样 */

@@ -3,7 +3,7 @@
 > Laravel 级开发体验,构建在 Spring Boot 之上的 Java 应用框架。
 
 **当前状态:v0.6 进行中(v0.5 已收口)。**
-33 个模块、**2462 个测试**全绿,四个示例应用都在构建里
+34 个模块、**2537 个测试**全绿,四个示例应用都在构建里
 (`examples/{todo,blog,auth,queue}`)。
 队列 / 事件 / 调度 / 邮件 / 通知 / 存储到位(v0.4),
 终端上有 **40 条命令**、本地命令通道、冷启动启动器、`jaravelw`、`tinker`;
@@ -12,7 +12,10 @@ Resource 层、分页、统一异常处理、Problem JSON、内容协商(JSON / 
 都已到位(v0.5,docs/12)。
 v0.6 进行中:jblade **类组件**已落地(`<x-post-card :post="post" />`);
 `LazyColl` 与数据库 `lazy()` 已落地;调试工具栏已落地(路由/视图/SQL/N+1/缓存/队列/事件/耗时/内存);
-二步验证(TOTP + 恢复码 + 用户侧默认方法)已落地;广播待做。
+二步验证(TOTP + 恢复码 + 用户侧默认方法)已落地;
+**广播已落地**(docs/19):`ShouldBroadcast` 事件广播、频道与鉴权(`Channels.java`)、
+通知 broadcast 渠道、Pusher 协议子集(pusher-js 开箱即用)、ws/null/log 驱动,
+含真实 WS 端点的 e2e 测试。
 还差:native 二进制(v0.9)。
 
 ```bash
@@ -145,6 +148,7 @@ jaravel-api-processor/    JsonResource.toArray → 响应 schema 的 APT(写 api
 jaravel-scheduler/        Schedule DSL、进程内调度器、多实例去重(onOneServer)
 jaravel-mail/             Mailable、SMTP/log/array、内置邮件组件 <x-mail::*>
 jaravel-notifications/    多渠道通知(database / mail)、Notifiable
+jaravel-broadcasting/     广播:ShouldBroadcast、频道与鉴权、Pusher 协议子集、通知 broadcast 渠道
 jaravel-storage/          Filesystem、local 驱动、上传安全(内容嗅探 / 路径穿越 / 随机命名)
 jaravel-api/              API 资源:JsonResource / 资源集合 / 输出形状 / OpenAPI 注解与 schema 索引(分页在 support)
 jaravel-http-client/      Http 客户端门面(重试、超时、假实现)
@@ -169,7 +173,7 @@ benchmark/jpa-comparison/ 与 Spring Data JPA 的单条主键查询对照基准
 ## 快速开始
 
 ```bash
-mvn install                                  # 构建 + 2462 个测试(-T1C)
+mvn install                                  # 构建 + 2537 个测试(-T1C)
 
 # Todo 切片(:8000)
 cd examples/todo && mvn spring-boot:run
@@ -190,7 +194,7 @@ cd benchmark/jpa-comparison && mvn exec:java  # 与 JPA 的对照基准
 | **[DESIGN.md](DESIGN.md)** | 可行性结论与三条顶层架构决策 |
 | [docs/README.md](docs/README.md) | 18 篇模块文档的索引与阅读顺序 |
 | **[verification/README.md](verification/README.md)** | v0.0 技术验证的全部结论与实测数据 |
-| [docs/18-risks-and-decisions.md](docs/18-risks-and-decisions.md) | 13 条 ADR(含被否决的方案及原因)+ 10 项风险 |
+| [docs/18-risks-and-decisions.md](docs/18-risks-and-decisions.md) | 15 条 ADR(含被否决的方案及原因)+ 10 项风险 |
 | [docs/17-roadmap.md](docs/17-roadmap.md) | 七个里程碑、验收标准、工作量估算 |
 
 ---

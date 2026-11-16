@@ -325,6 +325,33 @@ Kafka 是**事件流**而非**任务队列**:无单任务重试、无延迟消�
 
 ---
 
+## ADR-014 · 广播服务端实现 Pusher 协议子集
+
+**状态**:已采纳 · 见 [19](19-broadcasting.md) §5
+
+**决策**
+广播的 WebSocket 端实现 **Pusher 协议子集**(`/app/{key}` 端点、subscribe / ping / presence / client 事件消息格式),客户端直接用 `pusher-js` / `laravel-echo`,不自研 JS 客户端。
+
+**理由**
+广播系统最贵、最没人想写的部分是客户端 SDK。Pusher 协议是公开规范,Soketi(自托管 Pusher 兼容服务器)已验证「服务端实现协议子集 + 现成客户端」这条路线的可行性。备选的 STOMP 是另一套心智模型且客户端支持差;自研协议等于自研客户端。
+
+**代价**
+协议以文本帧 JSON 传输(轻微序列化开销);presence / 频道命名受 Pusher 约定的约束(`private-` / `presence-` 前缀)。明确的非目标:加密频道、多 app key 隔离、WebHook(见 19 §5.3)。
+
+---
+
+## ADR-015 · 私有频道鉴权在 WS 连接内完成,不设 broadcasting/auth 端点
+
+**状态**:已采纳 · 见 [19](19-broadcasting.md) §3 / §8
+
+**决策**
+私有/存在频道的订阅授权在 **WS 订阅消息上凭会话 cookie 完成**,不提供 Laravel 同款的 `broadcasting/auth` HTTP 端点。
+
+**理由**
+Laravel 需要该端点是因为它的 WS 服务(Reverb / Pusher 云)与 HTTP 应用是**两个进程**,授权必须回到 HTTP 应用做。Jaravel 的 WS 嵌在应用进程里,握手与订阅都带着会话,再走一次 HTTP 往返是纯仪式。收益:少一个端点、少一次往返、鉴权回调获得**连接作用域**(`Auth.user()` 可用)。代价:pusher-js 需配一个占位 authorizer;跨域场景受第三方 cookie 政策影响 —— 若实践中不够用,补一个可选的签名端点作为兼容模式(19 §9)。
+
+---
+
 # 第二部分:风险登记册
 
 按「概率 × 影响」排序。

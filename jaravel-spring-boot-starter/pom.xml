@@ -63,6 +63,10 @@
     </dependency>
     <dependency>
       <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-broadcasting</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.jaravel</groupId>
       <artifactId>jaravel-storage</artifactId>
     </dependency>
     <dependency>
@@ -92,6 +96,11 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-jdbc</artifactId>
+    </dependency>
+    <!-- 广播的 ws 驱动(docs/19 §6):WebSocket 协议栈在 Spring 侧,这里只做适配 -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-websocket</artifactId>
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>

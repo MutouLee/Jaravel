@@ -69,7 +69,8 @@ public class JaravelAutoConfiguration {
             "app.yml", "database.yml", "view.yml", "jaravel.yml",
             "auth.yml", "cache.yml", "session.yml", "hashing.yml", "queue.yml",
             "events.yml", "schedule.yml", "mail.yml", "notifications.yml",
-            "filesystems.yml", "uploads.yml", "api.yml", "cors.yml");
+            "filesystems.yml", "uploads.yml", "api.yml", "cors.yml",
+            "broadcasting.yml");
 
     // ================= 容器与应用 =================
 

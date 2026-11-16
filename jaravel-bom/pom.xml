@@ -41,6 +41,7 @@
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-api-processor</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-http-client</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-notifications</artifactId><version>${jaravel.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-broadcasting</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-storage</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-cache</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-session</artifactId><version>${jaravel.version}</version></dependency>

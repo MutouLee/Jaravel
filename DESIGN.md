@@ -338,6 +338,7 @@ jaravel/                               (parent pom,Java 21 baseline)
 ├── jaravel-cache  ·  jaravel-session
 ├── jaravel-queue  ·  jaravel-events  ·  jaravel-scheduler
 ├── jaravel-mail  ·  jaravel-notifications  ·  jaravel-storage
+├── jaravel-broadcasting               ShouldBroadcast / 频道与鉴权 / 通知 broadcast 渠道
 ├── jaravel-api                        JsonResource / Pagination / 异常转 JSON
 ├── jaravel-console                    Artisan 内核 + 全部命令 + stub
 ├── jaravel-testing
@@ -451,6 +452,7 @@ Laravel 的 illuminate 全家桶约 **50 万行**代码。一个可信的 1.0 �
 | [docs/09-cache-session.md](docs/09-cache-session.md) | 缓存驱动、标签、锁、会话、限流 |
 | [docs/10-queue-events-scheduler.md](docs/10-queue-events-scheduler.md) | 队列驱动、Worker、事件、监听器、任务调度 |
 | [docs/11-mail-notifications-storage.md](docs/11-mail-notifications-storage.md) | Mailable、通知多通道、文件存储抽象 |
+| [docs/19-broadcasting.md](docs/19-broadcasting.md) | 广播:事件广播、频道鉴权、Pusher 协议子集、通知 broadcast 渠道 |
 | [docs/12-api-resources.md](docs/12-api-resources.md) | JsonResource、分页、异常转 JSON、OpenAPI |
 | [docs/13-console-artisan.md](docs/13-console-artisan.md) | Artisan 内核、命令清单、stub、Tinker |
 | [docs/14-testing.md](docs/14-testing.md) | HTTP 测试 DSL、数据库断言、工厂、Faker、Mock |

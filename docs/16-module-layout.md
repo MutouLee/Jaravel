@@ -25,6 +25,7 @@ jaravel/                                  (git 仓库根)
 ├── jaravel-cache/  ·  jaravel-session/
 ├── jaravel-queue/  ·  jaravel-events/  ·  jaravel-scheduler/
 ├── jaravel-mail/  ·  jaravel-notifications/  ·  jaravel-storage/
+├── jaravel-broadcasting/                    ShouldBroadcast / 频道与鉴权 / broadcast 渠道
 ├── jaravel-api/
 ├── jaravel-api-processor/                 JsonResource.toArray → 响应 schema 索引
 ├── jaravel-console/

@@ -41,6 +41,7 @@ class ArchitectureBoundaryTest {
             "io.jaravel.cache..",
             "io.jaravel.session..",
             "io.jaravel.auth..",
+            "io.jaravel.broadcasting..",
             "io.jaravel.console..",
             "io.jaravel.cli..",
     };
@@ -206,6 +207,34 @@ class ArchitectureBoundaryTest {
                        + "依赖 routing 会让「在非 HTTP 上下文里用 Auth」变得不可能,"
                        + "而队列任务需要它");
 
+        /*
+         * v0.6 新增:广播的核心模块(docs/19 §6.1)。
+         *
+         * 它依赖 core / support / events / notifications,不碰 web 栈与数据层 ——
+         * WebSocket 传输在 starter 里,「广播」这个概念与 HTTP 路由无关。
+         * 不依赖 auth / session 是刻意的:频道回调的用户参数是擦除泛型,
+         * 运行时对象由 starter 的握手解析提供 —— 依赖它们会让
+         * 「只要广播不要认证」的应用背上认证栈。
+         */
+        ArchRule broadcastingIsIndependentOfWebAndAuth = noClasses()
+                .that().resideInAPackage("io.jaravel.broadcasting..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "io.jaravel.http..", "io.jaravel.routing..", "io.jaravel.view..",
+                        "io.jaravel.database..", "io.jaravel.eloquent..",
+                        "io.jaravel.session..", "io.jaravel.auth..",
+                        "io.jaravel.spring..")
+                .because("广播的核心模块只有频道注册表、驱动契约与 null/log 驱动;"
+                       + "WS 传输与握手解析在 starter(docs/19 §6.1)");
+
+        // 反向也不允许:notifications 不知道 broadcast 渠道的存在,
+        // 渠道实现(io.jaravel.broadcasting.channel)向 notifications 看齐
+        ArchRule notificationsDoesNotDependOnBroadcasting = noClasses()
+                .that().resideInAPackage("io.jaravel.notifications..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "io.jaravel.broadcasting..")
+                .because("通知模块通过 NotificationChannel SPI 扩展,"
+                       + "不知道任何一个具体渠道的实现(broadcast 渠道在广播模块里)");
+
         // v0.2 新增:迁移不该知道 web,也不该依赖 ORM
         // (只用 Schema + 迁移、不用 Eloquent 是正当用法,pom 里是 optional)
         ArchRule migrationIsIndependentOfWeb = noClasses()
@@ -293,6 +322,8 @@ class ArchitectureBoundaryTest {
         cacheIsIndependent.check(jaravelClasses);
         sessionDoesNotDependOnAuth.check(jaravelClasses);
         authDoesNotDependOnRouting.check(jaravelClasses);
+        broadcastingIsIndependentOfWebAndAuth.check(jaravelClasses);
+        notificationsDoesNotDependOnBroadcasting.check(jaravelClasses);
         viewIsIndependentOfWeb.check(jaravelClasses);
     }
 

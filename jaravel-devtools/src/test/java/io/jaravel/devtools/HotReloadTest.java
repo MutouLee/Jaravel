@@ -516,20 +516,24 @@ class HotReloadTest {
                 Path pkg = root.resolve("app/services");
                 Files.createDirectories(pkg);
 
-                // ★ 不赌「300ms 内一定补注册完了」:并行构建里 CPU 被压满时
-                // 那个固定等待不够,而文件那一刻写进去就永远看不到了。
-                // 反复写,直到监听器看见 —— 没补注册的话 5 秒后仍然看不见,
-                // 失败原因依然是「新目录没被监听」。
-                Path file = pkg.resolve("New.java");
-                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-                while (System.nanoTime() < deadline) {
-                    Files.writeString(file, "class New {}");
-                    if (newFile.await(200, TimeUnit.MILLISECONDS)) break;
+                // ★ 等**注册真的发生**再写文件。
+                //
+                // 之前是「sleep 300ms 再写」,并行构建把 CPU 压满时不够;
+                // 后来改成反复写, 也还是在赌事件一定会到。这里直接看
+                // 监听器自己的账本:根目录 + app + services = 3 个 key。
+                // 没补注册的话计数永远到不了 3,失败原因就是真正的原因。
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+                while (watcher.watchedDirectories() < 3
+                        && System.nanoTime() < deadline) {
+                    Thread.sleep(50);
                 }
+                assertThat(watcher.watchedDirectories())
+                        .as("新目录没有被补注册 —— 里面的文件永远监听不到")
+                        .isGreaterThanOrEqualTo(3);
 
-                assertThat(newFile.getCount())
-                        .as("不补注册的话新包里的文件永远监听不到")
-                        .isZero();
+                Files.writeString(pkg.resolve("New.java"), "class New {}");
+
+                assertThat(newFile.await(5, TimeUnit.SECONDS)).isTrue();
             }
         }
 

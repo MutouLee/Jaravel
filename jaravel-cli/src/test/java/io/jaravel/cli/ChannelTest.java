@@ -5,11 +5,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 import io.jaravel.console.Argument;
@@ -32,6 +34,7 @@ import io.jaravel.console.channel.CommandChannel;
  * <p>AF_UNIX 在 JDK 16+ 的 Windows 10 1803+ 上也支持(本机 Windows 11
  * 实测可用),所以三个平台一套实现、一套测试。
  */
+@Timeout(value = 30, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
 class ChannelTest {
 
     @AfterEach

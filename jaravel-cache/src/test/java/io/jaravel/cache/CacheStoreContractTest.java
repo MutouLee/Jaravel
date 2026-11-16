@@ -219,15 +219,25 @@ class CacheStoreContractTest {
     @MethodSource("stores")
     void incrementDoesNotExtendTtl(String name, Supplier<CacheStore> factory)
             throws InterruptedException {
-        var cache = new Repository(factory.get());
+        CacheStore store = factory.get();
+        var cache = new Repository(store);
 
-        cache.put("n", 1L, Duration.ofMillis(120));
-        Thread.sleep(60);
-        cache.increment("n");          // 若这里续命,窗口将永不结束
-        Thread.sleep(100);
+        // 10 秒 TTL:即使整台机器在并行构建里被压满,500ms 的 sleep
+        // 也不会把条目睡到过期 —— 过期后 increment 会建一个**永久**计数器,
+        // 那测到的是「有没有被调度饿死」,不是「有没有续命」。
+        cache.put("n", 1L, Duration.ofSeconds(10));
+        Duration before = store.ttl("n")
+                .orElseThrow(() -> new AssertionError("刚写入的条目应该有剩余 TTL"));
+        assertThat(before).isPositive();
 
-        // 总共 160ms > 120ms TTL,应该已过期
-        assertThat(cache.get("n", Long.class)).isEmpty();
+        Thread.sleep(500);
+        cache.increment("n");
+
+        Duration after = store.ttl("n")
+                .orElseThrow(() -> new AssertionError("increment 后计数器不应消失"));
+        assertThat(after)
+                .as("increment 把 TTL 重置了 —— 限流窗口将永不结束")
+                .isLessThan(before.minusMillis(250));
     }
 
     @ParameterizedTest(name = "[{0}] remember:未命中则计算并写入")
@@ -471,13 +481,19 @@ class CacheStoreContractTest {
             throws InterruptedException {
         var limiter = new RateLimiter(new Repository(factory.get()));
 
-        limiter.hit("login:c", Duration.ofMillis(150));
-        Thread.sleep(80);
-        limiter.hit("login:c", Duration.ofMillis(150));
-        Thread.sleep(100);
+        limiter.hit("login:c", Duration.ofSeconds(10));
+        Duration before = limiter.availableIn("login:c");
+        assertThat(before).isPositive();
 
-        // 总共 180ms。若第二次命中重置了窗口,这里还会是 2
-        assertThat(limiter.attempts("login:c")).isZero();
+        // 第二次命中的时刻离窗口结束还远,不会被误判成过期;
+        // 若窗口被重置,availableIn 会回到 ~10s,而不是 ~9.5s。
+        Thread.sleep(500);
+        limiter.hit("login:c", Duration.ofSeconds(10));
+
+        assertThat(limiter.availableIn("login:c"))
+                .as("第二次命中把窗口往后推了 —— 持续请求会让用户被永久封锁")
+                .isLessThan(before.minusMillis(250));
+        assertThat(limiter.attempts("login:c")).isEqualTo(2);
     }
 
     // ================= 夹具 =================

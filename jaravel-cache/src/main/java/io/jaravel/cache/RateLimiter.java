@@ -45,16 +45,23 @@ public class RateLimiter {
     }
 
     /**
-     * 还要等多少秒才能再试。
+     * 窗口还剩多久结束 —— 比 {@link #availableInSeconds} 精确,
+     * 用于诊断与测试(秒级舍入分不出「窗口被重置」与「窗口没重置」)。
      *
      * <p>来自一个与计数器同 TTL 的「窗口结束时间」条目。
-     * 不能用计数器自己的剩余 TTL —— 缓存 SPI 没有「查剩余 TTL」这个原语,
-     * 而给每个驱动加一个只为限流服务的方法不值得。
+     * 不用计数器自己的剩余 TTL:{@link CacheStore#ttl} 是**可选**能力
+     * (接口允许驱动答不上来),而限流窗口的语义必须每个驱动都一样。
      */
-    public long availableInSeconds(String key) {
+    public Duration availableIn(String key) {
         long resetAt = cache.get(timerKey(key), Long.class, 0L);
-        if (resetAt == 0) return 0;
+        if (resetAt == 0) return Duration.ZERO;
         long remaining = resetAt - System.currentTimeMillis();
+        return remaining > 0 ? Duration.ofMillis(remaining) : Duration.ZERO;
+    }
+
+    /** 还要等多少秒才能再试(向上取整) */
+    public long availableInSeconds(String key) {
+        long remaining = availableIn(key).toMillis();
         return remaining > 0 ? (remaining + 999) / 1000 : 0;
     }
 

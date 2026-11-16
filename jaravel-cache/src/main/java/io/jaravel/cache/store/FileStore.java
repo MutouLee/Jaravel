@@ -108,6 +108,34 @@ public class FileStore implements CacheStore {
     }
 
     /**
+     * 与 {@link ArrayStore#ttl} 同一套语义:空 = 不存在或已过期,
+     * {@code ZERO} = 永久,其余为剩余时长。
+     *
+     * <p>不在这里删过期文件 —— 读路径的 {@link #get} 会删;
+     * 诊断面板问一句「还剩多久」不该产生副作用。
+     */
+    @Override
+    public synchronized Optional<Duration> ttl(String key) {
+        Path file = pathFor(key);
+        if (!Files.isRegularFile(file)) return Optional.empty();
+
+        try {
+            String content = Files.readString(file, StandardCharsets.UTF_8);
+            int newline = content.indexOf('\n');
+            if (newline < 0) return Optional.empty();
+
+            long expiresAt = Long.parseLong(content.substring(0, newline).trim());
+            if (expiresAt == 0) return Optional.of(Duration.ZERO);
+            long remaining = expiresAt - System.currentTimeMillis();
+            return remaining > 0
+                    ? Optional.of(Duration.ofMillis(remaining))
+                    : Optional.empty();
+        } catch (IOException | NumberFormatException e) {
+            return Optional.empty();
+        }
+    }
+
+    /**
      * 原子 put-if-absent。
      *
      * <p>{@code synchronized} 只能保证**本进程内**的互斥。跨进程靠

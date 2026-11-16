@@ -60,6 +60,23 @@ public class DatabaseStore implements CacheStore {
                 String.valueOf(row.get().get("value"))));
     }
 
+    /**
+     * 与 {@link ArrayStore#ttl} 同一套语义:空 = 不存在或已过期,
+     * {@code ZERO} = 永久,其余为剩余时长。
+     */
+    @Override
+    public Optional<Duration> ttl(String key) {
+        var row = connection.table(table).where("key", key).get().first();
+        if (row.isEmpty()) return Optional.empty();
+
+        long expiresAt = asLong(row.get().get(EXPIRES_AT));
+        if (expiresAt == 0) return Optional.of(Duration.ZERO);
+        long remaining = expiresAt - System.currentTimeMillis();
+        return remaining > 0
+                ? Optional.of(Duration.ofMillis(remaining))
+                : Optional.empty();
+    }
+
     @Override
     public void put(String key, Object value, Duration ttl) {
         long expiresAt = ttl == null ? 0 : System.currentTimeMillis() + ttl.toMillis();

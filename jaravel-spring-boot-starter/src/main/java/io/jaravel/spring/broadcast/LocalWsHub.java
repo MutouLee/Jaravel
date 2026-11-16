@@ -20,7 +20,7 @@ import io.jaravel.broadcasting.PayloadJson;
  * <p>成员进出要广播给频道内**其他**成员 —— 这个动作天然需要
  * 「频道 → 连接集合」的视图,而那个视图就在这里。
  */
-public final class LocalWsHub implements BroadcastHub {
+public class LocalWsHub implements BroadcastHub {
 
     private final PayloadJson json = new PayloadJson();
 
@@ -102,6 +102,25 @@ public final class LocalWsHub implements BroadcastHub {
         return connections.size();
     }
 
+    /**
+     * 连接上有活动(ping / 订阅 / 事件)。
+     *
+     * <p>本地枢纽不需要它;redis 枢纽用它刷新 presence 键的 TTL ——
+     * 实例崩溃后成员表不会永远留着。
+     */
+    void touch(WsConnection connection) {
+    }
+
+    /**
+     * 释放驱动资源。本地枢纽没有资源;redis 子类覆盖它。
+     *
+     * <p>它在这里而不是只放在子类:自动配置的
+     * {@code @Bean(destroyMethod = "close")} 绑定在 {@code LocalWsHub}
+     * 这个返回类型上 —— 单机模式也得能调到一个无副作用的 close。
+     */
+    public void close() {
+    }
+
     // ================= 发布 =================
 
     /**
@@ -142,7 +161,7 @@ public final class LocalWsHub implements BroadcastHub {
                 + "\",\"data\":" + stringLiteral(data) + "}";
     }
 
-    private static String memberRemovedFrame(String channel, String userId) {
+    static String memberRemovedFrame(String channel, String userId) {
         return "{\"event\":\"pusher_internal:member_removed\",\"channel\":\"" + channel
                 + "\",\"data\":" + stringLiteral(
                         "{\"user_id\":\"" + escape(userId) + "\"}") + "}";

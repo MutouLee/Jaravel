@@ -503,9 +503,11 @@ record 返回类型由运行时反射得到;`with()` 的根字段由 APT 从
 > 直接选对应 store。第二刀 **queue 的 redis 驱动**已落地
 > (docs/10 §1.5):pending / delayed / reserved / payloads / attempts
 > 五组键 + Lua 原子 pop、可见性超时回收、独立 attempts 计数。
+> 第三刀 **广播的 redis hub**已落地(docs/19 §6.2):pub/sub 多实例
+> 扇出 + 每实例 presence hash + TTL,WS 协议层不变。
 > 真实 Redis 契约测试在给了 `-Djaravel.test.redis.uri` 时加入。
-> 仍未做:广播 redis hub、dashboard、RBAC、RabbitMQ/Kafka/SQS、
-> failed_jobs/job_batches 的 redis 版本。
+> 仍未做:dashboard、RBAC、RabbitMQ/Kafka/SQS、failed_jobs/job_batches
+> 的 redis 版本、ShouldBroadcast 的队列化。
 | v0.8 | 浏览器测试(Playwright);多租户支持包;Inertia 适配;并行测试 | 4 |
 
 并行进行:**IntelliJ 插件**(8~12 周,独立人力)。

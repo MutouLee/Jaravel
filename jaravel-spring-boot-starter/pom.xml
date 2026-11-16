@@ -140,15 +140,15 @@
     </dependency>
 
     <!--
-      redis 自动配置的测试。Lettuce 在 jaravel-cache 里是 optional ——
-      应用的 runtime 不该被它拖进来;这里只是让自动配置能被测到。
-      真实的 Redis 契约测试在 jaravel-cache,需要
-      -Djaravel.test.redis.uri=redis://127.0.0.1:6379/15。
+      redis 广播(pub/sub)与 redis 自动配置。optional:不把 Lettuce
+      硬塞给只用 caffeine 的应用;driver: redis 时才需要它。
+      真实的 Redis 契约测试在 jaravel-cache / jaravel-queue,
+      需要 -Djaravel.test.redis.uri=redis://127.0.0.1:6379/15。
     -->
     <dependency>
       <groupId>io.lettuce</groupId>
       <artifactId>lettuce-core</artifactId>
-      <scope>test</scope>
+      <optional>true</optional>
     </dependency>
   </dependencies>
 </project>

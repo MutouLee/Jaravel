@@ -25,6 +25,7 @@ import io.jaravel.session.SessionConfig;
 import io.jaravel.session.SessionStore;
 import io.jaravel.spring.broadcast.JaravelWebSocketHandler;
 import io.jaravel.spring.broadcast.LocalWsHub;
+import io.jaravel.spring.broadcast.RedisWsHub;
 import io.jaravel.spring.broadcast.UserResolvingInterceptor;
 import io.jaravel.support.Arr;
 
@@ -33,10 +34,14 @@ import io.jaravel.support.Arr;
  *
  * <pre>{@code
  * broadcast:
- *   driver: ws                 # null | log | ws
+ *   driver: ws                 # null | log | ws | redis
  *   app-key: jaravel
  *   origins: []                # 空 = 仅同源(Spring 的 setAllowedOrigins 语义)
  *   activity-timeout: 120s
+ *   redis:
+ *     uri: redis://localhost:6379/0
+ *     prefix: jaravel:broadcast:
+ *   presence-ttl: 5m           # 必须大于 activity-timeout
  * }</pre>
  *
  * <h2>三条接线,全是「装钩子」</h2>
@@ -53,6 +58,11 @@ import io.jaravel.support.Arr;
 // Jaravel 的用户不该为此写 @EnableWebSocket,所以框架自己把它导回来。
 @Import(DelegatingWebSocketConfiguration.class)
 public class JaravelBroadcastingAutoConfiguration {
+
+    /** 多实例广播需要 Lettuce(Lettuce 是 starter 的 optional 依赖) */
+    private static final boolean LETTUCE_PRESENT = org.springframework.util.ClassUtils
+            .isPresent("io.lettuce.core.RedisClient",
+                       JaravelBroadcastingAutoConfiguration.class.getClassLoader());
 
     /**
      * 广播管理器。三条路径(事件 / 通知 / emit)都汇到它
@@ -73,12 +83,21 @@ public class JaravelBroadcastingAutoConfiguration {
             case "null" -> manager.hub(new BroadcastManager.NullBroadcaster());
             case "log" -> manager.hub(new BroadcastManager.LogBroadcaster());
             case "ws" -> manager.hub(wsHub.getIfAvailable());
+            case "redis" -> {
+                LocalWsHub hub = wsHub.getIfAvailable();
+                if (!(hub instanceof io.jaravel.spring.broadcast.DistributedHub)) {
+                    throw new IllegalStateException("""
+                            broadcast.driver = "redis" 需要分布式枢纽,但当前的 LocalWsHub
+                            不是它(可能被自定义 bean 覆盖了)。提供一个 RedisWsHub,
+                            或改回 driver: ws。""");
+                }
+                manager.hub(hub);
+            }
             default -> throw new IllegalStateException("""
                     未知的 broadcast.driver "%s"。%s
-                      可选:null(丢弃,debug 下警告)/ log / ws
-                      redis 驱动在 v0.7(docs/19 §6.2)。"""
+                      可选:null(丢弃,debug 下警告)/ log / ws / redis(多实例)"""
                     .formatted(driver,
-                               Arr.closest(driver, List.of("null", "log", "ws"))
+                               Arr.closest(driver, List.of("null", "log", "ws", "redis"))
                                   .map(c -> "\n  是否想写 \"" + c + "\" ?").orElse("")));
         }
 
@@ -115,15 +134,47 @@ public class JaravelBroadcastingAutoConfiguration {
 
     // ================= ws 驱动 =================
 
-    /** 连接/频道登记枢纽。与 Spring 解耦,driver != ws 时也只是闲置 */
-    @Bean
+    /**
+     * 连接/频道登记枢纽。driver 不是 ws / redis 时只是闲置。
+     *
+     * <p>redis 驱动返回 {@link RedisWsHub}(继承本地枢纽,只把 publish
+     * 与 presence 换成 Redis);连接在启动时建立 —— 多实例广播没有
+     * 「只发不收」的用法,订阅必须从启动起就生效。连不上就响亮失败。
+     */
+    @Bean(destroyMethod = "close")
     @ConditionalOnMissingBean
-    public LocalWsHub jaravelLocalWsHub() {
-        return new LocalWsHub();
+    public LocalWsHub jaravelLocalWsHub(ConfigRepository config) {
+        if (!"redis".equals(config.string("broadcast.driver", "null"))) {
+            return new LocalWsHub();
+        }
+        if (!LETTUCE_PRESENT) {
+            throw new IllegalStateException("""
+                    broadcast.driver = "redis" 需要 Lettuce,但它不在 classpath 上。
+                      加这段到 pom:
+                        <dependency>
+                          <groupId>io.lettuce</groupId>
+                          <artifactId>lettuce-core</artifactId>
+                        </dependency>
+                      或改回 broadcast.driver: ws(单实例)。""");
+        }
+        return RedisHubFactory.create(config);
     }
 
     /**
-     * 注册 WebSocket 端点。driver != ws 时返回 null —— bean 被跳过,
+     * 单独一层,避免 driver: ws 的应用在类加载时解析 {@code RedisWsHub}
+     * 的 Lettuce 类型(它只在这个方法被调用时加载)。
+     */
+    private static final class RedisHubFactory {
+        static LocalWsHub create(ConfigRepository config) {
+            return new RedisWsHub(
+                    config.string("broadcast.redis.uri", "redis://localhost:6379/0"),
+                    config.string("broadcast.redis.prefix", RedisWsHub.DEFAULT_PREFIX),
+                    config.duration("broadcast.presence-ttl", java.time.Duration.ofMinutes(5)));
+        }
+    }
+
+    /**
+     * 注册 WebSocket 端点。driver 不是 ws / redis 时返回 null —— bean 被跳过,
      * 端点不暴露(与 PasswordBroker 的「没配就 null」同一模式)。
      */
     @Bean
@@ -133,7 +184,8 @@ public class JaravelBroadcastingAutoConfiguration {
             ObjectProvider<SessionConfig> sessionConfig,
             ObjectProvider<AuthManager> authManager) {
 
-        if (!"ws".equals(config.string("broadcast.driver", "null"))) return null;
+        String driver = config.string("broadcast.driver", "null");
+        if (!"ws".equals(driver) && !"redis".equals(driver)) return null;
 
         String appKey = config.string("broadcast.app-key", "jaravel");
         var handler = new JaravelWebSocketHandler(hub, registry,

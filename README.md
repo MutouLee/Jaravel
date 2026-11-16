@@ -3,7 +3,7 @@
 > Laravel 级开发体验,构建在 Spring Boot 之上的 Java 应用框架。
 
 **当前状态:v0.6 已收口(v0.7 进行中)。**
-34 个模块、**2554 个测试**全绿(给了 Redis 连接串时 **2590**),四个示例应用都在构建里
+34 个模块、**2554 个测试**全绿(给了 Redis 连接串时 **2592**),四个示例应用都在构建里
 (`examples/{todo,blog,auth,queue}`)。
 队列 / 事件 / 调度 / 邮件 / 通知 / 存储到位(v0.4),
 终端上有 **42 条命令**、本地命令通道、冷启动启动器、`jaravelw`、`tinker`;
@@ -19,9 +19,10 @@ v0.6 已收口:jblade **类组件**已落地(`<x-post-card :post="post" />`);
 含真实 WS 端点的 e2e 测试。
 下一站 v0.7:redis 驱动、幂等性中间件、RBAC、Kafka/RabbitMQ/SQS;native 在 v0.9。
 
-**v0.7 进度**:cache / session / queue 的 **redis 驱动**已落地
-(`RedisStore` + `RedisQueue`、Lettuce、惰性连接、`SET NX PX` / `INCRBY`、
-Lua 原子 pop、真实 Redis 契约测试;docs/09 §1.4、docs/10 §1.5)。
+**v0.7 进度**:cache / session / queue / 广播的 **redis 驱动**已落地
+(`RedisStore` + `RedisQueue` + `RedisWsHub`、Lettuce、惰性连接、
+`SET NX PX` / `INCRBY`、Lua 原子 pop、pub/sub 多实例扇出 + 分布式 presence;
+docs/09 §1.4、docs/10 §1.5、docs/19 §6.2)。
 
 ```bash
 jaravel make:model Post -mcr     # 182ms,不启动任何容器
@@ -155,7 +156,7 @@ jaravel-api-processor/    JsonResource.toArray → 响应 schema 的 APT(写 api
 jaravel-scheduler/        Schedule DSL、进程内调度器、多实例去重(onOneServer)
 jaravel-mail/             Mailable、SMTP/log/array、内置邮件组件 <x-mail::*>
 jaravel-notifications/    多渠道通知(database / mail)、Notifiable
-jaravel-broadcasting/     广播:ShouldBroadcast、频道与鉴权、Pusher 协议子集、通知 broadcast 渠道
+jaravel-broadcasting/     广播:ShouldBroadcast、频道与鉴权、Pusher 协议子集、redis hub(pub/sub + presence)
 jaravel-storage/          Filesystem、local 驱动、上传安全(内容嗅探 / 路径穿越 / 随机命名)
 jaravel-api/              API 资源:JsonResource / 资源集合 / 输出形状 / OpenAPI 注解与 schema 索引(分页在 support)
 jaravel-http-client/      Http 客户端门面(重试、超时、假实现)
@@ -194,7 +195,7 @@ python benchmark/laravel-parity/parity.py --max 1.2
 cd benchmark/jpa-comparison && mvn exec:java  # 与 JPA 的对照基准
 
 # Redis 契约测试(需要本地 Redis;用 15 号库避免碰开发数据)
-JARAVEL_TEST_REDIS_URI=redis://127.0.0.1:6379/15 mvn -pl jaravel-cache,jaravel-queue test
+JARAVEL_TEST_REDIS_URI=redis://127.0.0.1:6379/15 mvn -pl jaravel-cache,jaravel-queue,jaravel-spring-boot-starter test
 ```
 
 ### 文档入口

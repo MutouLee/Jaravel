@@ -88,7 +88,12 @@ public class JaravelWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        connection.runOnConnectionThread(() -> handle(connection, frame));
+        connection.runOnConnectionThread(() -> {
+            // 任何入站消息都算活动:redis 枢纽用它刷新 presence 键的 TTL。
+            // 放在连接线程上 —— 那是一趟 Redis 往返,不该占 Tomcat 的线程。
+            hub.touch(connection);
+            handle(connection, frame);
+        });
     }
 
     @Override

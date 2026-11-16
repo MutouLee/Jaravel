@@ -361,21 +361,50 @@ JaravelBroadcastingAutoConfiguration
 
 ### 6.2 驱动
 
-| 驱动 | v0.6 | 说明 |
+| 驱动 | 状态 | 说明 |
 |---|---|---|
-| `null` | ✅ | 默认。**不是静默**:debug 模式首次丢弃时打一条警告,指明 `BROADCAST_DRIVER=ws` |
-| `log` | ✅ | 每次广播一行 JSON(channel / event / payload)—— 开发与单测 |
-| `ws` | ✅ | 嵌入式 WebSocket + 本地连接注册表(本节) |
-| `redis` | v0.7 | pub/sub 把广播扇出到其它实例(与队列的 redis 驱动同一批) |
+| `null` | ✅ v0.6 | 默认。**不是静默**:debug 模式首次丢弃时打一条警告,指明 `BROADCAST_DRIVER=ws` |
+| `log` | ✅ v0.6 | 每次广播一行 JSON(channel / event / payload)—— 开发与单测 |
+| `ws` | ✅ v0.6 | 嵌入式 WebSocket + 本地连接注册表(本节) |
+| `redis` | ✅ v0.7 | pub/sub 把广播扇出到其它实例;presence 成员表也放进 Redis |
 
 ```yaml
 # config/broadcasting.yml
 broadcast:
-  driver: ws                  # null | log | ws
+  driver: ws                  # null | log | ws | redis
   app-key: jaravel            # pusher-js 的 key,也是 WS 端点的路径段
   origins: []                 # 允许的 Origin;空 = 仅同源(§6.5)
   activity-timeout: 120s      # 客户端应至少每 120s 发一次 pusher:ping
+  redis:
+    uri: redis://localhost:6379/0
+    prefix: jaravel:broadcast:
+  presence-ttl: 5m            # 必须大于 activity-timeout
 ```
+
+> ### v0.7:redis 驱动已实现(多实例扇出 + 分布式 presence)
+>
+> `RedisWsHub extends LocalWsHub` —— 协议层、连接队列、频道登记
+> 原样复用,**只换两件事**:
+>
+> 1. `publish`:先 `super.publish` 本地同步投递,再发一条 pub/sub
+>    消息给其它实例。消息带 `source`(实例 id),本实例忽略自己发的那条,
+>    否则本地会收到两遍。Redis 断开时本地投递照常,只打一次警告 ——
+>    广播是尽力而为。
+> 2. **presence**:每个实例一个 Redis hash
+>    `{prefix}presence:{channel}:{instanceId}`,字段是连接 id、值是成员
+>    JSON。连接的**任何活动**(ping / 订阅 / 事件)都续期这个 hash 的
+>    TTL;实例崩溃后成员会在 TTL(默认 5 分钟)后自然消失。
+>    `membersOf` 用 SCAN 合并所有实例的 hash;join / leave 走 pub/sub,
+>    让对面广播 `pusher_internal:member_added / member_removed`。
+>
+> 测试:`RedisWsHubTest`(2 条,gated by `-Djaravel.test.redis.uri`):
+> 两个 hub 共用一个前缀、各带假 WS 连接 —— A 的 publish 同时到 A 与 B;
+> B 加入 presence 后 A 的成员表有两个成员并收到 member_added,
+> B 退订后 A 收到 member_removed。
+>
+> **仍未做**:跨域 cookie、类型化频道参数、广播面板进工具栏、
+> `ShouldBroadcast` 的队列化(队列驱动已就绪,但事件 → 广播的
+> ShouldQueue 桥接还没接)。
 
 > **v0.6 实现注记**:设计稿里的 `pong-timeout` 没做 —— 实现用一个
 > 活动超时(1.5 × activity-timeout 无任何消息即断)覆盖同样的语义,
@@ -389,7 +418,9 @@ public interface BroadcastHub {
 }
 ```
 
-v0.7 的 redis 驱动在 `publish` 里加一步 pub/sub,本地 `ws` 驱动订阅同进程的 pub/sub 再投递 —— 契约不用改。
+v0.7 的 redis 驱动在 `publish` 里加一步 pub/sub:本地先同步投递,
+再把消息发给其它实例;订阅端收到后调同一个本地投递路径 ——
+契约不用改(实现见 §6.2 的 v0.7 注记)。
 
 ### 6.3 连接模型(每连接一个虚拟线程)
 
@@ -471,7 +502,7 @@ Broadcast.assertBroadcastedTo("orders", OrderPaid.class);
 |---|---|---|
 | `broadcasting/auth` HTTP 端点签发频道授权 | **没有这个端点**;鉴权在 WS 订阅消息上凭会话 cookie 完成 | Laravel 需要端点是因为 WS 服务与 HTTP 应用是两个进程(Reverb / Pusher 云)。Jaravel 的 WS 嵌在应用里,握手带着会话,再走一遍 HTTP 往返是纯仪式。代价:pusher-js 要多写一个占位 authorizer(§5.1);跨域场景受 cookie 政策影响(§9) |
 | `broadcast(new X)` 只广播不触发监听器 | `Broadcast.emit(...)` | 语义相同,名字不绑死「事件对象」这个形态 |
-| `ShouldBroadcast` 默认队列化 | v0.6 同步广播;v0.7 事件实现 `ShouldQueue` 时自动入队 | 队列驱动(Kafka/RabbitMQ/SQS)本身在 v0.7,广播的队列化跟它走,API 不变 |
+| `ShouldBroadcast` 默认队列化 | v0.6 同步;v0.7 队列驱动已就绪,但事件 → 广播的 ShouldQueue 桥接**仍未接** | 广播的队列化要比队列驱动多一层「事件实现 ShouldQueue 时如何入队」;API 不变,列入后续 |
 | `broadcastAs` 默认 = FQCN 转 `.` | 默认 = 类简单名 | 没有 `App\Events\` 命名空间要表达;JS 端 `bind('OrderPaid')` 与 Java 端同名 |
 | `channels.php` 回调有依赖注入与模型绑定 | 频道参数是 `Map<String,String>` 字符串,回调里手动转换 | Laravel 的参数注入来自其容器解析字符串;Jaravel 不做字符串 → 类型的隐式解析(类型化 helper 在 §9) |
 | auth 回调跑在 HTTP 请求上下文 | 回调跑在**连接作用域** | 这是没有端点的直接后果,同时是个升级:`Auth.user()` 在鉴权回调里照常可用 |
@@ -483,7 +514,11 @@ Broadcast.assertBroadcastedTo("orders", OrderPaid.class);
 
 - [ ] **跨域前端的 cookie**:vite dev server(5173)调 8080 的应用时,WS 握手与 AJAX 都不保证带第三方 cookie(浏览器政策在收紧)。同站部署没有这个问题。真需要跨域时,备选路径是补一个可选的 `broadcasting/auth` 端点(与 Laravel 同款,内部 HMAC 签名)作为兼容模式 —— v0.6 不做,先看同站够不够。
 - [ ] **类型化频道参数**:`{orderId}` 自动转 `Long` 之类(形式如 `"private-orders.{orderId:long}"`)。`ArgumentBinder` 已有转换逻辑,但频道注册表在零 Spring 模块,复用需要把转换器上提。倾向 v0.7 做;v0.6 的字符串 Map 与 Laravel 的字符串参数等价。
-- [ ] **广播面板进调试工具栏**:事件面板已按线程收集事件名;广播可以并进去或单开面板。v0.7 随 redis 驱动一起评估。
-- [ ] **redis 驱动**(v0.7):`BroadcastHub` 契约已预留;多实例下 presence 成员表也要变成分布式的(pub/sub 同步成员进出)。
+- [x] **redis 驱动**(v0.7):已实现 `RedisWsHub` —— pub/sub 扇出 +
+  每实例一个 presence hash + TTL(见 §6.2 的 v0.7 注记)。
+- [ ] **广播面板进调试工具栏**:事件面板已按线程收集事件名;
+  广播可以并进去或单开面板。随 dashboard(v0.7)一起评估。
+- [ ] **`ShouldBroadcast` 的队列化**:队列驱动(含 redis)已就绪,
+  但事件 → 广播的 ShouldQueue 桥接还没接;同步广播的 API 不变。
 - [x] **presence 的 user_id 从哪来**:已实现为「连接用户的 id 字符串化」(`Authenticatable.getAuthIdentifier()`,非 Authenticatable 用 `toString`)—— 与 `Notifiable.notifiableId()` 解耦,一个只做 WS 不通知的用户类型不需要实现 Notifiable。
 - [x] **握手时会话续期**:已实现为「连接建立时定格」—— 与 Laravel 的 pusher auth(一次性 HTTP 检查)语义一致。重验意味着「踢人」语义,那是另一个功能,不做。

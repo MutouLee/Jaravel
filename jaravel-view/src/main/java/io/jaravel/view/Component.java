@@ -35,12 +35,13 @@ package io.jaravel.view;
  * <p>属性名与构造参数按名字配对(kebab 与 camel 两种写法都认);
  * 缺属性、多属性都是**转写期错误**并指回模板行 —— 属性类型不对则由 javac 报。
  *
- * <h2>这一版的限制</h2>
+ * <h2>标签调用怎么用它</h2>
  * <ul>
- *   <li>只能自闭合({@code <x-post-card … />});带 body 或具名 slot 的类组件
- *       需要一个把 {@code Content} 传进构造器的约定,还没做;</li>
- *   <li>{@link #shouldRender()} 还没有在标签调用里强制执行 —— 模板标签是
- *       同步编译的,先构造再判断会构造两次。手工渲染时可以用;</li>
+ *   <li>带 body / 具名 slot:在模板的 {@code @params} 里声明
+ *       {@code gg.jte.Content slot = null}(具名 slot 叫 {@code __slot_<name>})。
+ *       它们是**模板参数**,不经过构造函数;</li>
+ *   <li>{@link #shouldRender()} 在标签调用里生效,而且只构造一次 ——
+ *       转写器把构造提到局部变量里再包一层 {@code @if};</li>
  *   <li>{@link #view()} 不参与标签解析:标签 {@code x-post-card} 永远对应
  *       {@code components/post-card.jblade.html}(与匿名组件同一个约定)。</li>
  * </ul>

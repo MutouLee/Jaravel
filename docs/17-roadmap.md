@@ -496,6 +496,13 @@ record 返回类型由运行时反射得到;`with()` 的根字段由 APT 从
 > 全仓 2545 条测试全绿,parity 最差 1.29 / 1.30。
 > 下一站 v0.7,第一刀是 redis 驱动(见下表的 v0.7 一行)。
 | v0.7 | `jaravel-dashboard`(Horizon 等价);幂等性中间件;`jaravel-permissions`(RBAC);Kafka/RabbitMQ/SQS 驱动 | 5 |
+
+> **v0.7 进度**:第一刀 **cache / session 的 redis 驱动**已落地
+> (docs/09 §1.4):`RedisStore`(Lettuce、惰性连接、SET NX PX、INCRBY、
+> 前缀隔离)+ starter 自动配置 + `session.driver: redis/database`
+> 直接选对应 store。真实 Redis 契约测试在给了
+> `-Djaravel.test.redis.uri` 时作为第六个驱动加入。
+> 仍未做:queue 的 redis 驱动、广播 redis hub、dashboard、RBAC。
 | v0.8 | 浏览器测试(Playwright);多租户支持包;Inertia 适配;并行测试 | 4 |
 
 并行进行:**IntelliJ 插件**(8~12 周,独立人力)。

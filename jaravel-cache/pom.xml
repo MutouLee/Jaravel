@@ -34,6 +34,12 @@
       <artifactId>caffeine</artifactId>
       <optional>true</optional>
     </dependency>
+    <!-- redis 驱动;不用它的人不必拉 Lettuce -->
+    <dependency>
+      <groupId>io.lettuce</groupId>
+      <artifactId>lettuce-core</artifactId>
+      <optional>true</optional>
+    </dependency>
     <!-- database 驱动;不用它的人不必拉 -->
     <dependency>
       <groupId>io.jaravel</groupId>

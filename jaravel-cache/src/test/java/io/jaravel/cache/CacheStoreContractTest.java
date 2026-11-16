@@ -10,6 +10,7 @@ import java.sql.Statement;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.logging.Logger;
 import java.util.stream.Stream;
@@ -26,9 +27,14 @@ import io.jaravel.cache.store.ArrayStore;
 import io.jaravel.cache.store.CaffeineStore;
 import io.jaravel.cache.store.DatabaseStore;
 import io.jaravel.cache.store.FileStore;
+import io.jaravel.cache.store.RedisStore;
 import io.jaravel.cache.store.TieredStore;
 import io.jaravel.database.JdbcConnection;
 import io.jaravel.database.grammar.SqliteGrammar;
+import io.lettuce.core.RedisClient;
+import io.lettuce.core.api.StatefulRedisConnection;
+import io.lettuce.core.api.sync.RedisCommands;
+import io.lettuce.core.codec.StringCodec;
 
 /**
  * **驱动契约测试**:同一组断言跑在所有驱动上。
@@ -46,6 +52,24 @@ class CacheStoreContractTest {
     private static final Path FILE_ROOT;
     private static java.sql.Connection sqlite;
 
+    /**
+     * 真实 Redis 的连接串:{@code -Djaravel.test.redis.uri=redis://127.0.0.1:6379/15}
+     * 或环境变量 {@code JARAVEL_TEST_REDIS_URI}。
+     *
+     * <p>没给就跑其余驱动 —— 契约测试是共享的,不把整套测试绑在
+     * 一台机器的 Redis 上。集成环境里给了就必须连得上(连不上直接失败,
+     * 而不是静默少测一个驱动)。用独立的库或前缀,别碰开发数据。
+     */
+    private static final String REDIS_URI = firstNonBlank(
+            System.getProperty("jaravel.test.redis.uri"),
+            System.getenv("JARAVEL_TEST_REDIS_URI"));
+
+    private static final String REDIS_PREFIX = "jaravel-contract:";
+
+    private static RedisClient redisClient;
+    private static StatefulRedisConnection<String, String> redisConnection;
+    private static RedisCommands<String, String> redisCommands;
+
     static {
         try {
             FILE_ROOT = Files.createTempDirectory("jaravel-cache-test");
@@ -55,13 +79,36 @@ class CacheStoreContractTest {
     }
 
     static Stream<Arguments> stores() {
-        return Stream.of(
+        var builtIn = Stream.of(
                 Arguments.of("array", (Supplier<CacheStore>) ArrayStore::new),
                 Arguments.of("caffeine", (Supplier<CacheStore>) () -> new CaffeineStore(10_000)),
                 Arguments.of("file", (Supplier<CacheStore>) () -> freshFileStore()),
                 Arguments.of("database", (Supplier<CacheStore>) () -> freshDatabaseStore()),
                 Arguments.of("tiered", (Supplier<CacheStore>) () -> new TieredStore(
                         new ArrayStore(), new ArrayStore(), Duration.ofSeconds(10))));
+
+        if (REDIS_URI == null) return builtIn;
+
+        var redis = Stream.of(Arguments.of("redis", (Supplier<CacheStore>) () ->
+                // 每个用例一个独立前缀,flush 只删自己的键
+                new RedisStore(redis(),
+                        REDIS_PREFIX + UUID.randomUUID() + ":")));
+        return Stream.concat(builtIn, redis);
+    }
+
+    private static synchronized RedisCommands<String, String> redis() {
+        if (redisCommands == null) {
+            redisClient = RedisClient.create(REDIS_URI);
+            redisConnection = redisClient.connect(StringCodec.UTF8);
+            redisCommands = redisConnection.sync();
+        }
+        return redisCommands;
+    }
+
+    private static String firstNonBlank(String first, String second) {
+        if (first != null && !first.isBlank()) return first;
+        if (second != null && !second.isBlank()) return second;
+        return null;
     }
 
     private static CacheStore freshFileStore() {
@@ -95,6 +142,15 @@ class CacheStoreContractTest {
 
     @AfterAll
     static void cleanUp() throws Exception {
+        if (redisCommands != null) {
+            try {
+                new RedisStore(redisCommands, REDIS_PREFIX).flush();
+            } catch (RuntimeException ignored) {
+                // 清理失败不影响测试结论
+            }
+            redisConnection.close();
+            redisClient.shutdown();
+        }
         if (sqlite != null && !sqlite.isClosed()) sqlite.close();
         try (var walk = Files.walk(FILE_ROOT)) {
             walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
@@ -466,11 +522,14 @@ class CacheStoreContractTest {
             throws InterruptedException {
         var limiter = new RateLimiter(new Repository(factory.get()));
 
-        limiter.hit("login:b", Duration.ofMillis(80));
-        limiter.hit("login:b", Duration.ofMillis(80));
+        // 2 秒窗口而不是 80ms:并行构建把 CPU 压满时,两次 hit 之间
+        // 也可能被调度走 —— 80ms 的窗口会让这条测试变成「机器忙不忙」。
+        Duration window = Duration.ofSeconds(2);
+        limiter.hit("login:b", window);
+        limiter.hit("login:b", window);
         assertThat(limiter.attempts("login:b")).isEqualTo(2);
 
-        Thread.sleep(140);
+        Thread.sleep(2200);
         // 计数器若没带上 TTL(常见实现失误),这里会仍然是 2
         assertThat(limiter.attempts("login:b")).isZero();
     }

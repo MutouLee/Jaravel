@@ -175,12 +175,25 @@ public class JaravelAuthAutoConfiguration {
                       或改成 cache.default: array —— 进程内、**无上限**、
                       不会自动淘汰,只适合小数据量与测试。""";
 
+    /** cache.default 写了 redis 但 Lettuce 不在 classpath 上时的修复提示 */
+    private static final String REDIS_HINT = """
+
+
+                      Lettuce 不在 classpath 上。加这段到 pom:
+                        <dependency>
+                          <groupId>io.lettuce</groupId>
+                          <artifactId>lettuce-core</artifactId>
+                        </dependency>
+                      本地没有 Redis 时:
+                        docker run -d -p 6379:6379 redis:7-alpine""";
+
     // ================= 缓存 =================
 
     @Bean
     @ConditionalOnMissingBean
     public CacheManager jaravelCacheManager(ConfigRepository config,
-                                            ObjectProvider<Connection> connection) {
+                                            ObjectProvider<Connection> connection,
+                                            ObjectProvider<CacheCustomizer> customizers) {
         var manager = new CacheManager()
                 .prefix(config.string("cache.prefix", ""))
                 .register("array", new ArrayStore())
@@ -210,6 +223,11 @@ public class JaravelAuthAutoConfiguration {
                     config.string("cache.stores.database.table", "cache"));
         });
 
+        // optional 驱动(caffeine 之外):redis 由 JaravelRedisAutoConfiguration
+        // 提供一个 CacheCustomizer;应用也可以自己加。内置驱动先注册,
+        // 自定义驱动后应用 —— 同名时覆盖。
+        customizers.orderedStream().forEach(c -> c.customize(manager));
+
         // 默认值随 classpath 走:有 caffeine 用它(有界、带过期),
         // 没有退回 array。**不能**硬写 caffeine —— 那会让「只想要个登录」
         // 的项目在启动时撞上一个 optional 依赖
@@ -217,12 +235,15 @@ public class JaravelAuthAutoConfiguration {
                 CAFFEINE_PRESENT ? "caffeine" : "array");
 
         if (!manager.registeredStores().contains(defaultStore)) {
+            String hint = "caffeine".equals(defaultStore) ? CAFFEINE_HINT
+                        : "redis".equals(defaultStore) ? REDIS_HINT
+                        : "";
             throw new IllegalStateException("""
                     cache.default = "%s" 没有注册。%s%s
                       已注册:%s
                       自定义驱动:提供一个 CacheManager @Bean,或在它上面 register(...)"""
                     .formatted(defaultStore,
-                               "caffeine".equals(defaultStore) ? CAFFEINE_HINT : "",
+                               hint,
                                Arr.closest(defaultStore,
                                            manager.registeredStores().stream().toList())
                                   .map(c -> "\n  是否想写 \"" + c + "\" ?").orElse(""),
@@ -280,24 +301,28 @@ public class JaravelAuthAutoConfiguration {
             case "file" -> new io.jaravel.session.store.FileSessionStore(
                     Path.of(config.string("session.files",
                                           "storage/framework/sessions")));
-            case "cache", "redis", "database" -> new CacheSessionStore(
-                    // session.store 指定用哪个 cache store;不写就用默认的。
-                    // redis/database 都走同一条路径 —— 它们是 cache 的
-                    // 驱动而不是 session 的,这样「换 session 存储」与
-                    // 「换缓存存储」是同一个决定,不会出现两边配置打架
+            case "cache" -> new CacheSessionStore(
+                    // session.store 只在 driver: cache 时有意义 ——
+                    // 它挑「用哪个 cache store」;driver: redis/database
+                    // 已经点名了驱动,再让 session.store 覆盖只会造成
+                    // 「我写的是 redis,实际用的是别的」。
                     config.has("session.store")
                             ? caches.store(config.string("session.store"))
                             : caches.store());
+            // 直接点名驱动时用**对应的** cache store,不是默认 store ——
+            // 否则 cache.default: caffeine + session.driver: redis
+            // 会静默把会话放进进程内缓存,刷新页面就掉登录
+            case "redis" -> new CacheSessionStore(caches.store("redis"));
+            case "database" -> new CacheSessionStore(caches.store("database"));
             case "cookie" -> new CookieStore(encrypter);
             default -> throw new IllegalStateException("""
                     未知的 session.driver "%s"。%s
-                      可选:cache / file / cookie / memory
-                      redis / database 请配 cache.default,
-                      session 侧写 driver: cache 即可。"""
-                    .formatted(driver,
-                               Arr.closest(driver,
-                                           List.of("cache", "file", "cookie", "memory"))
-                                  .map(c -> "\n  是否想写 \"" + c + "\" ?").orElse("")));
+                      可选:cache / redis / database / file / cookie / memory
+                      也可以写 driver: cache + cache.default: redis""".formatted(
+                    driver,
+                    Arr.closest(driver,
+                                List.of("cache", "redis", "database", "file", "cookie", "memory"))
+                            .map(c -> "\n  是否想写 \"" + c + "\" ?").orElse("")));
         };
     }
 

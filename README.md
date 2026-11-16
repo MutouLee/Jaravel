@@ -3,7 +3,7 @@
 > Laravel 级开发体验,构建在 Spring Boot 之上的 Java 应用框架。
 
 **当前状态:v0.6 已收口(v0.7 进行中)。**
-34 个模块、**2545 个测试**全绿,四个示例应用都在构建里
+34 个模块、**2554 个测试**全绿(给了 Redis 连接串时 **2581**),四个示例应用都在构建里
 (`examples/{todo,blog,auth,queue}`)。
 队列 / 事件 / 调度 / 邮件 / 通知 / 存储到位(v0.4),
 终端上有 **42 条命令**、本地命令通道、冷启动启动器、`jaravelw`、`tinker`;
@@ -18,6 +18,10 @@ v0.6 已收口:jblade **类组件**已落地(`<x-post-card :post="post" />`);
 通知 broadcast 渠道、Pusher 协议子集(pusher-js 开箱即用)、ws/null/log 驱动,
 含真实 WS 端点的 e2e 测试。
 下一站 v0.7:redis 驱动、幂等性中间件、RBAC、Kafka/RabbitMQ/SQS;native 在 v0.9。
+
+**v0.7 进度**:cache / session 的 **redis 驱动**已落地
+(`RedisStore` + Lettuce、惰性连接、`SET NX PX` / `INCRBY`,
+真实 Redis 契约测试;docs/09 §1.4)。
 
 ```bash
 jaravel make:model Post -mcr     # 182ms,不启动任何容器
@@ -141,7 +145,7 @@ jaravel-eloquent/         Active Record、七种关联、预加载、软删除�
 jaravel-eloquent-processor/    @Model 的 APT:元模型 / 基类 / 类型化 Query
 jaravel-migration/        Schema DSL、迁移(含 checksum 漂移检测)、Seeder、工厂
 jaravel-validation/       60+ 规则、嵌套通配符、本地化、FormRequest
-jaravel-cache/            6 个驱动、标签失效、原子锁、限流器
+jaravel-cache/            7 个驱动(caffeine / redis / database / file / array / null / tiered)、标签失效、原子锁、限流器
 jaravel-session/          4 个驱动、flash、CSRF、会话生命周期
 jaravel-auth/             Session/Token/JWT guard、Gate/Policy、哈希、密码重置、邮箱验证
 jaravel-queue/            队列契约、database/sync 驱动、虚拟线程 worker、chain / batch / 唯一性
@@ -188,6 +192,9 @@ python verify-blog.py                        # 33 项端到端检查
 
 python benchmark/laravel-parity/parity.py --max 1.2
 cd benchmark/jpa-comparison && mvn exec:java  # 与 JPA 的对照基准
+
+# Redis 契约测试(需要本地 Redis;用 15 号库避免碰开发数据)
+JARAVEL_TEST_REDIS_URI=redis://127.0.0.1:6379/15 mvn -pl jaravel-cache test
 ```
 
 ### 文档入口

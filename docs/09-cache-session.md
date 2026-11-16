@@ -101,35 +101,50 @@ Redis 实现用 `SET key owner NX PX ttl` + Lua 脚本释放(校验 owner,避免
 | 驱动 | 实现 | 场景 |
 |---|---|---|
 | `caffeine` | Caffeine(进程内) | 单实例、高频读、默认开发驱动 |
-| `redis` | Lettuce | 生产默认。**⚠ v0.4 未实现** —— 见下 |
+| `redis` | `RedisStore`(Lettuce) | 生产默认。v0.7 已实现 —— 见下 |
 | `database` | `cache` 表 | 无 Redis 的小项目 |
 | `file` | 文件系统 | 本地开发 |
 | `array` | `HashMap` | 测试,请求结束即丢 |
 | `null` | 黑洞 | 禁用缓存 |
-| `tiered` | Caffeine + Redis 两级 | 热点数据。**`TieredStore` 已实现,但 L2 配 redis 不可用** |
+| `tiered` | Caffeine + Redis 两级 | 热点数据。`TieredStore` 与 `RedisStore` 都已可用,但 **starter 的 `tiered` 配置项还没接** |
 
-> ### ⚠ v0.4 实现状态:**没有 redis 驱动**
+> ### v0.7:redis 驱动已实现(2026-11-16)
 >
-> **已实现**:`caffeine`、`database`、`file`、`array`、`null`、`tiered`。
-> **未实现**:`redis`。
+> `RedisStore` 基于 **Lettuce**。三条实现决定:
 >
-> 它会**响亮失败**:`cache.default: redis` 在启动时报错并列出已注册的
-> 驱动,不会静默退回别的。
+> 1. **连接惰性** —— 配置了 `cache.default: redis` 但从没读写过的应用,
+>    启动时不会连 Redis;第一次访问才连。否则本地开发没起 Redis 就起不来。
+> 2. **数字计数器存纯数字** —— file / database 把值写成带类型信息的
+>    JSON 信封,于是 `increment` 只能读-改-写;Redis 有原子的 `INCRBY`,
+>    但它不认识 JSON。所以整数类型写纯数字,其余类型仍走同一套 JSON 信封。
+> 3. **`add` 用 `SET NX PX`** —— 原子锁与限流器的正确性依赖它。
 >
-> 但**文档此前把它写成「生产默认」而没有任何未实现标记** ——
-> 这是这次对账查出的最严重的一处脱节:一个照着本节配置的人会在启动时
-> 撞墙,而文档读起来像是他配错了。
+> **测试策略(先定后做)**:`CacheStoreContractTest` 在给了
+> `-Djaravel.test.redis.uri=redis://127.0.0.1:6379/15`(或环境变量
+> `JARAVEL_TEST_REDIS_URI`)时,把 redis 作为**第六个驱动**加进同一组
+> 契约断言;没给时只跑其余五个。集成环境里给了就必须连得上 ——
+> 不会静默少测一个驱动。用独立的库或前缀;带前缀的 `flush()` 只删
+> 自己前缀下的键,不会 `FLUSHDB` 掉整个库。
 >
-> **多实例共享缓存现在用 `database` 驱动**,它是真的能用的:
-> `isShared()` 为 true,`add` 靠主键冲突保证原子性 ——
-> 调度器的 `onOneServer` 就跑在它上面(见 docs/10 §3.4)。
-> 代价是每次读写一条 SQL,比 Redis 慢一个量级。
+> **仍未做**:queue 的 redis 驱动(BRPOPLPUSH + 延迟 ZSET,docs/10 §3)、
+> 广播的 redis hub(pub/sub + 多实例 presence,docs/19 §9)、
+> starter 的 `tiered` 配置项。
+
+> ### v0.4 的旧账(v0.7 已结清)
 >
-> 不先做 redis 的理由是**测试策略要先定**:它需要一个真的 Redis
-> (testcontainers 要 Docker;嵌入式 Redis 的行为与真实版本有差异,
-> 而「驱动换了行为就变」正是 §1.4 这组契约测试要防的事),
-> 而一个「只在有 Docker 的机器上才跑」的测试组会慢慢腐烂。
-> 这个决定该在动手之前定下来。
+> v0.4 时这一节写着「没有 redis 驱动」,而**文档此前把它写成
+> 「生产默认」却没有任何未实现标记** —— 这是那次对账查出的最严重的
+> 一处脱节:一个照着本节配置的人会在启动时撞墙,而文档读起来像是
+> 他配错了。
+>
+> 当时的替代是 `database` 驱动(真的能用:`isShared()` 为 true,
+> `add` 靠主键冲突保证原子性,调度器的 `onOneServer` 就跑在它上面)。
+> 现在 redis 驱动也补上了,两者都是共享存储。
+>
+> 不先做 redis 的理由是**测试策略要先定**:它需要一个真的 Redis,
+> 而「只在有 Docker 的机器上才跑」的测试组会慢慢腐烂。
+> 这一版的做法是:契约测试在显式给了 Redis 连接串时把 redis 加进
+> 驱动列表(见上),没给时其余驱动照跑 —— 不静默少测。
 
 ```yaml
 # config/cache.yml
@@ -143,7 +158,7 @@ cache:
       default-ttl: 10m
     redis:
       driver: redis
-      connection: cache
+      uri: redis://localhost:6379/0       # 密码/库都写在 URI 里
     tiered:
       driver: tiered
       l1: caffeine
@@ -221,10 +236,16 @@ Session.id();
 | 驱动 | 说明 |
 |---|---|
 | `cookie` | 加密后存客户端。无服务端状态,水平扩展最简单。限制 4KB |
-| `redis` | 生产默认。**⚠ 它转给 cache 驱动,而 cache 的 redis 未实现** —— 见 §1.4 |
-| `database` | `sessions` 表,带 `user_id`/`ip`/`user_agent`/`last_activity`,支持「登出其他设备」 |
+| `redis` | 生产默认。用 cache 的 **redis** store(要求 Lettuce 在 classpath 上并配好 `cache.stores.redis.uri`) |
+| `database` | 用 cache 的 **database** store;支持「登出其他设备」需要应用自己加那几列 |
 | `file` | 本地开发 |
 | `memory` | 测试 |
+
+> **v0.7 修正**:`driver: redis` / `driver: database` 现在**直接选对应的
+> cache store**,不再走默认 store。此前 `cache.default: caffeine` +
+> `session.driver: redis` 会静默把会话放进进程内缓存 ——
+> 多实例下症状是「刷新页面随机掉登录」,单机永远测不出来。
+> `session.store` 只在 `driver: cache` 时生效。
 
 ```yaml
 # config/session.yml
@@ -334,7 +355,7 @@ Jaravel 的 `CacheRepository` 底层可以**注册为 Spring 的 `CacheManager`*
 
 | 需求 | 途径 |
 |---|---|
-| 需要 Redis 原生命令 | `Cache.store("redis").raw()` → `RedisCommands` |
+| 需要 Redis 原生命令 | `((RedisStore) Cache.store("redis").store()).raw()` → `RedisCommands`(键前缀要自己加) |
 | 需要 `@Cacheable` | 照常使用,共享底层 store |
 | 需要 `HttpSession` | `request.raw().getSession()` |
 | 需要 Spring Session | 照常引入,与 Jaravel session 并存 |

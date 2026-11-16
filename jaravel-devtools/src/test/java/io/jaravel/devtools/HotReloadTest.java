@@ -515,12 +515,21 @@ class HotReloadTest {
                 // 「新建一个包再在里面建类」是写新功能时最常见的动作
                 Path pkg = root.resolve("app/services");
                 Files.createDirectories(pkg);
-                Thread.sleep(300);      // 等补注册
-                Files.writeString(pkg.resolve("New.java"), "class New {}");
 
-                assertThat(newFile.await(3, TimeUnit.SECONDS))
+                // ★ 不赌「300ms 内一定补注册完了」:并行构建里 CPU 被压满时
+                // 那个固定等待不够,而文件那一刻写进去就永远看不到了。
+                // 反复写,直到监听器看见 —— 没补注册的话 5 秒后仍然看不见,
+                // 失败原因依然是「新目录没被监听」。
+                Path file = pkg.resolve("New.java");
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+                while (System.nanoTime() < deadline) {
+                    Files.writeString(file, "class New {}");
+                    if (newFile.await(200, TimeUnit.MILLISECONDS)) break;
+                }
+
+                assertThat(newFile.getCount())
                         .as("不补注册的话新包里的文件永远监听不到")
-                        .isTrue();
+                        .isZero();
             }
         }
 

@@ -505,6 +505,8 @@ record 返回类型由运行时反射得到;`with()` 的根字段由 APT 从
 > 五组键 + Lua 原子 pop、可见性超时回收、独立 attempts 计数。
 > 第三刀 **广播的 redis hub**已落地(docs/19 §6.2):pub/sub 多实例
 > 扇出 + 每实例 presence hash + TTL,WS 协议层不变。
+> starter 的 **`tiered`** 配置项也接上了(docs/09 §1.4):
+> L1 / L2 通过 `CacheManager.storeRaw` 复用同一实例。
 > 真实 Redis 契约测试在给了 `-Djaravel.test.redis.uri` 时加入。
 > 仍未做:dashboard、RBAC、RabbitMQ/Kafka/SQS、failed_jobs/job_batches
 > 的 redis 版本、ShouldBroadcast 的队列化。

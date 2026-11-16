@@ -101,4 +101,24 @@ class CacheAndSessionWiringTest {
         assertThat(manager.registeredStores()).contains("redis");
         assertThat(manager.store("redis").store().name()).isEqualTo("redis");
     }
+
+    @Test
+    @DisplayName("tiered 配置复用 L1/L2 的同一实例")
+    void tieredUsesTheSameL1AndL2() {
+        var manager = new CacheManager()
+                .register("l1", named("l1"))
+                .register("l2", named("l2"))
+                .defaultStore("l1");
+        var config = new MapConfigRepository(Map.of(
+                "cache", Map.of("stores", Map.of("tiered", Map.of(
+                        "l1", "l1",
+                        "l2", "l2",
+                        "l1-ttl", "30s")))));
+
+        JaravelAuthAutoConfiguration.registerTiered(manager, config);
+        manager.store("tiered").put("k", "v", java.time.Duration.ofMinutes(1));
+
+        assertThat(manager.store("l1").get("k", Object.class)).isPresent();
+        assertThat(manager.store("l2").get("k", Object.class)).isPresent();
+    }
 }

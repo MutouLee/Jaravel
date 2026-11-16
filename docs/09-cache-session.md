@@ -106,7 +106,7 @@ Redis 实现用 `SET key owner NX PX ttl` + Lua 脚本释放(校验 owner,避免
 | `file` | 文件系统 | 本地开发 |
 | `array` | `HashMap` | 测试,请求结束即丢 |
 | `null` | 黑洞 | 禁用缓存 |
-| `tiered` | Caffeine + Redis 两级 | 热点数据。`TieredStore` 与 `RedisStore` 都已可用,但 **starter 的 `tiered` 配置项还没接** |
+| `tiered` | Caffeine + Redis 两级 | 热点数据。`TieredStore` 已实现,starter 的 `tiered` 配置项(v0.7)也已接:L1 / L2 通过 `CacheManager.storeRaw` 复用**同一个**实例 |
 
 > ### v0.7:redis 驱动已实现(2026-11-16)
 >
@@ -126,9 +126,14 @@ Redis 实现用 `SET key owner NX PX ttl` + Lua 脚本释放(校验 owner,避免
 > 不会静默少测一个驱动。用独立的库或前缀;带前缀的 `flush()` 只删
 > 自己前缀下的键,不会 `FLUSHDB` 掉整个库。
 >
-> **仍未做**:queue 的 redis 驱动(BRPOPLPUSH + 延迟 ZSET,docs/10 §3)、
-> 广播的 redis hub(pub/sub + 多实例 presence,docs/19 §9)、
-> starter 的 `tiered` 配置项。
+> **v0.7 的 redis 面**:cache / session / queue / broadcast 四个驱动与
+> `tiered` 配置都已落地。剩下的 redis 相关项是
+> `failed_jobs` / `job_batches` 的 redis 版本(docs/10),以及
+> `tiered` 的 L1 失效跨实例传播(需要 Redis pub/sub,见 §7 的待决项)。
+>
+> ⚠ **tiered 的 L1 失效目前不跨实例**:`Cache.forget()` 只清本进程的 L1,
+> 其它实例会继续命中旧值,最长到 `l1-ttl`(默认 30s)。配置时让
+> `l1-ttl` 与业务能接受的陈旧窗口一致;要强一致就别用 tiered。
 
 > ### v0.4 的旧账(v0.7 已结清)
 >

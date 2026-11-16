@@ -228,6 +228,8 @@ public class JaravelAuthAutoConfiguration {
         // 自定义驱动后应用 —— 同名时覆盖。
         customizers.orderedStream().forEach(c -> c.customize(manager));
 
+        registerTiered(manager, config);
+
         // 默认值随 classpath 走:有 caffeine 用它(有界、带过期),
         // 没有退回 array。**不能**硬写 caffeine —— 那会让「只想要个登录」
         // 的项目在启动时撞上一个 optional 依赖
@@ -251,6 +253,23 @@ public class JaravelAuthAutoConfiguration {
         }
         manager.defaultStore(defaultStore);
         return manager;
+    }
+
+    /**
+     * {@code tiered} 配置项(两级缓存)。
+     *
+     * <p>必须在内置/自定义驱动之后注册 —— 它通过 {@code storeRaw}
+     * 复用 L1 / L2 的**同一个实例**;早于 redis 注册的话 L2 解析不到。
+     * 工厂是惰性的:tiered 没被取用就不会创建 L1/L2,
+     * 配了 redis L2 也不会在启动时连。
+     */
+    static void registerTiered(CacheManager manager, ConfigRepository config) {
+        if (!config.has("cache.stores.tiered")) return;
+
+        manager.register("tiered", m -> new io.jaravel.cache.store.TieredStore(
+                m.storeRaw(config.string("cache.stores.tiered.l1", "caffeine")),
+                m.storeRaw(config.string("cache.stores.tiered.l2", "redis")),
+                config.duration("cache.stores.tiered.l1-ttl", Duration.ofSeconds(30))));
     }
 
     @Bean

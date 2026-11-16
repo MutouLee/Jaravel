@@ -22,6 +22,7 @@ public final class CacheManager {
 
     private final Map<String, Function<CacheManager, CacheStore>> factories =
             new LinkedHashMap<>();
+    private final Map<String, CacheStore> resolvedStores = new ConcurrentHashMap<>();
     private final Map<String, Repository> resolved = new ConcurrentHashMap<>();
 
     private String defaultStore = "array";
@@ -29,7 +30,8 @@ public final class CacheManager {
 
     public CacheManager register(String name, Function<CacheManager, CacheStore> factory) {
         factories.put(name, factory);
-        resolved.remove(name);      // 重新注册时丢弃旧实例
+        resolvedStores.remove(name);     // 重新注册时丢弃旧实例
+        resolved.remove(name);
         return this;
     }
 
@@ -63,11 +65,33 @@ public final class CacheManager {
     }
 
     public Repository store(String name) {
-        return resolved.computeIfAbsent(name, n -> {
-            var factory = factories.get(n);
-            if (factory == null) throw unknownStore(n);
-            return new Repository(factory.apply(this), prefix);
-        });
+        return resolved.computeIfAbsent(name, n -> new Repository(storeRaw(n), prefix));
+    }
+
+    /**
+     * 取**原始** store,不套 Repository。
+     *
+     * <p>给「组合型驱动」用:{@code tiered} 需要 L1 / L2 两个
+     * {@link CacheStore},而不是两个 Repository(它会自己决定回填与
+     * 失效传播)。同一个名字只创建一次 —— 与 Repository 共用实例,
+     * 否则 tiered 的 L1 会和直接用的 caffeine 是两个缓存。
+     *
+     * <p><b>synchronized 而不是 computeIfAbsent</b>:tiered 的工厂会在
+     * 解析过程中回调 {@code storeRaw(l1)} —— ConcurrentHashMap 的
+     * 映射函数里递归更新同一张表是未定义行为(JDK 会抛
+     * "Recursive update")。synchronized 可重入,递归解析安全;
+     * 而且只在第一次取用时发生,不热。
+     */
+    public synchronized CacheStore storeRaw(String name) {
+        CacheStore existing = resolvedStores.get(name);
+        if (existing != null) return existing;
+
+        var factory = factories.get(name);
+        if (factory == null) throw unknownStore(name);
+
+        CacheStore created = factory.apply(this);
+        resolvedStores.put(name, created);
+        return created;
     }
 
     private IllegalStateException unknownStore(String name) {
@@ -85,6 +109,7 @@ public final class CacheManager {
     /** 测试与热重载用:丢弃所有已创建的实例 */
     public void reset() {
         resolved.clear();
+        resolvedStores.clear();
     }
 
     /**

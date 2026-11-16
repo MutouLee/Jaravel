@@ -158,6 +158,19 @@ public record QueuedJob(
     }
 
     /**
+     * 设置**绝对**的已尝试次数。
+     *
+     * <p>给驱动用:attempts 可能不在 payload 里,而在驱动自己的
+     * 计数器里(database 的 {@code attempts} 列、redis 的 attempts hash)。
+     * 崩溃后重取时 payload 里那份是旧的,必须用驱动的权威值覆盖。
+     */
+    public QueuedJob withAttempts(int attempts) {
+        return new QueuedJob(uuid, jobClass, data, queue, attempts,
+                pushedAt, availableAt, tries, timeout, retryUntil,
+                maxExceptions, displayName, exceptions, batchId, chain, chainCatch, context);
+    }
+
+    /**
      * 记一次真正的异常。
      *
      * <p>只在任务**抛出**时调用 —— 中间件主动 release 不走这里。
@@ -240,7 +253,10 @@ public record QueuedJob(
 
     @Override
     public String toString() {
+        String id = uuid == null ? "?"
+                : uuid.length() <= 8 ? uuid
+                : uuid.substring(0, 8);
         return "%s[%s] queue=%s attempts=%d/%d"
-                .formatted(displayName, uuid.substring(0, 8), queue, attempts, tries);
+                .formatted(displayName, id, queue, attempts, tries);
     }
 }

@@ -296,12 +296,45 @@ QueueWorker
 | 驱动 | 实现 | 说明 |
 |---|---|---|
 | `database` | `jobs` / `failed_jobs` / `job_batches` 表 | 零额外依赖,小项目够用。**v0.4 实现用乐观锁 UPDATE 而不是 `SKIP LOCKED`** —— 见下 |
-| `redis` | Lettuce + Lua 脚本 | 生产默认,`BRPOPLPUSH` + 延迟 ZSET |
-| `rabbitmq` | amqp-client | 需要复杂路由/多语言消费者时 |
-| `kafka` | kafka-clients | 高吞吐事件流;**语义不同**(无单任务重试),文档明确说明限制 |
-| `sqs` | AWS SDK v2 | |
+| `redis` | `RedisQueue`(Lettuce + Lua) | 生产默认。**v0.7 已实现** —— 见下 |
+| `rabbitmq` | amqp-client | 需要复杂路由/多语言消费者时,**未实现** |
+| `kafka` | kafka-clients | 高吞吐事件流;**语义不同**(无单任务重试),文档明确说明限制。**未实现** |
+| `sqs` | AWS SDK v2 | **未实现** |
 | `sync` | 立即同步执行 | 开发/测试默认 |
 | `null` | 丢弃 | |
+
+> ### v0.7:redis 队列驱动已实现(Lettuce + Lua)
+>
+> **键布局**(每个队列一套,前缀隔离):
+>
+> ```
+> {p}queue:{name}:pending    list  —— 待取,RPUSH 入、LPOP 出(FIFO)
+> {p}queue:{name}:delayed    zset  —— 延迟任务,score = 可取时刻
+> {p}queue:{name}:reserved   zset  —— 已保留,score = 保留时刻
+> {p}queue:{name}:payloads   hash  —— uuid → 任务 JSON
+> {p}queue:{name}:attempts   hash  —— uuid → 尝试次数(权威值)
+> ```
+>
+> **pop 是一个 Lua 脚本**,一趟往返里做三件事:回收 `reserved` 里超过
+> retryAfter 的条目(worker 崩了)、把到期的 delayed 移进 pending、
+> 原子地取一条并放进 reserved。**不是 `BRPOPLPUSH`** ——
+> `QueueStore.pop` 是非阻塞的(worker 自己 sleep 轮询),阻塞原语在
+> SPI 上没有位置;Lua 同时让可见性超时与延迟迁移不需要第二次往返。
+>
+> **attempts 单独一份 hash,不只信 payload**:崩溃的 worker 来不及
+> `release`,payload 里的 attempts 是旧的;pop 时 `HINCRBY` 一份独立
+> 计数器,崩溃 3 次的任务重试上限仍然成立。
+>
+> **还没做**:
+> - `failed_jobs` / `job_batches` 仍是 database 存储 —— 无库 + redis 队列
+>   的应用在任务永久失败时走 `LoggingFailedJobStore`(只打日志,不保留);
+> - RabbitMQ / Kafka / SQS 驱动;
+> - `queue:restart` / `queue:monitor` / `queue:prune-batches`。
+>
+> **测试**:`RedisQueueTest`(9 条:原子 pop、崩溃回收、延迟、release
+> 保留 attempts、touch、size、clear、4 线程并发不重复)。给了
+> `-Djaravel.test.redis.uri=redis://127.0.0.1:6379/15`(或环境变量
+> `JARAVEL_TEST_REDIS_URI`)才跑;用 DB 15 + 唯一前缀,结束时清理。
 
 > **为什么 database 驱动没用 `SELECT … FOR UPDATE SKIP LOCKED`**
 >
@@ -336,10 +369,10 @@ queue:
       retry-after: 90s
     redis:
       driver: redis
-      connection: default
+      uri: redis://localhost:6379/0     # 密码/库都写在 URI 里
+      prefix: jaravel:queue:
       queue: default
       retry-after: 90s
-      block-for: 5s
   failed:
     driver: database
     table: failed_jobs

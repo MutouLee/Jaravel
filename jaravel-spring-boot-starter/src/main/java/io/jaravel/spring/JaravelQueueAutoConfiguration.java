@@ -25,6 +25,7 @@ import io.jaravel.queue.store.DatabaseBatchRepository;
 import io.jaravel.queue.store.DatabaseFailedJobStore;
 import io.jaravel.queue.store.DatabaseQueue;
 import io.jaravel.queue.store.NullQueue;
+import io.jaravel.queue.store.RedisQueue;
 import io.jaravel.queue.store.SyncQueue;
 import io.jaravel.support.Arr;
 
@@ -41,6 +42,10 @@ import io.jaravel.support.Arr;
  *       table: jobs
  *       queue: default
  *       retry-after: PT90S
+ *     redis:
+ *       driver: redis
+ *       uri: redis://localhost:6379/0
+ *       prefix: jaravel:queue:
  *     sync:
  *       driver: sync
  *   failed:
@@ -64,6 +69,11 @@ import io.jaravel.support.Arr;
  */
 @AutoConfiguration(after = JaravelAutoConfiguration.class)
 public class JaravelQueueAutoConfiguration {
+
+    /** redis 队列驱动是否可用 —— Lettuce 是 jaravel-queue 的 optional 依赖 */
+    private static final boolean LETTUCE_PRESENT = org.springframework.util.ClassUtils
+            .isPresent("io.lettuce.core.RedisClient",
+                       JaravelQueueAutoConfiguration.class.getClassLoader());
 
     @Bean
     @ConditionalOnMissingBean
@@ -204,13 +214,31 @@ public class JaravelQueueAutoConfiguration {
                     serializer,
                     config.string(path + ".table", "jobs")));
 
+            case "redis" -> {
+                if (!LETTUCE_PRESENT) {
+                    throw new IllegalStateException("""
+                            队列连接 "%s" 用 redis 驱动,但 Lettuce 不在 classpath 上。
+                              加这段到 pom:
+                                <dependency>
+                                  <groupId>io.lettuce</groupId>
+                                  <artifactId>lettuce-core</artifactId>
+                                </dependency>
+                              或把 queue.default / queue.connections 改成 database / sync。"""
+                            .formatted(name));
+                }
+                queues.register(name, m -> new RedisQueue(
+                        config.string(path + ".uri", "redis://localhost:6379/0"),
+                        serializer,
+                        config.string(path + ".prefix", RedisQueue.DEFAULT_PREFIX)));
+            }
+
             default -> throw new IllegalStateException("""
                     队列连接 "%s" 的 driver "%s" 不支持。%s
-                      v0.4 内置:database / sync / null
-                      redis / sqs / rabbitmq 列入 v0.5 —— 它们需要各自的客户端依赖。
+                      内置:database / sync / null / redis
+                      sqs / rabbitmq / kafka 列入 v0.7 后续 —— 它们需要各自的客户端依赖。
                       自定义驱动:实现 QueueStore 并提供一个 QueueManager @Bean。"""
                     .formatted(name, driver,
-                               Arr.closest(driver, List.of("database", "sync", "null"))
+                               Arr.closest(driver, List.of("database", "sync", "null", "redis"))
                                   .map(c -> "\n  是否想写 \"" + c + "\" ?").orElse("")));
         }
     }

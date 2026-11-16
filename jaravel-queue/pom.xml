@@ -43,6 +43,14 @@
       <artifactId>jaravel-cache</artifactId>
     </dependency>
 
+    <!-- redis 队列驱动;不用它的人不必拉 Lettuce。
+         连接生命周期复用 jaravel-cache 的 RedisStore(惰性连接/URI/关闭) -->
+    <dependency>
+      <groupId>io.lettuce</groupId>
+      <artifactId>lettuce-core</artifactId>
+      <optional>true</optional>
+    </dependency>
+
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>

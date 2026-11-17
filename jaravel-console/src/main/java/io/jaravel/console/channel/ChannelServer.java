@@ -44,10 +44,13 @@ import io.jaravel.console.ConsoleIo;
  * 那是后面的事;现在的行为是**安全的那一侧**:
  * {@code migrate} 那种「要确认吗」默认答不。
  *
- * <h2>虚拟线程</h2>
- * <p>一个连接一个虚拟线程。accept 循环自己也在虚拟线程上 ——
- * 它不能占着应用的启动线程,也不该是守护线程之外的东西:
- * 一个开发期的通道不该阻止 JVM 退出。
+ * <h2>平台守护线程,不是虚拟线程</h2>
+ * <p>一个连接一个线程。它必须是**守护**线程:一个开发期的通道不该阻止
+ * JVM 退出。用平台线程而不是虚拟线程,是一个实测过的取舍:
+ * Windows 的 AF_UNIX + 虚拟线程在并行构建的负载下出现过偶发挂起
+ * (客户端连上后永远等不到响应,30 秒超时),连续几次全量都复现;
+ * 换成平台守护线程后不再出现。通道的并发量是「一次一条命令」,
+ * 虚拟线程那点内存优势在这里换不来任何东西。
  */
 public final class ChannelServer implements AutoCloseable {
 
@@ -86,7 +89,8 @@ public final class ChannelServer implements AutoCloseable {
         restrictPermissions();
         running.set(true);
 
-        acceptor = Thread.ofVirtual().name("jaravel-channel").start(this::acceptLoop);
+        acceptor = Thread.ofPlatform().daemon().name("jaravel-channel")
+                .start(this::acceptLoop);
         return this;
     }
 
@@ -113,7 +117,8 @@ public final class ChannelServer implements AutoCloseable {
         while (running.get()) {
             try {
                 SocketChannel connection = channel.accept();
-                Thread.ofVirtual().start(() -> serve(connection));
+                Thread.ofPlatform().daemon().name("jaravel-channel-conn")
+                      .start(() -> serve(connection));
             } catch (IOException e) {
                 if (running.get()) {
                     System.err.println("[jaravel] 命令通道 accept 失败:" + e.getMessage());

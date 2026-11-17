@@ -69,6 +69,19 @@ public class MigrationRunner {
     }
 
     private boolean enabled() {
+        return migrationsEnabled(config);
+    }
+
+    /**
+     * 迁移开关。包内可见:**并行测试会通过系统属性强制打开它**
+     * (派生出来的是一个空库,不迁移就只剩「没有表」)。
+     */
+    static boolean migrationsEnabled(ConfigRepository config) {
+        // 系统属性优先:并行测试派生的是空库,每个 fork 必须自己迁移。
+        // jaravel test --parallel 会设置它;用户显式给的值优先于这里。
+        String forced = System.getProperty("jaravel.migrate.on-boot");
+        if (forced != null && !forced.isBlank()) return Boolean.parseBoolean(forced);
+
         // 本地开发默认开,其它环境必须显式打开
         boolean isLocal = "local".equalsIgnoreCase(config.string("app.env", "production"));
         return config.bool("jaravel.migrate.on-boot", isLocal);

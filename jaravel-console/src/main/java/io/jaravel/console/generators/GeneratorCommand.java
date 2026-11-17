@@ -10,6 +10,7 @@ import java.util.List;
 import io.jaravel.console.ConsoleCommand;
 import io.jaravel.console.ConsoleException;
 import io.jaravel.console.Option;
+import io.jaravel.console.ProjectAware;
 
 /**
  * 所有 {@code make:*} 的基类:算路径、查重、写文件。
@@ -23,7 +24,7 @@ import io.jaravel.console.Option;
  * 即标准 Maven 布局 + 短包名。包名里没有组织前缀 ——
  * 应用代码不会被当作库发布。
  */
-public abstract class GeneratorCommand extends ConsoleCommand {
+public abstract class GeneratorCommand extends ConsoleCommand implements ProjectAware {
 
     /** 源码根。以项目目录为基准,可被测试换掉 */
     public static final String SOURCE_ROOT = "src/main/java";
@@ -34,6 +35,7 @@ public abstract class GeneratorCommand extends ConsoleCommand {
     private Path projectRoot = Path.of("");
 
     /** 测试与 {@code jaravel new} 用:把生成目标指到别处 */
+    @Override
     public void inProject(Path root) {
         this.projectRoot = root;
     }

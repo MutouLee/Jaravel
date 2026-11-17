@@ -380,6 +380,44 @@ v0.8 的原计划列了「多租户支持包」,文档里也出现过 `Tenancy.c
 
 ---
 
+## ADR-017 · 并行测试用进程级隔离,不用 JUnit 线程级并行
+
+**状态**:已采纳 · **日期**:2026-11-17
+
+**背景**
+docs/14 §6.3 承诺 `jaravel test --parallel --processes=4`。此前既没有 `test` 命令,也没有每进程测试库。
+
+**决策**
+- `--parallel` = Surefire `forkCount=N`,N 个独立 JVM;
+- 每 fork 一个数据源,由 `jaravel-testing` 的 `ParallelTestDatabase`(`EnvironmentPostProcessor`)在 DataSource 创建前改写 `spring.datasource.url`;
+- SQLite 内存不动;相对文件路径派生到 `target/jaravel-test-db/<pid>/`;绝对路径不动(测试自己管理);PostgreSQL / MySQL 自动建/删 `<db>_jaravel_test_<pid>`;
+- 进程身份用 PID;同一 JVM 同 URL 只准备一次;并行模式强制 `jaravel.migrate.on-boot=true`(可显式关闭);进程号默认取 CPU 核数并封顶 8,可 `--processes=N` 覆盖(1..64)。
+
+**理由**
+1. Spring Test 的上下文缓存、`ScopedValue`、`Eloquent`/`Schema`/`DatabaseRule` 的静态连接、`Facade.SWAP`、`Event.fake`、`BrowserTest` 的静态浏览器都是 **JVM 全局**的;线程级并行会让它们互相踩,而且用户无法靠配置规避。
+2. SQLite 内存库按 JVM 隔离,进程级并行不需要用户改写测试;文件库与服务器库只需在 URL 层派生。
+3. Laravel 的 `--parallel` 同样是进程级;`forkCount` 是 Surefire 原生能力,不需要自研测试调度器。
+4. 与 `-T1C`(模块级)职责清晰:`jaravel test` 不加 `-T`,避免 JVM 数相乘。
+
+**被否决的方案**
+- *JUnit 5 线程级并行*:全局静态状态不安全,SQLite 共享内存库还会锁冲突;
+- *CLI 起多个 Maven 进程*:重复编译、报告/JaCoCo 合并、分片不均,收益低于成本;
+- *Testcontainers 每 fork 一个容器*:Docker 依赖,且 Testcontainers 支持尚未落地;
+- *schema-per-fork*:只有 PostgreSQL 有 schema 与 database 的分离;
+- *模板库 `CREATE DATABASE ... TEMPLATE`*:这是性能优化,暂缓,不影响正确性。
+
+**代价**
+- 每个 fork 付一次 Spring 启动与内存成本;并行收益来自测试类数量,单个大类不能拆分。
+- PostgreSQL / MySQL 需要 `CREATE` / `DROP` / `CONNECT` 权限;没有权限时明确失败,不退化成共享库。
+- 派生库是空的,依赖已 seed 数据的测试需要自己 seed(`SEED_ON_BOOT` 等)。
+- 强杀时 SQLite / 服务端派生库可能残留;SQLite 下次启动会扫掉死进程目录,服务端库需手动清理。
+- 显式指定 `spring.datasource.url` 的测试会覆盖派生 —— 这是逃生口,也意味着那种测试自己负责隔离。
+
+**复审条件**
+若 Testcontainers 成为测试基线,或多数用户没有 CREATE DATABASE 权限,重新评估;若 Surefire 暴露稳定的 fork index,可把 PID 换成可复用的 1..N 命名。
+
+---
+
 # 第二部分:风险登记册
 
 按「概率 × 影响」排序。

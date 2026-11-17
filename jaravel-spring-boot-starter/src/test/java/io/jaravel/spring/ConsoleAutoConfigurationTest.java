@@ -20,7 +20,7 @@ import io.jaravel.console.Command;
 import io.jaravel.console.CommandRegistry;
 import io.jaravel.console.ConsoleCommand;
 import io.jaravel.console.Option;
-import io.jaravel.console.generators.GeneratorCommand;
+import io.jaravel.console.ProjectAware;
 
 /**
  * 控制台的装配(docs/13)。
@@ -80,7 +80,7 @@ class ConsoleAutoConfigurationTest {
                 beans, beans.getBeanProvider(ConsoleCommand.class));
         // 测试不能让 make:* 往真实仓库里写文件 —— 后注册的钩子覆盖前面的
         registry.configure(command -> {
-            if (command instanceof GeneratorCommand generator) generator.inProject(projectRoot);
+            if (command instanceof ProjectAware aware) aware.inProject(projectRoot);
         });
         return registry;
     }
@@ -91,7 +91,11 @@ class ConsoleAutoConfigurationTest {
         var registry = registryFrom(beansWith(SyncInventory.class, BeanDefinition.SCOPE_PROTOTYPE), tmp);
 
         assertThat(registry.names())
-                .contains("make:model", "make:migration", "make:controller", "inventory:sync");
+                .contains("make:model", "make:migration", "make:controller",
+                        "test", "inventory:sync");
+        assertThat(registry.isOffline("test"))
+                .as("test 起 Maven 子进程,但不需要应用容器")
+                .isTrue();
         assertThat(registry.descriptionOf("inventory:sync")).isEqualTo("同步库存");
 
         assertThat(Artisan.call("make:model", "Post")).isZero();

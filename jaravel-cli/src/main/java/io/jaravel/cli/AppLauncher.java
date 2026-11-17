@@ -12,6 +12,7 @@ import java.util.stream.Stream;
 
 import io.jaravel.console.CommandLine;
 import io.jaravel.console.ConsoleIo;
+import io.jaravel.console.maven.MavenInvoker;
 
 /**
  * 冷启动一个应用 JVM 执行在线命令(docs/13 §1 的第二条路径)。
@@ -404,14 +405,9 @@ final class AppLauncher {
 
     /** 项目自带的 wrapper 优先 —— 它钉住了版本,而 PATH 上那个没有 */
     static List<String> maven(Path root, String... args) {
-        String wrapper = isWindows() ? "mvnw.cmd" : "mvnw";
-        var argv = new ArrayList<String>();
-        argv.add(Files.isRegularFile(root.resolve(wrapper))
-                ? root.resolve(wrapper).toAbsolutePath().toString()
-                : (isWindows() ? "mvn.cmd" : "mvn"));
-        argv.add("-o");   // 离线:启动器不该因为仓库不通而卡住
-        argv.addAll(List.of(args));
-        return argv;
+        // 启动器一律离线:它是在用户敲一条命令的路上,不是在做发布构建。
+        // 包装文件探测只有一份实现,见 MavenInvoker。
+        return MavenInvoker.argv(root, true, args);
     }
 
     private static boolean isWindows() {

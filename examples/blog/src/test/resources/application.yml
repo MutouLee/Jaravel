@@ -1,0 +1,19 @@
+# 测试配置。
+#
+# 内存库 + 每次上下文启动时 seed —— 这样测试**不依赖**本地那个
+# gitignore 掉的 storage/blog.db。此前 smoke test 断言「有文章」,
+# 而数据只在本地库里;换一台机器/fresh clone 就会红。
+#
+# SEED_ON_BOOT 被 config/jaravel.yml 的 ${SEED_ON_BOOT:false} 解析。
+
+spring:
+  datasource:
+    url: jdbc:sqlite:file:blogtest?mode=memory&cache=shared
+    driver-class-name: org.sqlite.JDBC
+
+SEED_ON_BOOT: "true"
+
+logging:
+  level:
+    root: WARN
+    io.jaravel: WARN

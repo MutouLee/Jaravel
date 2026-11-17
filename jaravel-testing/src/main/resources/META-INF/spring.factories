@@ -1,0 +1,6 @@
+# 并行测试的每进程数据源(docs/14 §6.3、ADR-017)。
+# 只在 -Djaravel.test.parallel=true / JARAVEL_TEST_PARALLEL=1 时生效 ——
+# 本模块通常只在 test 作用域,但 jaravel-archunit-rules 等模块会把它带进
+# 编译作用域,所以开关必须显式。
+org.springframework.boot.env.EnvironmentPostProcessor=\
+io.jaravel.testing.ParallelTestDatabase

@@ -583,19 +583,55 @@ class ArchitectureTest extends ArchTest {
 
 薄封装 ArchUnit,提供 Jaravel 项目的常用规则预设(对应 Pest 的 arch 测试)。
 
-### 6.3 并行测试
+### 6.3 并行测试 ✅ v0.8
 
 ```bash
-jaravel test --parallel --processes=4
+jaravel test                                  # = mvn test
+jaravel test --tests 'Todo*'                  # 只跑匹配的测试
+jaravel test --parallel --processes=4         # 4 个 Surefire fork
+jaravel test --parallel --offline             # 依赖已缓存的 CI
 ```
 
-每个进程用独立的测试数据库(`testing_1`…`testing_4`),自动创建与迁移。JUnit 5 的并行执行 + 数据库隔离。
+这是**进程级**并行,不是 JUnit 的线程级并行:`--parallel` 映射到 Surefire
+`forkCount`,N 个独立 JVM,各自一份 Spring 上下文缓存。理由见
+[ADR-017](18-risks-and-decisions.md):`Facade.SWAP`、`Event.fake`、静态
+`Eloquent` 连接、`BrowserTest` 的静态浏览器都是 JVM 全局的,线程级并行会互相踩。
+
+每进程一个独立测试库:
+
+| 数据源 | 处理 |
+|---|---|
+| SQLite 内存(`:memory:` / `mode=memory`) | 不动 —— 每个 JVM 天然隔离 |
+| SQLite 相对文件路径 | 派生到 `target/jaravel-test-db/<pid>/<原相对路径>`;源文件存在则拷贝,保留本地迁移/seed |
+| SQLite 绝对路径 | 不动 —— 通常是测试自己 `@TempDir` 管理的,跨 fork 已唯一 |
+| PostgreSQL / MySQL / MariaDB | 派生 `<db>_jaravel_test_<pid>`;启动时 DROP + CREATE,退出时尽力 DROP |
+| 其它(含 `jdbc:tc:`) | 明确报错,不静默共享 |
+
+要点:
+
+- **自动迁移**:派生库是空的;并行模式会把 `jaravel.migrate.on-boot` 置为 true
+  (除非你显式设置它,或传 `-Djaravel.test.migrate=false`)。不强制 seed。
+- **权限**:PG/MySQL 需要 `CREATE` / `DROP` / `CONNECT`(PG 还要能连 `postgres`
+  或 `template1`)。失败会给出具体授权语句,不会退化成共享库。
+- **默认进程数**:`--parallel` 不给 `--processes` 时取 CPU 核数,封顶 8;
+  `--processes` 取 1..64;`--processes=1` 不启用库隔离。
+- **测试自己指定数据源时优先**:`@SpringBootTest(properties = "spring.datasource.url=...")`
+  或 `@TestPropertySource` 会覆盖派生;那种测试自己负责隔离。
+- **清理**:SQLite 派生文件在退出时尽力删除;Surefire 在 Windows 上可能直接杀掉
+  fork,所以下一次启动会扫掉「进程已不在」的旧目录。`mvn clean` 也会清掉
+  `target/`。被强杀时服务端派生库可能残留,需要手动清理(名字带
+  `_jaravel_test_<pid>`)。
+- **限制**:JUnit 线程级并行在同一个 fork 内仍共享一个库;一个测试类不能拆分到
+  多个进程;`forkCount` 是上限,实际 fork 数 ≤ 测试类数。
+
+> `-DforkCount=N` 也可以直接传给 Maven;`jaravel test` 只是把
+> `--parallel/--processes` 翻译过去。`-T1C` 是**模块级**并行,与 `forkCount`
+> 相乘;`jaravel test` 不会自动加 `-T`。
 
 ### 6.4 覆盖率
 
-```bash
-jaravel test --coverage --min=70         # JaCoCo,低于阈值则失败
-```
+⏳ 还没实现:`jaravel test` 目前是 Maven 的薄代理,JaCoCo 仍由 Maven 生命周期
+提供。用 `mvn test jacoco:report` 查看覆盖率;`--coverage --min=70` 是后续项。
 
 ---
 
@@ -660,6 +696,9 @@ public class JaravelExtension implements BeforeAllCallback, BeforeEachCallback,
 
 - [ ] `FeatureTest` 不经过 Servlet 容器,会漏掉哪些 bug?(multipart 解析差异、字符编码、Filter 行为)。需要一组「双跑」测试:同一断言分别在 `FeatureTest` 和 `@HttpServerTest` 下执行,验证两条路径等价。若差异大,可能需要默认走真实容器。
 - [ ] Testcontainers 作为默认会增加首次测试的耗时(拉镜像)与 CI 对 Docker 的依赖。是否默认 SQLite、文档强烈推荐 Testcontainers?倾向:`jaravel new` 询问,默认 Testcontainers,`--preset=minimal` 用 SQLite。
-- [ ] 并行测试的数据库隔离:4 个进程 × `migrate:fresh` 很慢。方案:一次建好模板库,各进程 `create database X template Y`(PG 支持)或 dump/restore(MySQL)。需要实现。
+- [x] 并行测试的数据库隔离:**v0.8 已实现** —— Surefire `forkCount` +
+  `jaravel-testing` 的 `ParallelTestDatabase`(SQLite / PostgreSQL / MySQL,
+  见 §6.3、[ADR-017](18-risks-and-decisions.md))。模板库
+  `CREATE DATABASE ... TEMPLATE` / dump-restore 的性能优化仍可做,但不阻塞交付。
 - [ ] 测试中的 `ScopedValue` 绑定:`AppTest` 没有 HTTP 请求,但 `Auth.user()` 需要作用域。需要 `actingAs` 在非 HTTP 测试中也能建立一个合成作用域。
 - [ ] 工厂的 `definition()` 返回 `Map<String,Object>` 缺少类型安全。考虑生成 `PostFactory` 的类型化 setter(`.title("X").status(PUBLISHED)`)。**v0.6 / v0.7 均未做**,仍开放;等真实使用反馈再定。

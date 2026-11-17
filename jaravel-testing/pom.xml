@@ -52,5 +52,28 @@
       <version>${playwright.version}</version>
       <optional>true</optional>
     </dependency>
+
+    <!--
+      并行测试的服务端库契约测试(test scope,不传递):
+      默认跳过,只有设置 JARAVEL_TEST_PG_URL / JARAVEL_TEST_MYSQL_URL /
+      JARAVEL_TEST_MARIADB_URL 时才真的建库。把驱动放在测试里,
+      是为了让那些契约测试在设置环境变量后**能跑**,而不是在
+      DriverManager 里找不到驱动。
+    -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.mysql</groupId>
+      <artifactId>mysql-connector-j</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.mariadb.jdbc</groupId>
+      <artifactId>mariadb-java-client</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 </project>

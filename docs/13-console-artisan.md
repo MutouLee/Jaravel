@@ -30,6 +30,7 @@
 > | **`make:view`** · **`make:component`**(v0.6:类 + 模板) | §2.2 |
 > | `list` · `help`(用法从注解生成) | `Usage`(§3.1) |
 > | **`jaravel` 命令本身**:离线/在线分流、`--version` | `jaravel-cli`(§1) |
+> | **`test`**:Maven 薄代理 · `--parallel` / `--processes` / `--tests` / `--offline` | §7 |
 > | **本地命令通道**:在线命令在已跑着的应用进程里执行 | `ChannelServer` / `ChannelClient`(§1.2) |
 > | `migrate` · `migrate:status` · `migrate:rollback` · `migrate:fresh` · `db:seed` | §2.3 |
 > | `route:list`(带 `--method` / `--path` / `--name` 过滤)· `about` | §2.5 |
@@ -1373,12 +1374,16 @@ CLI 与 Maven 不是竞争关系:
 
 `jaravel` CLI 内部也可代理 Maven 命令(`jaravel test` → `mvn test`,`jaravel build` → `mvn package`),让用户只需记一个命令入口。
 
-> ### ⚠ v0.5:这一整节还是设计 —— `jaravel-maven-plugin` 不存在
+> ### ⚠ 部分仍是设计 —— `jaravel-maven-plugin` 不存在,`jaravel build` 也未实现
 >
 > 三个 goal(`compile-views` / `verify-migrations` / `openapi`)一个都没有,
-> `jaravel test` / `jaravel build` 也没有。
+> `jaravel build` 也没有。
 >
-> **但 CLI 已经在调 Maven 了**,只不过是以另一种方式:冷启动启动器
+> **`jaravel test` 已落地(v0.8)**:它是 Maven 的薄代理 ——
+> 在 CLI 进程里跑 `mvn test`,不走应用命令通道。
+> `--parallel` 映射到 Surefire `forkCount`,每进程独立测试库(docs/14 §6.3、ADR-017)。
+>
+> **CLI 早就在调 Maven 了**,只不过是以另一种方式:冷启动启动器
 > (§1)自己去跑 `mvn dependency:build-classpath`(拿 classpath)和
 > `mvn compile`(源码比 class 新的时候)。也就是说「CLI 代理 Maven」
 > 这件事的第一块已经落地了,而且是从相反的方向落的 ——

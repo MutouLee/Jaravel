@@ -10,7 +10,12 @@ spring:
     # 内存库 + 共享缓存。cache=shared 是必需的:没有它连接池里每条连接
     # 各看到一个**空的**独立数据库,于是「迁移在连接 A 上建了表,
     # 查询走连接 B 就报 no such table」—— 那看起来像迁移没跑。
-    url: jdbc:sqlite:file:authtest?mode=memory&cache=shared
+    #
+    # ⚠ 保留 ${DB_URL:...} 占位符:HotReloadAcceptanceTest 需要一个
+    #   跨上下文存活的**文件**库,而 SpringApplicationBuilder.properties
+    #   优先级最低,只能设占位符的来源名。写死 URL 会让那条测试
+    #   悄悄跑在内存库上 —— 单跑必红,全量跑靠别的上下文保活而偶然变绿。
+    url: ${DB_URL:jdbc:sqlite:file:authtest?mode=memory&cache=shared}
     driver-class-name: org.sqlite.JDBC
 
 logging:

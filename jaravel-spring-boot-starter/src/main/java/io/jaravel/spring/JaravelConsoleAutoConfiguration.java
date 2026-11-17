@@ -21,6 +21,7 @@ import io.jaravel.console.Artisan;
 import io.jaravel.console.BuiltInCommands;
 import io.jaravel.console.CommandRegistry;
 import io.jaravel.console.ConsoleCommand;
+import io.jaravel.console.ProjectAware;
 import io.jaravel.console.channel.ChannelServer;
 import io.jaravel.console.generators.GeneratorCommand;
 import io.jaravel.database.Connection;
@@ -135,7 +136,7 @@ public class JaravelConsoleAutoConfiguration {
         // 而那只在「从项目目录启动」时才有意义(IDE / mvn spring-boot:run)。
         Path projectRoot = projectRoot();
         registry.configure(command -> {
-            if (command instanceof GeneratorCommand generator) generator.inProject(projectRoot);
+            if (command instanceof ProjectAware aware) aware.inProject(projectRoot);
         });
 
         Artisan.use(registry);

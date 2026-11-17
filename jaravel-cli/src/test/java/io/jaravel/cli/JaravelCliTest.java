@@ -253,6 +253,8 @@ class JaravelCliTest {
                     .contains("make")
                     .contains("make:model")
                     .contains("新建一个 Eloquent 模型")
+                    .as("test 是 CLI 的 Maven 代理,也必须在清单里")
+                    .contains("test")
                     .as("list 与 help 自己也在表里")
                     .contains("list").contains("help");
 

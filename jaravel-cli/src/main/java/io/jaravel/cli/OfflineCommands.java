@@ -7,6 +7,7 @@ import java.util.List;
 import io.jaravel.console.BuiltInCommands;
 import io.jaravel.console.CommandRegistry;
 import io.jaravel.console.ConsoleCommand;
+import io.jaravel.console.ProjectAware;
 import io.jaravel.console.generators.GeneratorCommand;
 
 /**
@@ -54,7 +55,7 @@ final class OfflineCommands {
             if (command instanceof io.jaravel.console.ListCommands list) {
                 list.withoutApplication();
             }
-            if (command instanceof GeneratorCommand generator) generator.inProject(projectRoot);
+            if (command instanceof ProjectAware aware) aware.inProject(projectRoot);
         });
         return registry;
     }

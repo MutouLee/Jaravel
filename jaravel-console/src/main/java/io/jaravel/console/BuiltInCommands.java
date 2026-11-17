@@ -20,6 +20,7 @@ import io.jaravel.console.generators.MakeSeeder;
 import io.jaravel.console.generators.MakeTest;
 import io.jaravel.console.generators.MakeView;
 import io.jaravel.console.generators.WrapperInstallCommand;
+import io.jaravel.console.maven.TestCommand;
 import io.jaravel.console.openapi.OpenApiDiffCommand;
 
 /**
@@ -55,10 +56,10 @@ public final class BuiltInCommands {
 
     /**
      * 离线命令:生成类 + {@code key:generate} + {@code wrapper:install}
-     * + {@code openapi:diff}。
+     * + {@code openapi:diff} + {@code test}。
      *
-     * <p>全部是 {@code offline = true}:它们只读写文件,不需要容器
-     * (有一条测试核对这件事 —— 标错方向的代价不对称,
+     * <p>全部是 {@code offline = true}:它们只读写文件或起一个子进程,
+     * 不需要容器(有一条测试核对这件事 —— 标错方向的代价不对称,
      * 理由写在 {@code @Command} 的 {@code offline} 上)。
      *
      * <p>⚠ 不含 {@code list} / {@code help}:它们要列出**所在注册表**里的
@@ -74,7 +75,7 @@ public final class BuiltInCommands {
             MakeConsoleCommand.class, MakeTest.class,
             MakeView.class, MakeComponent.class,
             KeyGenerateCommand.class, WrapperInstallCommand.class,
-            OpenApiDiffCommand.class);
+            OpenApiDiffCommand.class, TestCommand.class);
 
     /**
      * {@code list} 与 {@code help} —— **两侧都要注册**。

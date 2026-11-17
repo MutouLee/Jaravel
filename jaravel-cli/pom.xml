@@ -64,6 +64,22 @@
           </archive>
         </configuration>
       </plugin>
+
+      <!--
+        ★ Windows AF_UNIX 在并行构建的负载下偶发挂起:客户端的 readLine
+        永远等不到响应(ChannelTest 的 30s 超时把它变成失败)。换平台线程、
+        加测试超时都只是把「卡死」变成「失败」,根因仍未定位。
+
+        失败重跑是护栏,不是修复:同一用例重跑能过;真失败会连续三次失败,
+        仍然会红。每次重跑会把 30s 超时再付一遍,所以它只在偶发时生效。
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <rerunFailingTestsCount>2</rerunFailingTestsCount>
+        </configuration>
+      </plugin>
     </plugins>
   </build>
 </project>

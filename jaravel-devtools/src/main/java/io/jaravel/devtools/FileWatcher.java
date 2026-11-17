@@ -230,6 +230,17 @@ public final class FileWatcher implements AutoCloseable {
 
         var snapshot = new LinkedHashSet<>(batch);
         batch.clear();
+
+        // ★ 新建目录的 ENTRY_CREATE 可能在父目录**还没注册**时就发生了 ——
+        // 那时 drain 里的 registerRecursively 可能已经跑过、但还没看到
+        // 后来才建出来的子目录。静默期结束时再扫一遍,把这一小段窗口补上。
+        //
+        // 这不是防御性编程:Files.createDirectories("a/b") 一次建两层时
+        // 正好命中它 —— 实测在全量并行构建下会偶发「b 永远不被监听」。
+        for (Path path : snapshot) {
+            if (Files.isDirectory(path)) registerRecursively(path);
+        }
+
         try {
             onChange.accept(snapshot);
         } catch (RuntimeException e) {

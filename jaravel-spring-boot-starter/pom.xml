@@ -51,6 +51,10 @@
     </dependency>
     <dependency>
       <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-permissions</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.jaravel</groupId>
       <artifactId>jaravel-events</artifactId>
     </dependency>
     <dependency>

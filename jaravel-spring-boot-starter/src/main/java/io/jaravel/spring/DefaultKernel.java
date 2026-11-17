@@ -14,6 +14,8 @@ import io.jaravel.http.Kernel;
 import io.jaravel.http.Middleware;
 import io.jaravel.session.StartSession;
 import io.jaravel.session.VerifyCsrfToken;
+import io.jaravel.permissions.middleware.PermissionMiddleware;
+import io.jaravel.permissions.middleware.RoleMiddleware;
 import io.jaravel.spring.middleware.Idempotent;
 
 /**
@@ -75,6 +77,8 @@ public class DefaultKernel extends Kernel {
         aliases.put("session", StartSession.class);
         aliases.put("csrf", VerifyCsrfToken.class);
         aliases.put("idempotent", Idempotent.class);                // idempotent / idempotent:86400
+        aliases.put("role", RoleMiddleware.class);                   // role:admin,editor
+        aliases.put("permission", PermissionMiddleware.class);       // permission:publish-posts
         return aliases;
     }
 

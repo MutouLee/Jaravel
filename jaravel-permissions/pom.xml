@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.jaravel</groupId>
+    <artifactId>jaravel-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>jaravel-permissions</artifactId>
+  <name>Jaravel :: 权限(RBAC)</name>
+  <description>
+    角色与权限(docs/08 §5.4,对应 spatie/laravel-permission):
+    PermissionStore(Array / Database)、角色继承权限、HasPermissions、
+    role / permission 中间件。
+  </description>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-auth</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-http</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-database</artifactId>
+    </dependency>
+    <!-- PermissionSchema:建表助手;用户在自己的迁移里调用 -->
+    <dependency>
+      <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-migration</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.xerial</groupId>
+      <artifactId>sqlite-jdbc</artifactId>
+      <version>${sqlite.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

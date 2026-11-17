@@ -351,7 +351,52 @@ user.hasPermissionTo("publish-posts");
 r.get("/admin", X::y).middleware("role:admin", "permission:view-dashboard");
 ```
 
-列入 v1.1 路线图。
+> ### v0.7:已实现(`jaravel-permissions`)
+>
+> **两种用法**:
+>
+> ```java
+> // 1. 模型 implements HasPermissions —— 默认方法,无需写一行权限代码
+> public class User extends UserBase implements HasPermissions {
+>     @Id public Long id;      // public id 是默认方法取主键的约定
+> }
+> user.assignRole("editor");
+>
+> // 2. 不改模型,用静态门面
+> Permissions.assignRole(user, "editor");
+> Permissions.givePermissionTo(user, "publish-posts");
+> ```
+>
+> 主体可以是有 public `id` 的模型、{@code Authenticatable} 包装体
+> (`Auth.user()`),或显式 `(modelType, modelId)`。type 默认是**类名** ——
+> 两个用户类型不会互相继承角色。
+>
+> **中间件**:`role:admin,editor` 与 `permission:publish-posts` 都是
+> **any** 语义;`auth` 必须先跑(未登录这里返回 401,不是 403)。
+> `permission` 会同时看直接授予与角色继承。
+>
+> **存储**:
+> - `DatabasePermissionStore`(默认):五张表,多实例共享;
+> - `ArrayPermissionStore`:进程内,测试/单实例 —— 重启即丢,
+>   starter 退回它时**明确警告**。
+>
+> 建表走应用自己的迁移:
+>
+> ```java
+> public class CreatePermissionTables implements Migration {
+>     public void up()   { PermissionSchema.create(); }
+>     public void down() { PermissionSchema.drop(); }
+> }
+> ```
+>
+> **`assignRole` / `givePermissionTo` 会自动创建不存在的角色/权限** ——
+> 拼错会多一个没人拥有的角色,但「加个角色」不需要先跑 seeder。
+> 在意拼写就显式 `Permissions.createRole("editor", "publish-posts")`。
+>
+> **还没做**:Gate/Policy 的自动桥接(权限名不会自动变成 Gate ability,
+> 需要自己 `Gate.define` 或走 `hasPermissionTo`)、团队/多租户作用域、
+> 权限列表缓存、管理 UI。示例:`examples/auth` 的
+> `PermissionFeatureTest`(4 条,真实 HTTP + SQLite 权限表)。
 
 ---
 

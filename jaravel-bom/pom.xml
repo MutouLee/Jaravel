@@ -47,6 +47,7 @@
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-cache</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-session</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-auth</artifactId><version>${jaravel.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-permissions</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-devtools</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-security-bridge</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-testing</artifactId><version>${jaravel.version}</version></dependency>

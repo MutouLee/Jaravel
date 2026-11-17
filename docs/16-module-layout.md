@@ -22,7 +22,7 @@ jaravel/                                  (git 仓库根)
 ├── jaravel-eloquent-processor/            ★ 最重要的 APT
 ├── jaravel-validation/
 ├── jaravel-auth/
-├── jaravel-cache/  ·  jaravel-session/
+├── jaravel-cache/  ·  jaravel-session/  ·  jaravel-permissions/
 ├── jaravel-queue/  ·  jaravel-events/  ·  jaravel-scheduler/
 ├── jaravel-mail/  ·  jaravel-notifications/  ·  jaravel-storage/
 ├── jaravel-broadcasting/                    ShouldBroadcast / 频道与鉴权 / broadcast 渠道

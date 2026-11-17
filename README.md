@@ -3,7 +3,7 @@
 > Laravel 级开发体验,构建在 Spring Boot 之上的 Java 应用框架。
 
 **当前状态:v0.6 已收口(v0.7 进行中)。**
-35 个模块、**2580 个测试**全绿(给了 Redis 连接串时 **2618**),四个示例应用都在构建里
+36 个模块、**2610 个测试**全绿(给了 Redis 连接串时 **2648**),四个示例应用都在构建里
 (`examples/{todo,blog,auth,queue}`)。
 队列 / 事件 / 调度 / 邮件 / 通知 / 存储到位(v0.4),
 终端上有 **42 条命令**、本地命令通道、冷启动启动器、`jaravelw`、`tinker`;
@@ -24,7 +24,8 @@ v0.6 已收口:jblade **类组件**已落地(`<x-post-card :post="post" />`);
 `SET NX PX` / `INCRBY`、Lua 原子 pop、pub/sub 多实例扇出 + 分布式 presence;
 docs/09 §1.4、docs/10 §1.5、docs/19 §6.2);
 **`jaravel-dashboard`**(队列面板)已落地(docs/10 §1.8);
-**幂等性中间件**已落地(docs/12 §6.5)。
+**幂等性中间件**已落地(docs/12 §6.5);
+**`jaravel-permissions`(RBAC)** 已落地(docs/08 §5.4)。
 
 ```bash
 jaravel make:model Post -mcr     # 182ms,不启动任何容器
@@ -151,6 +152,7 @@ jaravel-validation/       60+ 规则、嵌套通配符、本地化、FormRequest
 jaravel-cache/            7 个驱动(caffeine / redis / database / file / array / null / tiered)、标签失效、原子锁、限流器
 jaravel-session/          4 个驱动、flash、CSRF、会话生命周期
 jaravel-auth/             Session/Token/JWT guard、Gate/Policy、哈希、密码重置、邮箱验证
+jaravel-permissions/      RBAC:角色/权限、Array/Database 存储、HasPermissions、role/permission 中间件
 jaravel-queue/            队列契约、database/sync/redis 驱动、虚拟线程 worker、chain / batch / 唯一性
 jaravel-events/           事件总线、队列化监听器、Spring 桥接
 jaravel-events-processor/ @Listener 的 APT:强类型绑定 + 索引(运行时零反射、零扫包)

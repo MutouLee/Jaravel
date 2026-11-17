@@ -864,7 +864,11 @@ class QueueFeatureTest extends FeatureTest {
 
             deleteJson("/api/batches/" + batchId).assertOk();
 
-            drain("reports");
+            // 用「跑到空为止」的版本:单次 drain 的 stopWhenEmpty 在高负载下
+            // 可能因为一次 pop 失败/调度延迟提前返回,留下一两条已取消的任务。
+            // 这不是取消路径的语义问题 —— 再取一次它们会被删掉;
+            // 而断言「要删掉」仍然有效。
+            drainIncludingRetries("reports");
 
             assertThat(Invoice.query().where(Invoice_.status, "stated").count())
                     .as("取消的作用点是出队时")

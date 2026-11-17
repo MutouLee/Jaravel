@@ -20,6 +20,7 @@ Laravel 的测试体验是其被低估的优势:一行 `$this->get('/users')->as
 | `assertQueryCount`(N+1 回归测试) | ✅ |
 | 认证断言 `assertAuthenticated` / `assertGuest` | ✅ |
 | `BrowserTest` + Playwright 真实浏览器测试 | ✅ v0.8(默认关闭,见 §6.1) |
+| Testcontainers 自动注入(`@UseDatabase`) | ✅ v0.8(默认关闭,见 §2.2) |
 | 模型工厂(§3) | ⏳ 已有 `Factory` 基类(v0.2),`Post.factory()` 的 APT 生成留到 v0.5 |
 | Fake(§4:Queue / Mail / Event / Storage / Notification) | ⏳ 这些子系统本身在 v0.4 |
 | Testcontainers 自动注入(§2.2) | ⏳ v0.5 |
@@ -244,29 +245,65 @@ class PostTest extends FeatureTest {
 
 事务回滚是默认策略——**测试不需要写任何清理代码**。
 
-### 2.2 测试数据库
-
-```yaml
-# config/database.yml(testing profile)
-database:
-  default: testing
-  connections:
-    testing:
-      driver: sqlite
-      database: ":memory:"
-```
-
-或用 Testcontainers(更真实):
+### 2.2 测试数据库:Testcontainers 自动注入 ✅ v0.8
 
 ```java
-@Testcontainers
-class PostTest extends FeatureTest {
-    @Container static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0");
-    // starter 自动把容器的连接信息注入配置
+@UseDatabase(UseDatabase.Kind.MYSQL)
+class OrderRepositoryTest extends FeatureTest {
+    @Test void reserves_stock() { … }
 }
 ```
 
-默认推荐 **Testcontainers + 真实数据库**(SQLite 与 MySQL 的方言差异会让测试通过但生产失败),同时提供 SQLite 内存模式用于需要极致速度的场景。`jaravel new` 生成的项目默认用 Testcontainers。
+一个注解做四件事:
+
+1. 启动(或复用)本 JVM 内同 `(kind, image)` 的容器;
+2. 注入 `spring.datasource.url / username / password / driver-class-name`;
+3. 把 `database.default` 改成对应方言 —— **只换 URL 不换 Grammar**
+   会得到「MySQL 上跑 SQLite 语法」;
+4. 打开 `jaravel.migrate.on-boot`,让空库在上下文启动时迁移。
+
+支持 MySQL / PostgreSQL / MariaDB。默认镜像 `mysql:8.0` / `postgres:16-alpine` /
+`mariadb:11.4`,可用 `@UseDatabase(value = ..., image = "mysql:8.4")` 覆盖。
+
+**依赖**:Testcontainers 对 `jaravel-testing` 是 optional,要用它的应用在自己的
+`test` 作用域声明容器模块和 JDBC 驱动:
+
+```xml
+<dependency>
+  <groupId>org.testcontainers</groupId><artifactId>mysql</artifactId>
+  <version>1.21.3</version><scope>test</scope>
+</dependency>
+<dependency>
+  <groupId>com.mysql</groupId><artifactId>mysql-connector-j</artifactId><scope>test</scope>
+</dependency>
+```
+
+PostgreSQL 换成 `org.testcontainers:postgresql` + `org.postgresql:postgresql`;
+MariaDB 换成 `org.testcontainers:mariadb` + `org.mariadb.jdbc:mariadb-java-client`。
+
+**默认关闭**,和浏览器测试同一个理由:默认套件不该拉镜像。
+
+```bash
+mvn test -Djaravel.testcontainers=true          # 或 JARAVEL_TESTCONTAINERS=true
+```
+
+显式开启但 Docker 不可用时**失败**,而不是静默退回 SQLite/内存 —— 那会让
+方言差异重新漏过去。需要在没有 Docker 的机器上跳过,用
+`@EnabledIf("dockerAvailable")` 并调用 `TestcontainersSupport.dockerAvailable()`。
+
+**版本**:本项目钉 Testcontainers **1.21.3**。Spring Boot 3.4.1 的 BOM 管的是
+1.20.4,而那个版本连不上 Docker Engine 29;`TestcontainersSupport` 还会在第一次
+连 Docker 前把 `api.version` 设成 `1.44`(Docker 29 的最低版本)。
+更老的 Docker 可用 `-Dapi.version=...` / `-Djaravel.testcontainers.api-version=...`
+覆盖。
+
+**与并行测试**:每个 fork 是独立 JVM,各自起自己的容器;`--processes=4` 就是
+最多 4 个容器,成本要算。测试显式指定 `spring.datasource.url` 时,自动注入会让位
+(那种测试自己管理隔离)。
+
+**什么时候用 SQLite**:纯单元测试与不依赖方言的功能测试仍然用内存 SQLite ——
+它快,而且每个 JVM 天然隔离。Testcontainers 用在方言敏感的地方(迁移、复杂
+查询、JSON/时间类型、索引与锁)。
 
 ### 2.3 断言
 
@@ -695,7 +732,10 @@ public class JaravelExtension implements BeforeAllCallback, BeforeEachCallback,
 ## 10. 待决问题
 
 - [ ] `FeatureTest` 不经过 Servlet 容器,会漏掉哪些 bug?(multipart 解析差异、字符编码、Filter 行为)。需要一组「双跑」测试:同一断言分别在 `FeatureTest` 和 `@HttpServerTest` 下执行,验证两条路径等价。若差异大,可能需要默认走真实容器。
-- [ ] Testcontainers 作为默认会增加首次测试的耗时(拉镜像)与 CI 对 Docker 的依赖。是否默认 SQLite、文档强烈推荐 Testcontainers?倾向:`jaravel new` 询问,默认 Testcontainers,`--preset=minimal` 用 SQLite。
+- [x] Testcontainers 自动注入:**v0.8 已实现** —— `@UseDatabase` + ContextCustomizer,
+  支持 MySQL / PostgreSQL / MariaDB,默认关闭、Docker 不可用则失败(见 §2.2、ADR-018)。
+  `jaravel new` 是否默认开启仍开放:它会增加首次拉镜像的时间与 CI 的 Docker 依赖,
+  倾向在脚手架里询问。
 - [x] 并行测试的数据库隔离:**v0.8 已实现** —— Surefire `forkCount` +
   `jaravel-testing` 的 `ParallelTestDatabase`(SQLite / PostgreSQL / MySQL,
   见 §6.3、[ADR-017](18-risks-and-decisions.md))。模板库

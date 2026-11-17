@@ -54,6 +54,37 @@
     </dependency>
 
     <!--
+      Testcontainers(docs/14 §2.2)。optional:不用 @UseDatabase 的应用
+      不该拖入 Docker 客户端与数据库容器模块。用到的应用显式声明
+      对应模块(以及 JDBC 驱动)的 test 作用域依赖。
+      版本由 Spring Boot BOM 管理(3.4.1 的 testcontainers.version)。
+    -->
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers</artifactId>
+      <version>${testcontainers.version}</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>mysql</artifactId>
+      <version>${testcontainers.version}</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>postgresql</artifactId>
+      <version>${testcontainers.version}</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>mariadb</artifactId>
+      <version>${testcontainers.version}</version>
+      <optional>true</optional>
+    </dependency>
+
+    <!--
       并行测试的服务端库契约测试(test scope,不传递):
       默认跳过,只有设置 JARAVEL_TEST_PG_URL / JARAVEL_TEST_MYSQL_URL /
       JARAVEL_TEST_MARIADB_URL 时才真的建库。把驱动放在测试里,

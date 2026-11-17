@@ -3,6 +3,7 @@ package io.jaravel.spring;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -95,11 +96,50 @@ public class JaravelAutoConfiguration {
 
         // ${VAR} 的解析委托给 Spring 的 Environment —— 这样 .env、系统属性、
         // 环境变量、application.yml 全都能作为来源,无需各自实现一遍
+        applyOverrides(tree, environment);
         var config = new MapConfigRepository(tree, environment::getProperty);
 
         Application.setEnvironment(config.string("app.env", "production"));
         Application.setDebug(config.bool("app.debug", false));
         return config;
+    }
+
+    /**
+     * Spring 属性对 {@code config/*.yml} 的**显式覆盖**。
+     *
+     * <p>目前只有两个键,而且都是测试基础设施需要的:
+     * <ul>
+     *   <li>{@code jaravel.database.default} —— Testcontainers 把测试库换成
+     *       MySQL/Postgres 时,Grammar 也必须跟着换。只改
+     *       {@code spring.datasource.url} 会得到「MySQL 上跑 SQLite 语法」;</li>
+     *   <li>{@code jaravel.migrate.on-boot} —— 新库是空的,必须在上下文启动时迁移。</li>
+     * </ul>
+     *
+     * <p>只允许这两个键,不做通用覆盖:配置优先级越隐晦,排查越贵。
+     */
+    static void applyOverrides(Map<String, Object> tree, Environment environment) {
+        override(tree, "database.default", environment.getProperty("jaravel.database.default"));
+        override(tree, "jaravel.migrate.on-boot", environment.getProperty("jaravel.migrate.on-boot"));
+    }
+
+    private static void override(Map<String, Object> tree, String path, String value) {
+        if (value == null || value.isBlank()) return;
+
+        String[] parts = path.split("\\.");
+        Map<String, Object> node = tree;
+        for (int i = 0; i < parts.length - 1; i++) {
+            Object child = node.get(parts[i]);
+            if (!(child instanceof Map<?, ?>)) {
+                var created = new LinkedHashMap<String, Object>();
+                node.put(parts[i], created);
+                node = created;
+            } else {
+                @SuppressWarnings("unchecked")
+                var map = (Map<String, Object>) child;
+                node = map;
+            }
+        }
+        node.put(parts[parts.length - 1], value);
     }
 
     // ================= 数据库 =================

@@ -106,6 +106,11 @@
     <aws-sdk.version>2.25.60</aws-sdk.version>
     <!-- Playwright for Java(浏览器测试);不是 Spring BOM 管理项 -->
     <playwright.version>1.49.0</playwright.version>
+    <!--
+      Testcontainers。Spring Boot 3.4.1 的 BOM 钉的是 1.20.4,
+      而那个版本连不上 Docker Engine 29(测试容器起不来)。显式抬高。
+    -->
+    <testcontainers.version>1.21.3</testcontainers.version>
     <!-- ADR-011:jblade 以 jte 为后端 -->
     <jte.version>3.1.12</jte.version>
     <junit.version>5.11.4</junit.version>
@@ -116,6 +121,18 @@
 
   <dependencyManagement>
     <dependencies>
+      <!--
+        Testcontainers 的传递模块(jdbc / database-commons / testcontainers)
+        会被 Spring Boot BOM 拉回 1.20.4 —— 而那个版本连不上 Docker Engine 29。
+        本 POM 自己的管理条目优先于 import,所以显式钉住整组。
+      -->
+      <dependency><groupId>org.testcontainers</groupId><artifactId>testcontainers</artifactId><version>${testcontainers.version}</version></dependency>
+      <dependency><groupId>org.testcontainers</groupId><artifactId>jdbc</artifactId><version>${testcontainers.version}</version></dependency>
+      <dependency><groupId>org.testcontainers</groupId><artifactId>database-commons</artifactId><version>${testcontainers.version}</version></dependency>
+      <dependency><groupId>org.testcontainers</groupId><artifactId>mysql</artifactId><version>${testcontainers.version}</version></dependency>
+      <dependency><groupId>org.testcontainers</groupId><artifactId>postgresql</artifactId><version>${testcontainers.version}</version></dependency>
+      <dependency><groupId>org.testcontainers</groupId><artifactId>mariadb</artifactId><version>${testcontainers.version}</version></dependency>
+
       <dependency>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-dependencies</artifactId>

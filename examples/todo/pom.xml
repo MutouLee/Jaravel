@@ -15,10 +15,22 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <jaravel.version>0.1.0-SNAPSHOT</jaravel.version>
     <spring-boot.version>3.4.1</spring-boot.version>
+    <!-- 示例不继承 jaravel-parent;Spring Boot 3.4.1 钉的 1.20.4 连不上 Docker 29 -->
+    <testcontainers.version>1.21.3</testcontainers.version>
   </properties>
 
   <dependencyManagement>
     <dependencies>
+      <!--
+        Testcontainers 传递模块会被 Spring Boot BOM 拉回 1.20.4,
+        而那个版本连不上 Docker Engine 29。自己的管理条目优先于 import。
+      -->
+      <dependency><groupId>org.testcontainers</groupId><artifactId>testcontainers</artifactId><version>${testcontainers.version}</version></dependency>
+      <dependency><groupId>org.testcontainers</groupId><artifactId>jdbc</artifactId><version>${testcontainers.version}</version></dependency>
+      <dependency><groupId>org.testcontainers</groupId><artifactId>database-commons</artifactId><version>${testcontainers.version}</version></dependency>
+      <dependency><groupId>org.testcontainers</groupId><artifactId>mysql</artifactId><version>${testcontainers.version}</version></dependency>
+      <dependency><groupId>org.testcontainers</groupId><artifactId>postgresql</artifactId><version>${testcontainers.version}</version></dependency>
+
       <dependency>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-dependencies</artifactId>
@@ -59,6 +71,30 @@
     <dependency>
       <groupId>com.microsoft.playwright</groupId>
       <artifactId>playwright</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- @UseDatabase(MYSQL) 的验收:Testcontainers + MySQL 驱动 -->
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>mysql</artifactId>
+      <version>${testcontainers.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>postgresql</artifactId>
+      <version>${testcontainers.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.mysql</groupId>
+      <artifactId>mysql-connector-j</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>

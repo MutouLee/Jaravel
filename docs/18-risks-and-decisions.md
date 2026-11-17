@@ -418,6 +418,42 @@ docs/14 §6.3 承诺 `jaravel test --parallel --processes=4`。此前既没有 `
 
 ---
 
+## ADR-018 · Testcontainers 用注解 + ContextCustomizer,每 JVM 一个容器
+
+**状态**:已采纳 · **日期**:2026-11-17
+
+**背景**
+docs/14 §2.2 一直承诺 Testcontainers,但仓库只有 SQLite;方言差异仍然可能「测试绿、生产红」。并行测试落地后,也需要真实数据库来验证每 fork 隔离。
+
+**决策**
+- 用户在一个测试类上写 `@UseDatabase(Kind.MYSQL | POSTGRESQL | MARIADB)`;
+- `UseDatabaseContextCustomizerFactory`(注册在 `spring.factories` 的 `ContextCustomizerFactory`)发现注解,在 Spring 上下文刷新前启动/复用一个容器;
+- 注入数据源四件套,同时注入 `jaravel.database.default`(Grammar)与 `jaravel.migrate.on-boot`;
+- 容器按 `(kind, image)` 在 **JVM 内共享**,JVM 退出统一 stop;
+- 默认关闭,`-Djaravel.testcontainers=true` 才跑;显式开启但 Docker 不可用则失败。
+
+**理由**
+1. `ContextCustomizerFactory` 能拿到测试类并参与 Spring 上下文缓存键;换方言必须换上下文,不能复用旧 DataSource。
+2. 只换 JDBC URL 不够:Jaravel 的 SQL 由 Grammar 生成,`database.default` 必须一起改。
+3. 每 JVM 一个容器避免「每类一个容器」的启动成本;测试之间的隔离仍由事务回滚 / 手动清理负责。
+4. 默认关闭避免默认套件拉镜像;与浏览器测试、Redis/RabbitMQ 契约测试同一策略。
+
+**被否决的方案**
+- *JUnit `@Testcontainers` + 静态 `@Container`*:每个测试类都要声明容器与注解,而且不会改 Grammar;
+- *`jdbc:tc:` URL*:Testcontainers JDBC 驱动在连接层起容器,无法注入方言与迁移开关;
+- *每个测试类一个容器*:启动成本翻倍,隔离收益为零;
+- *自动检测 / 无注解*:让默认测试悄悄依赖 Docker,排查成本高。
+
+**代价**
+- Docker 是显式依赖;首次拉镜像慢;
+- 并行时每个 fork 一个容器,容器数 × 进程数;
+- Spring Boot 3.4.1 管理的 Testcontainers 1.20.4 与 Docker Engine 29 不兼容,项目钉 1.21.3 并设置 `api.version=1.44`;更老的 Docker 需覆盖。
+
+**复审条件**
+Testcontainers 修复默认 API 版本后可移除覆盖;若 `jaravel new` 默认开启 Testcontainers,再评估是否把开关改为默认开。
+
+---
+
 # 第二部分:风险登记册
 
 按「概率 × 影响」排序。

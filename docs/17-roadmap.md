@@ -540,7 +540,8 @@ record 返回类型由运行时反射得到;`with()` 的根字段由 APT 从
 > parity 最差 1.29 / 1.30。下一站 v0.8。
 | v0.8 | 浏览器测试(Playwright)✅;并行测试✅;Inertia 适配(可选包);多租户移出 core(ADR-016) | 4 |
 
-> **2026-11-17 调整**:浏览器测试已落地(docs/14 §6.1),并行测试已落地(docs/14 §6.3、ADR-017)。
+> **2026-11-17 调整**:浏览器测试已落地(docs/14 §6.1),并行测试已落地(docs/14 §6.3、ADR-017),
+> Testcontainers 自动注入已落地(docs/14 §2.2、ADR-018)。
 > 「多租户支持包」按 [ADR-016](18-risks-and-decisions.md) 移出核心 —— 核心只保留
 > `ScopedValue`、`@GlobalScope`、可切换 `Connection` 等通用原语,多租户由应用接线
 > 或将来独立的 opt-in 包提供;v1.0 的 `multi-tenant` 示例是验收对象。

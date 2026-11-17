@@ -4,3 +4,8 @@
 # 编译作用域,所以开关必须显式。
 org.springframework.boot.env.EnvironmentPostProcessor=\
 io.jaravel.testing.ParallelTestDatabase
+
+# @UseDatabase:Testcontainers 自动注入(docs/14 §2.2)。
+# 只有标了注解的测试类才会加载 Testcontainers(它在本模块里是 optional)。
+org.springframework.test.context.ContextCustomizerFactory=\
+io.jaravel.testing.testcontainers.UseDatabaseContextCustomizerFactory

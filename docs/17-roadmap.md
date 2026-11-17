@@ -522,8 +522,11 @@ record 返回类型由运行时反射得到;`with()` 的根字段由 APT 从
 > 事件同时实现 `ShouldQueue` 时入队 `BroadcastJob`,worker 再逐频道发布。
 > 第九刀 **tiered 的 L1 跨实例失效**已落地(docs/09 §1.4):
 > `RedisCacheInvalidator` 走 pub/sub,forget 广播 key、flush 广播 `"*"`。
-> 真实 Redis 契约测试在给了 `-Djaravel.test.redis.uri` 时加入。
-> 仍未做:RabbitMQ/Kafka/SQS 驱动。
+> 第十刀 **RabbitMQ 驱动**已落地(docs/10 §1.5):主队列 + delay 队列
+> (TTL+DLX)、basicGet + ack/nack、persistent + publisher confirms;
+> 可见性超时/attempts 持久化等语义差异已写入文档。
+> 真实 Redis / RabbitMQ 契约测试在给了对应连接串时加入。
+> 仍未做:SQS / Kafka。
 | v0.8 | 浏览器测试(Playwright);多租户支持包;Inertia 适配;并行测试 | 4 |
 
 并行进行:**IntelliJ 插件**(8~12 周,独立人力)。

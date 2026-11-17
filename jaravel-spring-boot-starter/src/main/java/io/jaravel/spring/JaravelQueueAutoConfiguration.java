@@ -25,6 +25,7 @@ import io.jaravel.queue.store.DatabaseBatchRepository;
 import io.jaravel.queue.store.DatabaseFailedJobStore;
 import io.jaravel.queue.store.DatabaseQueue;
 import io.jaravel.queue.store.NullQueue;
+import io.jaravel.queue.store.RabbitQueue;
 import io.jaravel.queue.store.RedisBatchRepository;
 import io.jaravel.queue.store.RedisFailedJobStore;
 import io.jaravel.queue.store.RedisQueue;
@@ -75,6 +76,11 @@ public class JaravelQueueAutoConfiguration {
     /** redis 队列驱动是否可用 —— Lettuce 是 jaravel-queue 的 optional 依赖 */
     private static final boolean LETTUCE_PRESENT = org.springframework.util.ClassUtils
             .isPresent("io.lettuce.core.RedisClient",
+                       JaravelQueueAutoConfiguration.class.getClassLoader());
+
+    /** rabbitmq 队列驱动是否可用 —— amqp-client 是 jaravel-queue 的 optional 依赖 */
+    private static final boolean RABBIT_PRESENT = org.springframework.util.ClassUtils
+            .isPresent("com.rabbitmq.client.Channel",
                        JaravelQueueAutoConfiguration.class.getClassLoader());
 
     @Bean
@@ -288,13 +294,33 @@ public class JaravelQueueAutoConfiguration {
                         config.string(path + ".prefix", RedisQueue.DEFAULT_PREFIX)));
             }
 
+            case "rabbitmq" -> {
+                if (!RABBIT_PRESENT) {
+                    throw new IllegalStateException("""
+                            队列连接 "%s" 用 rabbitmq 驱动,但 AMQP 客户端不在 classpath 上。
+                              加这段到 pom:
+                                <dependency>
+                                  <groupId>com.rabbitmq</groupId>
+                                  <artifactId>amqp-client</artifactId>
+                                </dependency>
+                              或把 queue.default / queue.connections 改成 database / redis / sync。"""
+                            .formatted(name));
+                }
+                queues.register(name, m -> new RabbitQueue(
+                        config.string(path + ".uri",
+                                "amqp://guest:guest@localhost:5672/%2f"),
+                        serializer,
+                        config.string(path + ".prefix", RabbitQueue.DEFAULT_PREFIX)));
+            }
+
             default -> throw new IllegalStateException("""
                     队列连接 "%s" 的 driver "%s" 不支持。%s
-                      内置:database / sync / null / redis
-                      sqs / rabbitmq / kafka 列入 v0.7 后续 —— 它们需要各自的客户端依赖。
+                      内置:database / sync / null / redis / rabbitmq
+                      sqs / kafka 尚未实现 —— 它们需要各自的客户端依赖。
                       自定义驱动:实现 QueueStore 并提供一个 QueueManager @Bean。"""
                     .formatted(name, driver,
-                               Arr.closest(driver, List.of("database", "sync", "null", "redis"))
+                               Arr.closest(driver,
+                                           List.of("database", "sync", "null", "redis", "rabbitmq"))
                                   .map(c -> "\n  是否想写 \"" + c + "\" ?").orElse("")));
         }
     }

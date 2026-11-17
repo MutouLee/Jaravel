@@ -297,7 +297,7 @@ QueueWorker
 |---|---|---|
 | `database` | `jobs` / `failed_jobs` / `job_batches` 表 | 零额外依赖,小项目够用。**v0.4 实现用乐观锁 UPDATE 而不是 `SKIP LOCKED`** —— 见下 |
 | `redis` | `RedisQueue`(Lettuce + Lua) | 生产默认。**v0.7 已实现** —— 见下 |
-| `rabbitmq` | amqp-client | 需要复杂路由/多语言消费者时,**未实现** |
+| `rabbitmq` | `RabbitQueue`(amqp-client) | 需要复杂路由/多语言消费者时。**v0.7 已实现** —— 见下 |
 | `kafka` | kafka-clients | 高吞吐事件流;**语义不同**(无单任务重试),文档明确说明限制。**未实现** |
 | `sqs` | AWS SDK v2 | **未实现** |
 | `sync` | 立即同步执行 | 开发/测试默认 |
@@ -341,6 +341,39 @@ QueueWorker
 > `-Djaravel.test.redis.uri=redis://127.0.0.1:6379/15`(或环境变量
 > `JARAVEL_TEST_REDIS_URI`)才跑;用 DB 15 + 唯一前缀,结束时清理。
 
+> ### v0.7:RabbitMQ 驱动已实现(amqp-client)
+>
+> **队列布局**:主队列 `{p}{queue}` + 延迟队列 `{p}{queue}:delay`
+> (per-message TTL + `x-dead-letter` 回主队列)。
+>
+> `push`/`pop` 用 `basicGet`;`delete` = ack;`release` = **重发更新后的
+> payload 再 ack 原消息**(不 requeue:原 payload 里的 attempts 是旧的);
+> 消息 persistent + publisher confirms;single channel 加锁串行化
+> (AMQP `Channel` 不是线程安全的)。
+>
+> **语义差异(必须知道)**:
+> - **没有可见性超时**:`retryAfter` 被忽略,`touch` 只回答「这条消息
+>   还在本实例的 unacked 表里」。worker 进程死掉时连接断开、broker 立即
+>   重投;但 worker 活着只是卡住时,消息会一直 unacked;
+> - **崩溃重投不增加 attempts**:payload 里那份是旧的。要严格计数需要
+>   额外的 Redis/DB 尝试存储,当前不做;
+> - **延迟队列是 per-message TTL + 死信**:先入的长 TTL 会挡住后入的短
+>   TTL(head-of-line)。重试 backoff 通常递增(10s → 60s → 300s),
+>   这个顺序下不会触发;任意乱序延迟要么按 TTL 分桶,要么用插件;
+> - `size` **不含 unacked**;`clear` 只 purge ready 消息。
+>
+> `failed_jobs` / `job_batches` 没有 rabbitmq 版本 —— 用 database 或 redis。
+>
+> **测试**:`RabbitQueueTest` 8 条(push/pop/delete、FIFO、延迟、release、
+> touch、size、clear、连接断开重投)。给了
+> `-Djaravel.test.rabbitmq.uri=amqp://guest:guest@127.0.0.1:5672/%2f`
+> (或环境变量 `JARAVEL_TEST_RABBITMQ_URI`)才跑:
+>
+> ```bash
+> docker run -d --name jaravel-rabbitmq \
+>   -p 5672:5672 -p 15672:15672 rabbitmq:3-management
+> ```
+
 > **为什么 database 驱动没用 `SELECT … FOR UPDATE SKIP LOCKED`**
 >
 > 它只在 MySQL 8.0+ / PostgreSQL 9.5+ 上有,老版本与 SQLite 都没有,
@@ -375,6 +408,12 @@ queue:
     redis:
       driver: redis
       uri: redis://localhost:6379/0     # 密码/库都写在 URI 里
+      prefix: jaravel:queue:
+      queue: default
+      retry-after: 90s
+    rabbitmq:
+      driver: rabbitmq
+      uri: amqp://guest:guest@localhost:5672/%2f
       prefix: jaravel:queue:
       queue: default
       retry-after: 90s

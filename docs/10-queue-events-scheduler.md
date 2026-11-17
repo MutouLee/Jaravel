@@ -434,6 +434,48 @@ Queue.failing(event -> Notification.route("slack", OPS).notify(new JobFailedAler
 
 `jaravel-dashboard`:Web 界面展示队列吞吐、等待时间、失败任务、批处理进度、worker 状态,支持重试与清理。对应 Laravel Horizon。这是**采纳率的重要加分项**——运维可见性是企业选型的硬指标。
 
+> ### v0.7:已实现(第一版)
+>
+> **模块划分**:`jaravel-dashboard` 是零 Spring 的数据聚合层
+> (`DashboardService`),HTML / HTTP 适配在 starter 里
+> (`DashboardRoutes` + `DashboardController`)。模板
+> `views/dashboard/index.jblade.html` 走 classpath 视图回落。
+>
+> **能看到什么**:
+> - 每个连接×队列的积压(`QueueStore.size`);
+> - 失败任务(最近 50 条)+ 按队列的失败计数,可**重试 / 删除 / 清空**;
+> - 最近 20 个批次的进度、失败数、状态;
+> - **进程内 worker** 的 processed / succeeded / failed / released / inFlight。
+>
+> **配置**:
+>
+> ```yaml
+> dashboard:
+>   enabled: ${DASHBOARD_ENABLED:false}   # 默认 = app.debug
+>   path: /_jaravel/dashboard
+>   middleware: web                       # 默认 web(会话 + CSRF)
+>   queues: default,mail                  # 默认 queue.worker.queues,再退到默认队列
+> ```
+>
+> **安全**:默认**只在 debug/local 下开**。生产要开就显式
+> `enabled: true`,并把 middleware 改成 `web,auth`(或你自己的授权中间件)
+> —— 面板会展示失败任务的异常消息与队列积压,不该默认公开。
+> 重试/清空是 POST + CSRF;GET 的 JSON 概览也走 `web` 组。
+>
+> **已知限制(诚实列出)**:
+> - **独立 worker 进程看不到** —— 没有心跳注册,面板只覆盖
+>   `queue.worker.enabled=true` 的进程内 worker;
+> - 积压是**当前计数**,不是历史吞吐/等待时间;每个队列一次
+>   `COUNT(*)`(SQL 驱动),队列多时是 N 次查询。历史曲线需要
+>   指标存储,列入后续;
+> - 失败列表只显示前 50 条;重试/清空已有,但**没有「全部重试」**;
+> - 批次只能看,不能在面板里取消。
+>
+> **测试**:`DashboardServiceTest` 4 条(聚合、坏数据源变 warnings、
+> retry 回原连接、forget/flush);`DashboardRoutesTest` 3 条
+> (注册 5 条路由、关闭时 0 条、路径规整);`examples/queue` 的
+> `DashboardE2eTest` 3 条(真实 HTTP:模板渲染、JSON 概览、debug 下打开)。
+
 ---
 
 ## 2. 事件

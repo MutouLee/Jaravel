@@ -59,5 +59,24 @@ public interface FailedJobStore {
     record FailedJob(long id, String uuid, String connection, String queue,
                      String displayName, String payload, String exception,
                      Instant failedAt) {
+
+        /**
+         * 一行「为什么失败」—— 取**根因**,不是第一行。
+         *
+         * <p>worker 会把任务的异常包一层(「已尝试 N 次…」),
+         * 第一行每一条都一样;真正区分它们的是最后一个
+         * {@code Caused by}。控制台表格与 dashboard 都需要这个。
+         */
+        public String reason() {
+            if (exception == null || exception.isBlank()) return "";
+
+            String line = exception.lines()
+                    .filter(l -> l.stripLeading().startsWith("Caused by:"))
+                    .reduce((first, last) -> last)
+                    .map(l -> l.stripLeading().substring("Caused by:".length()).trim())
+                    .orElseGet(() -> exception.lines().findFirst().orElse(""));
+
+            return line.length() > 80 ? line.substring(0, 77) + "…" : line;
+        }
     }
 }

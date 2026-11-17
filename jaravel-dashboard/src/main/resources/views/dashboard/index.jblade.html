@@ -1,0 +1,127 @@
+@params(io.jaravel.dashboard.DashboardService.Overview data, String base)
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="refresh" content="15">
+  <title>Jaravel 队列面板</title>
+  <style>
+    :root { --fg:#1f2937; --muted:#6b7280; --line:#e5e7eb; --bg:#f9fafb; --accent:#2563eb; --danger:#dc2626 }
+    * { box-sizing:border-box }
+    body { font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; color:var(--fg);
+           background:var(--bg); max-width:1080px; margin:0 auto; padding:32px 20px }
+    h1 { font-size:24px; margin:0 0 4px }
+    h2 { font-size:16px; margin:28px 0 8px }
+    .muted { color:var(--muted); font-size:12px }
+    table { width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--line);
+            border-radius:8px; overflow:hidden }
+    th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top }
+    th { background:#f3f4f6; font-size:12px; color:var(--muted); font-weight:600 }
+    tr:last-child td { border-bottom:0 }
+    .num { text-align:right; font-variant-numeric:tabular-nums }
+    .err { color:var(--danger); font-size:12px; max-width:320px }
+    .warn { background:#fef3c7; border:1px solid #fcd34d; border-radius:8px; padding:10px 12px; margin:16px 0 }
+    .ok { color:#047857 }
+    form { display:inline }
+    button { font:inherit; font-size:12px; padding:3px 9px; border:1px solid var(--line);
+             border-radius:5px; background:#fff; cursor:pointer }
+    button:hover { border-color:var(--accent); color:var(--accent) }
+    button.danger:hover { border-color:var(--danger); color:var(--danger) }
+    .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px }
+    .card { background:#fff; border:1px solid var(--line); border-radius:8px; padding:10px 12px }
+    .card b { display:block; font-size:20px; font-variant-numeric:tabular-nums }
+  </style>
+</head>
+<body>
+  <h1>队列面板</h1>
+  <p class="muted">生成于 {{ data.generatedAt().toString() }} · 每 15 秒自动刷新</p>
+
+  @if(!data.warnings().isEmpty())
+    <div class="warn">
+      <strong>部分数据读不到</strong>
+      <ul>
+        @foreach(data.warnings() as warning)
+          <li>{{ warning }}</li>
+        @endforeach
+      </ul>
+    </div>
+  @endif
+
+  <h2>Worker</h2>
+  @if(data.worker() == null)
+    <p class="muted">没有进程内 worker。独立 worker 进程没有心跳注册,面板看不到它们。</p>
+  @else
+    <div class="cards">
+      <div class="card"><span class="muted">连接 / 队列</span><b>{{ data.worker().connection() }}</b>{{ String.join(", ", data.worker().queues()) }}</div>
+      <div class="card"><span class="muted">并发</span><b>{{ data.worker().concurrency() }}</b></div>
+      <div class="card"><span class="muted">处理中</span><b>{{ data.worker().inFlight() }}</b></div>
+      <div class="card"><span class="muted">已处理</span><b>{{ data.worker().processed() }}</b></div>
+      <div class="card"><span class="muted">成功</span><b>{{ data.worker().succeeded() }}</b></div>
+      <div class="card"><span class="muted">失败</span><b>{{ data.worker().failed() }}</b></div>
+      <div class="card"><span class="muted">放回</span><b>{{ data.worker().released() }}</b></div>
+    </div>
+  @endif
+
+  <h2>队列</h2>
+  <table>
+    <thead><tr><th>连接</th><th>队列</th><th class="num">积压</th><th class="num">失败</th><th>错误</th></tr></thead>
+    <tbody>
+      @foreach(data.queues() as q)
+        <tr>
+          <td>{{ q.connection() }}</td>
+          <td>{{ q.queue() }}</td>
+          <td class="num">@if(q.pending() < 0) — @else {{ q.pending() }} @endif</td>
+          <td class="num">{{ q.failed() }}</td>
+          <td class="err">@if(q.error() != null) {{ q.error() }} @endif</td>
+        </tr>
+      @endforeach
+    </tbody>
+  </table>
+
+  <h2>失败任务 <span class="muted">共 {{ data.failedTotal() }} 条@if(data.failedTotal() > data.failed().size()),显示前 {{ data.failed().size() }} 条@endif</span></h2>
+  @if(data.failed().isEmpty())
+    <p class="ok">没有失败任务。</p>
+  @else
+    <table>
+      <thead><tr><th>id</th><th>队列</th><th>任务</th><th>原因</th><th>时间</th><th></th></tr></thead>
+      <tbody>
+        @foreach(data.failed() as f)
+          <tr>
+            <td>{{ f.id() }}</td>
+            <td>{{ f.queue() }}</td>
+            <td>{{ f.displayName() }}</td>
+            <td>{{ f.reason() }}</td>
+            <td class="muted">{{ f.failedAt().toString() }}</td>
+            <td>
+              <form method="post" action="{{ base }}/failed/{{ f.id() }}/retry">@csrf<button>重试</button></form>
+              <form method="post" action="{{ base }}/failed/{{ f.id() }}/forget">@csrf<button class="danger">删除</button></form>
+            </td>
+          </tr>
+        @endforeach
+      </tbody>
+    </table>
+    <form method="post" action="{{ base }}/failed/flush" onsubmit="return confirm('清空全部失败记录?')">@csrf<button class="danger">清空全部</button></form>
+  @endif
+
+  <h2>批次</h2>
+  @if(data.batches().isEmpty())
+    <p class="muted">没有批次。</p>
+  @else
+    <table>
+      <thead><tr><th>名称</th><th class="num">进度</th><th class="num">失败</th><th>状态</th><th>创建</th></tr></thead>
+      <tbody>
+        @foreach(data.batches() as b)
+          <tr>
+            <td>@if(b.name() == null) (未命名) @else {{ b.name() }} @endif</td>
+            <td class="num">{{ b.processedJobs() }}/{{ b.totalJobs() }}</td>
+            <td class="num">{{ b.failedJobs() }}</td>
+            <td>@if(b.isFinished()) 完成 @elseif(b.isCancelled()) 已取消 @else 进行中 @endif</td>
+            <td class="muted">{{ b.createdAt().toString() }}</td>
+          </tr>
+        @endforeach
+      </tbody>
+    </table>
+  @endif
+</body>
+</html>

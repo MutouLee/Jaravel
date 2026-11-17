@@ -47,6 +47,10 @@
     </dependency>
     <dependency>
       <groupId>io.jaravel</groupId>
+      <artifactId>jaravel-dashboard</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.jaravel</groupId>
       <artifactId>jaravel-events</artifactId>
     </dependency>
     <dependency>

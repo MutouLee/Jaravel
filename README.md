@@ -3,7 +3,7 @@
 > Laravel 级开发体验,构建在 Spring Boot 之上的 Java 应用框架。
 
 **当前状态:v0.6 已收口(v0.7 进行中)。**
-34 个模块、**2558 个测试**全绿(给了 Redis 连接串时 **2596**),四个示例应用都在构建里
+35 个模块、**2568 个测试**全绿(给了 Redis 连接串时 **2606**),四个示例应用都在构建里
 (`examples/{todo,blog,auth,queue}`)。
 队列 / 事件 / 调度 / 邮件 / 通知 / 存储到位(v0.4),
 终端上有 **42 条命令**、本地命令通道、冷启动启动器、`jaravelw`、`tinker`;
@@ -22,7 +22,8 @@ v0.6 已收口:jblade **类组件**已落地(`<x-post-card :post="post" />`);
 **v0.7 进度**:cache / session / queue / 广播的 **redis 驱动**已落地
 (`RedisStore` + `RedisQueue` + `RedisWsHub`、Lettuce、惰性连接、
 `SET NX PX` / `INCRBY`、Lua 原子 pop、pub/sub 多实例扇出 + 分布式 presence;
-docs/09 §1.4、docs/10 §1.5、docs/19 §6.2)。
+docs/09 §1.4、docs/10 §1.5、docs/19 §6.2);
+**`jaravel-dashboard`**(队列面板)已落地(docs/10 §1.8)。
 
 ```bash
 jaravel make:model Post -mcr     # 182ms,不启动任何容器
@@ -154,6 +155,7 @@ jaravel-events/           事件总线、队列化监听器、Spring 桥接
 jaravel-events-processor/ @Listener 的 APT:强类型绑定 + 索引(运行时零反射、零扫包)
 jaravel-api-processor/    JsonResource.toArray → 响应 schema 的 APT(写 api-resources.idx)
 jaravel-scheduler/        Schedule DSL、进程内调度器、多实例去重(onOneServer)
+jaravel-dashboard/        队列面板:积压 / 失败任务(重试/删除)/ 批次 / worker 状态
 jaravel-mail/             Mailable、SMTP/log/array、内置邮件组件 <x-mail::*>
 jaravel-notifications/    多渠道通知(database / mail)、Notifiable
 jaravel-broadcasting/     广播:ShouldBroadcast、频道与鉴权、Pusher 协议子集、redis hub(pub/sub + presence)

@@ -31,6 +31,7 @@
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-migration</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-validation</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-queue</artifactId><version>${jaravel.version}</version></dependency>
+      <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-dashboard</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-events</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-events-processor</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-scheduler</artifactId><version>${jaravel.version}</version></dependency>

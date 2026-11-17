@@ -507,6 +507,9 @@ record 返回类型由运行时反射得到;`with()` 的根字段由 APT 从
 > 扇出 + 每实例 presence hash + TTL,WS 协议层不变。
 > starter 的 **`tiered`** 配置项也接上了(docs/09 §1.4):
 > L1 / L2 通过 `CacheManager.storeRaw` 复用同一实例。
+> 第四刀 **`jaravel-dashboard`** 已落地(docs/10 §1.8):
+> 队列积压 / 失败任务(重试/删除/清空)/ 批次进度 / 进程内 worker,
+> 零 Spring 聚合层 + starter 的 HTML/JSON 端点;默认只在 debug 下开。
 > 真实 Redis 契约测试在给了 `-Djaravel.test.redis.uri` 时加入。
 > 仍未做:dashboard、RBAC、RabbitMQ/Kafka/SQS、failed_jobs/job_batches
 > 的 redis 版本、ShouldBroadcast 的队列化。

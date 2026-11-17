@@ -510,8 +510,10 @@ record 返回类型由运行时反射得到;`with()` 的根字段由 APT 从
 > 第四刀 **`jaravel-dashboard`** 已落地(docs/10 §1.8):
 > 队列积压 / 失败任务(重试/删除/清空)/ 批次进度 / 进程内 worker,
 > 零 Spring 聚合层 + starter 的 HTML/JSON 端点;默认只在 debug 下开。
+> 第五刀 **幂等性中间件**已落地(docs/12 §6.5):`Idempotency-Key`、
+> 响应快照存 Cache、并发 409、5xx 不缓存。
 > 真实 Redis 契约测试在给了 `-Djaravel.test.redis.uri` 时加入。
-> 仍未做:dashboard、RBAC、RabbitMQ/Kafka/SQS、failed_jobs/job_batches
+> 仍未做:RBAC、RabbitMQ/Kafka/SQS、failed_jobs/job_batches
 > 的 redis 版本、ShouldBroadcast 的队列化。
 | v0.8 | 浏览器测试(Playwright);多租户支持包;Inertia 适配;并行测试 | 4 |
 

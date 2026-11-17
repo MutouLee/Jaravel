@@ -3,7 +3,7 @@
 > Laravel 级开发体验,构建在 Spring Boot 之上的 Java 应用框架。
 
 **当前状态:v0.6 已收口(v0.7 进行中)。**
-35 个模块、**2568 个测试**全绿(给了 Redis 连接串时 **2606**),四个示例应用都在构建里
+35 个模块、**2580 个测试**全绿(给了 Redis 连接串时 **2618**),四个示例应用都在构建里
 (`examples/{todo,blog,auth,queue}`)。
 队列 / 事件 / 调度 / 邮件 / 通知 / 存储到位(v0.4),
 终端上有 **42 条命令**、本地命令通道、冷启动启动器、`jaravelw`、`tinker`;
@@ -23,7 +23,8 @@ v0.6 已收口:jblade **类组件**已落地(`<x-post-card :post="post" />`);
 (`RedisStore` + `RedisQueue` + `RedisWsHub`、Lettuce、惰性连接、
 `SET NX PX` / `INCRBY`、Lua 原子 pop、pub/sub 多实例扇出 + 分布式 presence;
 docs/09 §1.4、docs/10 §1.5、docs/19 §6.2);
-**`jaravel-dashboard`**(队列面板)已落地(docs/10 §1.8)。
+**`jaravel-dashboard`**(队列面板)已落地(docs/10 §1.8);
+**幂等性中间件**已落地(docs/12 §6.5)。
 
 ```bash
 jaravel make:model Post -mcr     # 182ms,不启动任何容器

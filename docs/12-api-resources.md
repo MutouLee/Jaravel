@@ -311,9 +311,8 @@ Cursored<User> c  = User.query().cursorPaginate(15);     // 游标(大表/无限
 >
 > #### 还没有的
 >
-> `links()` 模板辅助(§2.4)· §4 版本化 ·
-> §6.5 幂等性(文档自己列在 v0.7)。
-> §5 OpenAPI 与 §6.2 内容协商已经实现(见各自的小节)。
+> `links()` 模板辅助(§2.4)· §4 版本化。
+> §5 OpenAPI、§6.2 内容协商与 §6.5 幂等性已经实现(见各自的小节)。
 
 ### 2.3 与 Resource 结合
 
@@ -496,7 +495,7 @@ api:
 >
 > #### 还没有的
 >
-> §4 版本化 · §5 OpenAPI · §6 的条件请求 / CORS / 请求 ID / 幂等性。
+> §4 版本化(§5 OpenAPI 与 §6.5 幂等性已实现)。
 
 ---
 
@@ -1037,9 +1036,47 @@ cors:
 
 ```java
 r.post("/payments", PaymentController::store).middleware("idempotent");
+// 客户端:Idempotency-Key: 9c1a…
 ```
 
 客户端传 `Idempotency-Key` 头,同 key 的重复请求返回首次的响应(存 Cache,TTL 可配)。支付类接口的硬需求,Laravel 生态需要第三方包。列入 v0.7。
+
+> ### v0.7:已实现(`idempotent` 中间件)
+>
+> 配置:
+>
+> ```yaml
+> api:
+>   idempotency:
+>     ttl: 24h                 # 成功响应存多久
+>     in-flight-ttl: 60s       # 「处理中」占位多久;要大于正常请求时长
+>     header: Idempotency-Key  # 请求头名
+> ```
+>
+> 路由上可以覆盖 TTL 与头名:`middleware("idempotent:86400,X-Idempotency-Key")`。
+>
+> **并发语义**:`cache.add` 是抢占,不是「先查再执行」。第一个请求拿到
+> 占位并执行;同 key 的并发请求拿到「处理中」→ **409 + Retry-After: 1**,
+> 不会跟着执行。执行完成、响应快照写入后,重试拿到的是第一次的响应。
+>
+> **哪些响应缓存**:2xx / 3xx / 4xx;5xx 不缓存(不是确定结果),
+> 处理中途抛异常也会清掉占位 —— 同一个 key 可以安全重试。
+> **同一个 key 换了请求体** → 422,不执行也不重放:直接返回第一次的响应
+> 会让调用方以为第二笔请求成功了,而它根本没被执行。
+>
+> **⚠ 必须用共享缓存**:caffeine/array 下幂等只在单进程内成立,
+> 多实例会各执行一遍。中间件构造时发现默认 store 不共享会打一次警告。
+>
+> **响应快照的限制**:中间件在响应写出**之前**拿到 `Response`,
+> 所以缓存的是 body 的结构(Text / Json 的值 / ViewRef / Bytes /
+> Negotiated),不是最终字节。JSON 的值必须是 JSON 可表示的
+> (Map / record / 基本类型);`JsonResource` 这类由 writer 调 `toArray`
+> 的对象存进去的会是它的字段,重放可能不同。视图会重新渲染;
+> `Set-Cookie` 不重放。支付类接口返回普通 DTO 即可。
+>
+> **实测**:`examples/queue` 的 `IdempotencyFeatureTest` 5 条 ——
+> 同 key 重放(控制器只跑一次)、不同 key 各执行、无 key 不要求、
+> 5xx 可重试、非法 key 400。真实 HTTP 管道 + 真实缓存。
 
 > ### v0.5:§6.1 / §6.3 / §6.4 已实现(21 个测试)
 >

@@ -14,6 +14,7 @@ import io.jaravel.http.Kernel;
 import io.jaravel.http.Middleware;
 import io.jaravel.session.StartSession;
 import io.jaravel.session.VerifyCsrfToken;
+import io.jaravel.spring.middleware.Idempotent;
 
 /**
  * 默认内核:预置 {@code web} / {@code api} 两组与标准别名。
@@ -73,6 +74,7 @@ public class DefaultKernel extends Kernel {
         aliases.put("bindings", SubstituteBindings.class);
         aliases.put("session", StartSession.class);
         aliases.put("csrf", VerifyCsrfToken.class);
+        aliases.put("idempotent", Idempotent.class);                // idempotent / idempotent:86400
         return aliases;
     }
 

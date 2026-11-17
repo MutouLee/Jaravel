@@ -17,7 +17,7 @@ v0.6 已收口:jblade **类组件**已落地(`<x-post-card :post="post" />`);
 **广播已落地**(docs/19):`ShouldBroadcast` 事件广播、频道与鉴权(`Channels.java`)、
 通知 broadcast 渠道、Pusher 协议子集(pusher-js 开箱即用)、ws/null/log 驱动,
 含真实 WS 端点的 e2e 测试。
-下一站 v0.8:浏览器测试(Playwright,✅ 已落地)、多租户、Inertia、并行测试;native 在 v0.9。
+下一站 v0.8:浏览器测试(Playwright,✅ 已落地)、并行测试、Inertia 适配;多租户按 ADR-016 留给 v1.0 示例;native 在 v0.9。
 
 **v0.7 已收口**(详见 [V0.7-RESULT.md](V0.7-RESULT.md)):cache / session /
 queue / 广播的 **redis 驱动**已落地(`RedisStore` + `RedisQueue` +

@@ -421,12 +421,16 @@ User.query().withoutGlobalScopes().get();
 @Model(table = "posts")
 public class Post extends Model<Post> {
     @GlobalScope public static Query<Post> tenant(Query<Post> q) {
-        return Tenancy.current()
+        return TenantContext.current()          // 应用自己的请求作用域租户
                 .map(t -> q.where(Post_.TENANT_ID, t.id()))
                 .orElse(q);
     }
 }
 ```
+
+> `TenantContext` 不是框架提供的类。核心只提供 `@GlobalScope` 与请求作用域;
+> 隔离模型(共享库 / 独立库 / schema)由应用决定 —— 见
+> [ADR-016](18-risks-and-decisions.md)。
 
 ### 5.2 软删除
 

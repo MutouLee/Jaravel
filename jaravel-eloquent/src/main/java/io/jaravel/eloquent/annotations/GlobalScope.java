@@ -8,10 +8,11 @@ import java.lang.annotation.Target;
 /**
  * 全局查询作用域:该模型的<b>每次</b>查询都自动套上。
  *
- * <p>典型用途是多租户隔离:
+ * <p>典型用途是多租户隔离。核心不绑定多租户 —— {@code TenantContext}
+ * 由应用在自己的请求作用域里提供(见 ADR-016):
  * <pre>{@code
  * @GlobalScope public static Query<Post> tenant(Query<Post> q) {
- *     return Tenancy.current().map(t -> q.where(Post_.tenantId, t.id())).orElse(q);
+ *     return TenantContext.current().map(t -> q.where(Post_.tenantId, t.id())).orElse(q);
  * }
  * }</pre>
  *

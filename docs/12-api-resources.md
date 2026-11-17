@@ -375,7 +375,8 @@ public class Handler extends ExceptionHandler {
 
     /** 自定义上下文(附加到所有异常日志) */
     @Override protected Map<String, Object> context() {
-        return Map.of("tenant", Tenancy.current().map(T::id).orElse(null));
+        // TenantContext 是应用自己的请求作用域对象(核心不提供,见 ADR-016)
+        return Map.of("tenant", TenantContext.current().map(T::id).orElse(null));
     }
 }
 ```

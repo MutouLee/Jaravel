@@ -3,7 +3,7 @@
 > Laravel 级开发体验,构建在 Spring Boot 之上的 Java 应用框架。
 
 **当前状态:v0.6 已收口(v0.7 进行中)。**
-36 个模块、**2616 个测试**全绿(给了 Redis 连接串时 **2667**;同时给 RabbitMQ 时 **2675**),四个示例应用都在构建里
+36 个模块、**2616 个测试**全绿(给了 Redis 连接串时 **2667**;同时给 RabbitMQ 时 **2675**;再加上 SQS 时 **2681**),四个示例应用都在构建里
 (`examples/{todo,blog,auth,queue}`)。
 队列 / 事件 / 调度 / 邮件 / 通知 / 存储到位(v0.4),
 终端上有 **42 条命令**、本地命令通道、冷启动启动器、`jaravelw`、`tinker`;
@@ -29,7 +29,8 @@ docs/09 §1.4、docs/10 §1.5、docs/19 §6.2);
 **failed_jobs / job_batches 的 redis 版本**已落地(docs/10 §1.5);
 **`ShouldBroadcast` 的队列化**已落地(docs/19 §8);
 **tiered 的 L1 跨实例失效**已落地(docs/09 §1.4);
-**RabbitMQ 队列驱动**已落地(docs/10 §1.5)。
+**RabbitMQ 队列驱动**已落地(docs/10 §1.5);
+**SQS 队列驱动**已落地(docs/10 §1.5)。
 
 ```bash
 jaravel make:model Post -mcr     # 182ms,不启动任何容器
@@ -157,7 +158,7 @@ jaravel-cache/            7 个驱动(caffeine / redis / database / file / array
 jaravel-session/          4 个驱动、flash、CSRF、会话生命周期
 jaravel-auth/             Session/Token/JWT guard、Gate/Policy、哈希、密码重置、邮箱验证
 jaravel-permissions/      RBAC:角色/权限、Array/Database 存储、HasPermissions、role/permission 中间件
-jaravel-queue/            队列契约、database/sync/redis/rabbitmq 驱动、虚拟线程 worker、chain / batch / 唯一性
+jaravel-queue/            队列契约、database/sync/redis/rabbitmq/sqs 驱动、虚拟线程 worker、chain / batch / 唯一性
 jaravel-events/           事件总线、队列化监听器、Spring 桥接
 jaravel-events-processor/ @Listener 的 APT:强类型绑定 + 索引(运行时零反射、零扫包)
 jaravel-api-processor/    JsonResource.toArray → 响应 schema 的 APT(写 api-resources.idx)

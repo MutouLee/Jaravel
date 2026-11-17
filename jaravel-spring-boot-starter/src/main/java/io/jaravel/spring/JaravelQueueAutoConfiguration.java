@@ -29,6 +29,7 @@ import io.jaravel.queue.store.RabbitQueue;
 import io.jaravel.queue.store.RedisBatchRepository;
 import io.jaravel.queue.store.RedisFailedJobStore;
 import io.jaravel.queue.store.RedisQueue;
+import io.jaravel.queue.store.SqsQueue;
 import io.jaravel.queue.store.SyncQueue;
 import io.jaravel.support.Arr;
 
@@ -81,6 +82,11 @@ public class JaravelQueueAutoConfiguration {
     /** rabbitmq 队列驱动是否可用 —— amqp-client 是 jaravel-queue 的 optional 依赖 */
     private static final boolean RABBIT_PRESENT = org.springframework.util.ClassUtils
             .isPresent("com.rabbitmq.client.Channel",
+                       JaravelQueueAutoConfiguration.class.getClassLoader());
+
+    /** sqs 队列驱动是否可用 —— AWS SDK 是 jaravel-queue 的 optional 依赖 */
+    private static final boolean SQS_PRESENT = org.springframework.util.ClassUtils
+            .isPresent("software.amazon.awssdk.services.sqs.SqsClient",
                        JaravelQueueAutoConfiguration.class.getClassLoader());
 
     @Bean
@@ -313,14 +319,39 @@ public class JaravelQueueAutoConfiguration {
                         config.string(path + ".prefix", RabbitQueue.DEFAULT_PREFIX)));
             }
 
+            case "sqs" -> {
+                if (!SQS_PRESENT) {
+                    throw new IllegalStateException("""
+                            队列连接 "%s" 用 sqs 驱动,但 AWS SDK 不在 classpath 上。
+                              加这段到 pom:
+                                <dependency>
+                                  <groupId>software.amazon.awssdk</groupId>
+                                  <artifactId>sqs</artifactId>
+                                </dependency>
+                                <dependency>
+                                  <groupId>software.amazon.awssdk</groupId>
+                                  <artifactId>url-connection-client</artifactId>
+                                </dependency>
+                              或把 queue.default / queue.connections 改成 database / redis / sync。"""
+                            .formatted(name));
+                }
+                queues.register(name, m -> SqsQueue.connect(
+                        config.string(path + ".endpoint", ""),
+                        config.string(path + ".region", "us-east-1"),
+                        config.string(path + ".access-key", ""),
+                        config.string(path + ".secret-key", ""),
+                        serializer,
+                        config.string(path + ".prefix", SqsQueue.DEFAULT_PREFIX)));
+            }
+
             default -> throw new IllegalStateException("""
                     队列连接 "%s" 的 driver "%s" 不支持。%s
-                      内置:database / sync / null / redis / rabbitmq
-                      sqs / kafka 尚未实现 —— 它们需要各自的客户端依赖。
+                      内置:database / sync / null / redis / rabbitmq / sqs
+                      kafka 尚未实现 —— 它的语义与任务队列不同,需要单独设计。
                       自定义驱动:实现 QueueStore 并提供一个 QueueManager @Bean。"""
                     .formatted(name, driver,
-                               Arr.closest(driver,
-                                           List.of("database", "sync", "null", "redis", "rabbitmq"))
+                               Arr.closest(driver, List.of(
+                                           "database", "sync", "null", "redis", "rabbitmq", "sqs"))
                                   .map(c -> "\n  是否想写 \"" + c + "\" ?").orElse("")));
         }
     }

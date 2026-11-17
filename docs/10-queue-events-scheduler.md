@@ -299,7 +299,7 @@ QueueWorker
 | `redis` | `RedisQueue`(Lettuce + Lua) | 生产默认。**v0.7 已实现** —— 见下 |
 | `rabbitmq` | `RabbitQueue`(amqp-client) | 需要复杂路由/多语言消费者时。**v0.7 已实现** —— 见下 |
 | `kafka` | kafka-clients | 高吞吐事件流;**语义不同**(无单任务重试),文档明确说明限制。**未实现** |
-| `sqs` | AWS SDK v2 | **未实现** |
+| `sqs` | `SqsQueue`(AWS SDK v2) | AWS 原生部署。**v0.7 已实现** —— 见下 |
 | `sync` | 立即同步执行 | 开发/测试默认 |
 | `null` | 丢弃 | |
 
@@ -374,6 +374,49 @@ QueueWorker
 >   -p 5672:5672 -p 15672:15672 rabbitmq:3-management
 > ```
 
+> ### v0.7:SQS 驱动已实现(AWS SDK v2)
+>
+> `pop` = `ReceiveMessage` + `VisibilityTimeout`;`delete` =
+> `DeleteMessage`;`release` = 发更新后的 payload 再删原消息;
+> `touch` = `ChangeMessageVisibility`(receipt 失效时返回 false)。
+> 这是三个 broker 里与 `retryAfter` / touch 语义最贴合的。
+>
+> **SQS 的硬限制**:
+> - **延迟最大 15 分钟**(`DelaySeconds` ≤ 900)。更长的 backoff 会被
+>   截断到 900 秒 —— 不丢任务,但节奏与配置不同;
+> - 可见性超时最大 12 小时;
+> - **标准队列不保证顺序**;要严格 FIFO 得用 `.fifo` 队列,当前不做;
+> - **至少一次投递**:消费者崩在 delete 之前会重投,任务可能执行两次;
+> - 消息体最大 256KB;
+> - `size` 是近似值(visible + delayed),不含 in-flight;
+>   `clear` 的 purge 最多 60 秒才完全生效;
+> - 可见性超时重投时 payload 里的 attempts 不会增加 ——
+>   与 RabbitMQ 同一限制。
+>
+> 配置:
+>
+> ```yaml
+> queue:
+>   connections:
+>     sqs:
+>       driver: sqs
+>       region: us-east-1
+>       endpoint: ${AWS_ENDPOINT:}      # 空 = AWS 默认端点;LocalStack/ElasticMQ 填 http://127.0.0.1:9324
+>       access-key: ${AWS_ACCESS_KEY:}
+>       secret-key: ${AWS_SECRET_KEY:}
+>       prefix: jaravel-queue-
+> ```
+>
+> **测试**:`SqsQueueTest` 6 条(push/pop/delete、延迟、release、touch
+> 延长可见性、可见性超时重投、clear)。给了
+> `-Djaravel.test.sqs.endpoint=http://127.0.0.1:9324`(或环境变量
+> `JARAVEL_TEST_SQS_ENDPOINT`)才跑:
+>
+> ```bash
+> docker run -d --name jaravel-elasticmq -p 9324:9324 \
+>   softwaremill/elasticmq-native
+> ```
+
 > **为什么 database 驱动没用 `SELECT … FOR UPDATE SKIP LOCKED`**
 >
 > 它只在 MySQL 8.0+ / PostgreSQL 9.5+ 上有,老版本与 SQLite 都没有,
@@ -415,6 +458,15 @@ queue:
       driver: rabbitmq
       uri: amqp://guest:guest@localhost:5672/%2f
       prefix: jaravel:queue:
+      queue: default
+      retry-after: 90s
+    sqs:
+      driver: sqs
+      region: us-east-1
+      endpoint: ${AWS_ENDPOINT:}
+      access-key: ${AWS_ACCESS_KEY:}
+      secret-key: ${AWS_SECRET_KEY:}
+      prefix: jaravel-queue-
       queue: default
       retry-after: 90s
   failed:

@@ -525,8 +525,11 @@ record 返回类型由运行时反射得到;`with()` 的根字段由 APT 从
 > 第十刀 **RabbitMQ 驱动**已落地(docs/10 §1.5):主队列 + delay 队列
 > (TTL+DLX)、basicGet + ack/nack、persistent + publisher confirms;
 > 可见性超时/attempts 持久化等语义差异已写入文档。
-> 真实 Redis / RabbitMQ 契约测试在给了对应连接串时加入。
-> 仍未做:SQS / Kafka。
+> 第十一刀 **SQS 驱动**已落地(docs/10 §1.5):`ReceiveMessage` +
+> `VisibilityTimeout`、release = 重发 + 删原消息、touch =
+> `ChangeMessageVisibility`;延迟上限 15 分钟等硬限制已写入文档。
+> 真实 Redis / RabbitMQ / ElasticMQ 契约测试在给了对应连接串时加入。
+> 仍未做:Kafka(语义与任务队列不同,需要单独设计)。
 | v0.8 | 浏览器测试(Playwright);多租户支持包;Inertia 适配;并行测试 | 4 |
 
 并行进行:**IntelliJ 插件**(8~12 周,独立人力)。

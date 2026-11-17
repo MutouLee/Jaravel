@@ -102,6 +102,8 @@
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
     <spring-boot.version>3.4.1</spring-boot.version>
+    <!-- AWS SDK v2(SQS 驱动)。Spring Boot BOM 不管理 AWS SDK,显式钉版本 -->
+    <aws-sdk.version>2.25.60</aws-sdk.version>
     <!-- ADR-011:jblade 以 jte 为后端 -->
     <jte.version>3.1.12</jte.version>
     <junit.version>5.11.4</junit.version>

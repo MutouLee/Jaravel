@@ -58,6 +58,21 @@
       <optional>true</optional>
     </dependency>
 
+    <!-- sqs 队列驱动;不用它的人不必拉 AWS SDK -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>sqs</artifactId>
+      <version>${aws-sdk.version}</version>
+      <optional>true</optional>
+    </dependency>
+    <!-- SDK 需要一个同步 HTTP 客户端实现;URLConnection 最轻 -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>url-connection-client</artifactId>
+      <version>${aws-sdk.version}</version>
+      <optional>true</optional>
+    </dependency>
+
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>

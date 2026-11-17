@@ -3,14 +3,18 @@ package io.jaravel.spring;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.ArrayList;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import io.jaravel.cache.CacheInvalidator;
 import io.jaravel.cache.CacheManager;
 import io.jaravel.cache.CacheStore;
 import io.jaravel.cache.store.ArrayStore;
+import io.jaravel.cache.store.TieredStore;
 import io.jaravel.core.config.MapConfigRepository;
 import io.jaravel.session.SessionStore;
 
@@ -115,10 +119,49 @@ class CacheAndSessionWiringTest {
                         "l2", "l2",
                         "l1-ttl", "30s")))));
 
-        JaravelAuthAutoConfiguration.registerTiered(manager, config);
+        JaravelAuthAutoConfiguration.registerTiered(manager, config, null);
         manager.store("tiered").put("k", "v", java.time.Duration.ofMinutes(1));
 
         assertThat(manager.store("l1").get("k", Object.class)).isPresent();
         assertThat(manager.store("l2").get("k", Object.class)).isPresent();
+    }
+
+    @Test
+    @DisplayName("★ tiered 的 L2 是 redis 才注册失效广播;forget 会发布 key")
+    void tieredInvalidationWiring() {
+        var registered = new AtomicInteger();
+        var published = new ArrayList<String>();
+        CacheInvalidator invalidator = new CacheInvalidator() {
+            @Override public void register(TieredStore store) { registered.incrementAndGet(); }
+            @Override public void publish(String key) { published.add(key); }
+        };
+
+        var manager = new CacheManager()
+                .register("l1", named("l1"))
+                .register("redis", named("redis"))
+                .defaultStore("l1");
+        var config = new MapConfigRepository(Map.of("cache", Map.of("stores", Map.of("tiered",
+                Map.of("l1", "l1", "l2", "redis", "l1-ttl", "30s")))));
+
+        JaravelAuthAutoConfiguration.registerTiered(manager, config, invalidator);
+        manager.store("tiered").put("k", "v", java.time.Duration.ofMinutes(1));
+        manager.store("tiered").forget("k");
+
+        assertThat(registered.get()).isEqualTo(1);
+        assertThat(published).containsExactly("k");
+
+        // L2 不是 redis → 不注册、也不发布(否则每个实例会连一台无关的 Redis)
+        var plain = new CacheManager()
+                .register("l1", named("l1"))
+                .register("plain", named("plain"))
+                .defaultStore("l1");
+        var plainConfig = new MapConfigRepository(Map.of("cache", Map.of("stores", Map.of(
+                "tiered", Map.of("l1", "l1", "l2", "plain", "l1-ttl", "30s")))));
+
+        JaravelAuthAutoConfiguration.registerTiered(plain, plainConfig, invalidator);
+        plain.store("tiered").forget("x");
+
+        assertThat(registered.get()).isEqualTo(1);
+        assertThat(published).containsExactly("k");
     }
 }

@@ -193,7 +193,8 @@ public class JaravelAuthAutoConfiguration {
     @ConditionalOnMissingBean
     public CacheManager jaravelCacheManager(ConfigRepository config,
                                             ObjectProvider<Connection> connection,
-                                            ObjectProvider<CacheCustomizer> customizers) {
+                                            ObjectProvider<CacheCustomizer> customizers,
+                                            ObjectProvider<io.jaravel.cache.CacheInvalidator> invalidator) {
         var manager = new CacheManager()
                 .prefix(config.string("cache.prefix", ""))
                 .register("array", new ArrayStore())
@@ -228,7 +229,7 @@ public class JaravelAuthAutoConfiguration {
         // 自定义驱动后应用 —— 同名时覆盖。
         customizers.orderedStream().forEach(c -> c.customize(manager));
 
-        registerTiered(manager, config);
+        registerTiered(manager, config, invalidator.getIfAvailable());
 
         // 默认值随 classpath 走:有 caffeine 用它(有界、带过期),
         // 没有退回 array。**不能**硬写 caffeine —— 那会让「只想要个登录」
@@ -263,13 +264,27 @@ public class JaravelAuthAutoConfiguration {
      * 工厂是惰性的:tiered 没被取用就不会创建 L1/L2,
      * 配了 redis L2 也不会在启动时连。
      */
-    static void registerTiered(CacheManager manager, ConfigRepository config) {
+    static void registerTiered(CacheManager manager, ConfigRepository config,
+                               io.jaravel.cache.CacheInvalidator invalidator) {
         if (!config.has("cache.stores.tiered")) return;
 
-        manager.register("tiered", m -> new io.jaravel.cache.store.TieredStore(
-                m.storeRaw(config.string("cache.stores.tiered.l1", "caffeine")),
-                m.storeRaw(config.string("cache.stores.tiered.l2", "redis")),
-                config.duration("cache.stores.tiered.l1-ttl", Duration.ofSeconds(30))));
+        manager.register("tiered", m -> {
+            var l1 = m.storeRaw(config.string("cache.stores.tiered.l1", "caffeine"));
+            var l2 = m.storeRaw(config.string("cache.stores.tiered.l2", "redis"));
+
+            // L1 跨实例失效只在「L2 真是 redis」时才有意义:
+            // 别的 L2 没有 pub/sub,硬接一个失效广播只会让每个实例
+            // 连一台无关的 Redis。
+            boolean sharedRedis = invalidator != null && "redis".equals(l2.name());
+
+            var store = new io.jaravel.cache.store.TieredStore(
+                    l1, l2,
+                    config.duration("cache.stores.tiered.l1-ttl", Duration.ofSeconds(30)),
+                    sharedRedis ? invalidator::publish : null);
+
+            if (sharedRedis) invalidator.register(store);
+            return store;
+        });
     }
 
     @Bean

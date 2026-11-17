@@ -32,7 +32,18 @@ public class TieredStore implements CacheStore {
     private final CacheStore l2;
     private final Duration l1Ttl;
 
+    /**
+     * forget 时通知其它实例清它们各自的 L1;null = 没有跨实例失效
+     * (单实例,或 L2 不是 Redis)。
+     */
+    private final java.util.function.Consumer<String> onForget;
+
     public TieredStore(CacheStore l1, CacheStore l2, Duration l1Ttl) {
+        this(l1, l2, l1Ttl, null);
+    }
+
+    public TieredStore(CacheStore l1, CacheStore l2, Duration l1Ttl,
+                       java.util.function.Consumer<String> onForget) {
         if (l1Ttl == null || l1Ttl.isZero() || l1Ttl.isNegative()) {
             throw new IllegalArgumentException("""
                     两级缓存的 L1 必须有正的 TTL,当前是 %s。
@@ -44,6 +55,7 @@ public class TieredStore implements CacheStore {
         this.l1 = l1;
         this.l2 = l2;
         this.l1Ttl = l1Ttl;
+        this.onForget = onForget;
     }
 
     @Override public String name() { return "tiered(" + l1.name() + "+" + l2.name() + ")"; }
@@ -78,11 +90,29 @@ public class TieredStore implements CacheStore {
     public void forget(String key) {
         l2.forget(key);
         l1.forget(key);
+        if (onForget != null) onForget.accept(key);
     }
 
     @Override
     public void flush() {
         l2.flush();
+        l1.flush();
+        // "*" = 其它实例清空全部 L1
+        if (onForget != null) onForget.accept("*");
+    }
+
+    /**
+     * 只清本地 L1 —— 收到**别的实例**的失效消息时用。
+     *
+     * <p>不能调 {@link #forget}:那会再发布一次,两个实例互相回应,
+     * 消息在网络上无限循环。
+     */
+    void evictLocal(String key) {
+        l1.forget(key);
+    }
+
+    /** 收到 {@code "*"} 时清空本地 L1,同样不发布 */
+    void flushLocal() {
         l1.flush();
     }
 
@@ -129,6 +159,9 @@ public class TieredStore implements CacheStore {
     public void forgetMany(List<String> keys) {
         l2.forgetMany(keys);
         l1.forgetMany(keys);
+        if (onForget != null) {
+            for (String key : keys) onForget.accept(key);
+        }
     }
 
     /** L1 的 TTL 取「L1 上限」与「条目本身 TTL」的较小值 */

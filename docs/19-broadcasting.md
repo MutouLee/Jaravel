@@ -119,7 +119,7 @@ EventBus.broadcaster(broadcaster);  // 由 starter 装配;未装配 = 零开销
 | `Event.fake()` | 不广播 | fake 模式不走 `deliver`,没有真实的监听器,也没有真实的广播 |
 | 序列化失败 | 抛给调用方 | 事件是同步语义(见 EventBus 类注释「同步监听器是调用方事务的一部分」),广播同为同步。网络层的失败(连接断开、发送超时)由驱动吞掉 —— 推送尽力而为,只有「payload 根本没法序列化」这种**程序员错误**才向上抛 |
 
-**v0.6 广播是同步的**。Laravel 的 `ShouldBroadcast` 默认走队列;Jaravel 把「事件入队广播」留到 v0.7 与队列驱动(Kafka/RabbitMQ/SQS)一起做 —— 那时事件实现 `ShouldQueue` 即自动入队,API 不变。
+**v0.6 广播是同步的**。Laravel 的 `ShouldBroadcast` 默认走队列;Jaravel 把「事件入队广播」留到 v0.7 与队列驱动一起做 —— 现在事件实现 `ShouldQueue` 即自动入队,API 不变(v0.7 已实现,见 §8)。
 
 ### 2.3 直接推送
 
@@ -402,9 +402,8 @@ broadcast:
 > B 加入 presence 后 A 的成员表有两个成员并收到 member_added,
 > B 退订后 A 收到 member_removed。
 >
-> **仍未做**:跨域 cookie、类型化频道参数、广播面板进工具栏、
-> `ShouldBroadcast` 的队列化(队列驱动已就绪,但事件 → 广播的
-> ShouldQueue 桥接还没接)。
+> **仍未做**:跨域 cookie、类型化频道参数、广播面板进工具栏。
+> `ShouldBroadcast` 的队列化后来补上了(v0.7,见 §8/§9)。
 
 > **v0.6 实现注记**:设计稿里的 `pong-timeout` 没做 —— 实现用一个
 > 活动超时(1.5 × activity-timeout 无任何消息即断)覆盖同样的语义,
@@ -513,11 +512,11 @@ Broadcast.assertBroadcastedTo("orders", OrderPaid.class);
 ## 9. 待决问题
 
 - [ ] **跨域前端的 cookie**:vite dev server(5173)调 8080 的应用时,WS 握手与 AJAX 都不保证带第三方 cookie(浏览器政策在收紧)。同站部署没有这个问题。真需要跨域时,备选路径是补一个可选的 `broadcasting/auth` 端点(与 Laravel 同款,内部 HMAC 签名)作为兼容模式 —— v0.6 不做,先看同站够不够。
-- [ ] **类型化频道参数**:`{orderId}` 自动转 `Long` 之类(形式如 `"private-orders.{orderId:long}"`)。`ArgumentBinder` 已有转换逻辑,但频道注册表在零 Spring 模块,复用需要把转换器上提。倾向 v0.7 做;v0.6 的字符串 Map 与 Laravel 的字符串参数等价。
+- [ ] **类型化频道参数**:`{orderId}` 自动转 `Long` 之类(形式如 `"private-orders.{orderId:long}"`)。`ArgumentBinder` 已有转换逻辑,但频道注册表在零 Spring 模块,复用需要把转换器上提。**v0.7 未做**,候选 v0.8;当前字符串 Map 与 Laravel 的字符串参数等价。
 - [x] **redis 驱动**(v0.7):已实现 `RedisWsHub` —— pub/sub 扇出 +
   每实例一个 presence hash + TTL(见 §6.2 的 v0.7 注记)。
 - [ ] **广播面板进调试工具栏**:事件面板已按线程收集事件名;
-  广播可以并进去或单开面板。随 dashboard(v0.7)一起评估。
+  广播可以并进去或单开面板。**v0.7 的队列面板没有加广播面板**,候选 v0.8。
 - [x] **`ShouldBroadcast` 的队列化**:事件同时实现 `ShouldQueue` 时,
   `EventBusBroadcaster` 入队 `BroadcastJob`(频道/事件/payload 快照,
   队列取自事件的 `queue()`),worker 执行时再逐频道发布。

@@ -1068,5 +1068,8 @@ jaravel-scheduler
 - [ ] Kafka 驱动的语义差异(无单任务重试、无延迟消息、offset 语义)如何在统一抽象下表达?倾向:Kafka 驱动只支持队列 API 的子集,不支持的操作明确抛异常并在文档中列表说明。或者干脆不提供 Kafka 驱动(Kafka 是事件流而非任务队列,强行统一会产生错误预期)。**倾向后者,v1.0 不提供。**
 - [ ] `database` 驱动的 `SKIP LOCKED` 在 MySQL 8.0+ / PG 9.5+ 可用,老版本需降级为乐观锁(`update ... where id=? and reserved_at is null`)。需要版本探测。
 - [ ] 内置调度器与多实例部署的默认行为:若用户忘记 `onOneServer()`,10 个实例会重复执行 10 次。是否应该**默认开启** `onOneServer`?倾向是——默认安全,显式 `.onAllServers()` 才并发。这是对 Laravel 的改进。
-- [ ] 长任务的心跳续约与 `retry-after` 的交互:续约失败时任务可能被重复消费。需要幂等性指导(文档章节)+ `@Idempotent` 注解支持(v0.7)。
+- [ ] 长任务的心跳续约与 `retry-after` 的交互:续约失败时任务可能被重复消费。需要幂等性指导(文档章节)+ `@Idempotent` **注解**支持。
+      **v0.7 只做了 HTTP 的 `idempotent` 中间件**(docs/12 §6.5);
+      任务级的 `@Idempotent` 注解仍未做 —— 它需要与 `WithoutOverlapping` /
+      unique job 的关系想清楚,不是把中间件搬到任务上的事。
 - [ ] 任务作用域 `JobScope` 与请求作用域 `RequestScope` 是否统一为一个 `ExecutionScope` 抽象?倾向统一,避免两套上下文传播逻辑。

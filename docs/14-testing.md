@@ -607,4 +607,4 @@ public class JaravelExtension implements BeforeAllCallback, BeforeEachCallback,
 - [ ] Testcontainers 作为默认会增加首次测试的耗时(拉镜像)与 CI 对 Docker 的依赖。是否默认 SQLite、文档强烈推荐 Testcontainers?倾向:`jaravel new` 询问,默认 Testcontainers,`--preset=minimal` 用 SQLite。
 - [ ] 并行测试的数据库隔离:4 个进程 × `migrate:fresh` 很慢。方案:一次建好模板库,各进程 `create database X template Y`(PG 支持)或 dump/restore(MySQL)。需要实现。
 - [ ] 测试中的 `ScopedValue` 绑定:`AppTest` 没有 HTTP 请求,但 `Auth.user()` 需要作用域。需要 `actingAs` 在非 HTTP 测试中也能建立一个合成作用域。
-- [ ] 工厂的 `definition()` 返回 `Map<String,Object>` 缺少类型安全。考虑生成 `PostFactory` 的类型化 setter(`.title("X").status(PUBLISHED)`)。**v0.6 未做**,仍开放;候选 v0.7。
+- [ ] 工厂的 `definition()` 返回 `Map<String,Object>` 缺少类型安全。考虑生成 `PostFactory` 的类型化 setter(`.title("X").status(PUBLISHED)`)。**v0.6 / v0.7 均未做**,仍开放;等真实使用反馈再定。

@@ -556,6 +556,6 @@ public interface Row {
 
 - [ ] `where("age", ">", 18)` 的字符串运算符是否保留?倾向保留(简洁),同时提供 `where(Post_.age, Op.GT, 18)` 类型安全重载,文档推荐后者。
 - [ ] `Row` 是否直接用 `Map<String,Object>`?倾向独立接口,以便提供类型化取值器与更好的错误信息(「列 `nmae` 不存在,是否想找 `name`?」)。
-- [ ] 分页的总数查询优化:大表 `count(*)` 很慢。`simplePaginate` / `cursorPaginate` 已提供替代,是否还需要 `approximatePaginate`(用统计信息估算)?**v0.6 已过,仍未做** —— 没有真实数据证明 `simplePaginate` / `cursorPaginate` 不够用;等有生产反馈再决定,候选 v0.7。
+- [ ] 分页的总数查询优化:大表 `count(*)` 很慢。`simplePaginate` / `cursorPaginate` 已提供替代,是否还需要 `approximatePaginate`(用统计信息估算)?**v0.6 / v0.7 均已过,仍未做** —— 没有真实数据证明替代方案不够用;等有生产反馈再决定。
 - [ ] 读写分离的 `sticky` 在队列 Worker 中的语义(无 HTTP 请求作用域)。需要在 `JobScope` 上同样支持打标。
 - [ ] Oracle / SQL Server 方言是否纳入 v1.0?倾向 v1.0 只保证 MySQL / PostgreSQL / SQLite 三种,其余社区贡献。

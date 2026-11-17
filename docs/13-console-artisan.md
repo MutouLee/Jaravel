@@ -1464,7 +1464,7 @@ CLI 与 Maven 不是竞争关系:
       config / route 先做(view 的预编译在 v0.9)。
 - [ ] v0.6 遗留的「再议」项(本文件之外):`CacheKey<T>`(docs/09)、
       工厂类型化 setter(docs/14)、`approximatePaginate`(docs/05)
-      —— 都没有真实使用反馈支撑,未做,候选 v0.7。
+      —— **v0.7 也没有做**,都没有真实使用反馈支撑;等有生产需求再做。
 - [ ] §7 的 `jaravel-maven-plugin` 整节仍是设计:那个插件不存在。
       `compile-views` / `verify-migrations` / `openapi` 三个 goal 都还没有,
       而 §8 原先写的 `mvn jaravel:run` 就是它造成的一条假逃生口(已修)。

@@ -2,7 +2,7 @@
 
 > Laravel 级开发体验,构建在 Spring Boot 之上的 Java 应用框架。
 
-**当前状态:v0.6 已收口(v0.7 进行中)。**
+**当前状态:v0.7 已收口(v0.8 进行中)。**
 36 个模块、**2616 个测试**全绿(给了 Redis 连接串时 **2667**;同时给 RabbitMQ 时 **2675**;再加上 SQS 时 **2681**),四个示例应用都在构建里
 (`examples/{todo,blog,auth,queue}`)。
 队列 / 事件 / 调度 / 邮件 / 通知 / 存储到位(v0.4),
@@ -17,20 +17,19 @@ v0.6 已收口:jblade **类组件**已落地(`<x-post-card :post="post" />`);
 **广播已落地**(docs/19):`ShouldBroadcast` 事件广播、频道与鉴权(`Channels.java`)、
 通知 broadcast 渠道、Pusher 协议子集(pusher-js 开箱即用)、ws/null/log 驱动,
 含真实 WS 端点的 e2e 测试。
-下一站 v0.7:redis 驱动、幂等性中间件、RBAC、Kafka/RabbitMQ/SQS;native 在 v0.9。
+下一站 v0.8:浏览器测试(Playwright)、多租户、Inertia、并行测试;native 在 v0.9。
 
-**v0.7 进度**:cache / session / queue / 广播的 **redis 驱动**已落地
-(`RedisStore` + `RedisQueue` + `RedisWsHub`、Lettuce、惰性连接、
-`SET NX PX` / `INCRBY`、Lua 原子 pop、pub/sub 多实例扇出 + 分布式 presence;
-docs/09 §1.4、docs/10 §1.5、docs/19 §6.2);
-**`jaravel-dashboard`**(队列面板)已落地(docs/10 §1.8);
-**幂等性中间件**已落地(docs/12 §6.5);
-**`jaravel-permissions`(RBAC)** 已落地(docs/08 §5.4);
-**failed_jobs / job_batches 的 redis 版本**已落地(docs/10 §1.5);
-**`ShouldBroadcast` 的队列化**已落地(docs/19 §8);
-**tiered 的 L1 跨实例失效**已落地(docs/09 §1.4);
-**RabbitMQ 队列驱动**已落地(docs/10 §1.5);
-**SQS 队列驱动**已落地(docs/10 §1.5)。
+**v0.7 已收口**(详见 [V0.7-RESULT.md](V0.7-RESULT.md)):cache / session /
+queue / 广播的 **redis 驱动**已落地(`RedisStore` + `RedisQueue` +
+`RedisWsHub`、Lettuce、惰性连接、`SET NX PX` / `INCRBY`、Lua 原子 pop、
+pub/sub 多实例扇出 + 分布式 presence;docs/09 §1.4、docs/10 §1.5、
+docs/19 §6.2);**`jaravel-dashboard`**(队列面板)已落地(docs/10 §1.8);
+**幂等性中间件**已落地(docs/12 §6.5);**`jaravel-permissions`(RBAC)**
+已落地(docs/08 §5.4);**failed_jobs / job_batches 的 redis 版本**已落地
+(docs/10 §1.5);**`ShouldBroadcast` 的队列化**已落地(docs/19 §8);
+**tiered 的 L1 跨实例失效**已落地(docs/09 §1.4);**RabbitMQ / SQS
+队列驱动**已落地(docs/10 §1.5)。**Kafka 没有做成队列驱动** ——
+它是事件流语义,需要独立设计(V0.7-RESULT §2.4)。
 
 ```bash
 jaravel make:model Post -mcr     # 182ms,不启动任何容器
@@ -42,7 +41,7 @@ Artisan 线的五条验收里 3 条达成、2 条部分达成(收口时覆盖率
 过程中发现并修掉 **14 个真实缺陷** —— 其中三个是**自己的门禁与示例在说谎**
 (两个示例按提交的样子起不来、`jaravel list` 列不全、parity 的度量对象没有测试)。
 
-详见 [V0.6-RESULT.md](V0.6-RESULT.md) · [V0.5-RESULT.md](V0.5-RESULT.md) ·
+详见 [V0.7-RESULT.md](V0.7-RESULT.md) · [V0.6-RESULT.md](V0.6-RESULT.md) · [V0.5-RESULT.md](V0.5-RESULT.md) ·
 [V0.3-RESULT.md](V0.3-RESULT.md) · [V0.2-RESULT.md](V0.2-RESULT.md) ·
 [V0.1-RESULT.md](V0.1-RESULT.md)。
 (v0.4 没有单独的结果文档 —— 它的验收逐条结果、文档↔现实对账表与 parity
@@ -136,6 +135,7 @@ p.save();                  // 与快照比对,只 UPDATE 变化的列
 
 ```
 DESIGN.md                 设计总纲:可行性结论、三条顶层决策、模块结构、路线图
+V0.7-RESULT.md            v0.7 结果:redis / 面板 / 幂等性 / RBAC / RabbitMQ / SQS(含 Kafka 决策)
 V0.6-RESULT.md            v0.6 结果:组件/调试栏/广播/二步验证(含 4 条计时测试的修法)
 V0.5-RESULT.md            v0.5 结果:Artisan + API(含 14 个真缺陷与被打破又修回的门禁)
 V0.3-RESULT.md            v0.3 落地结果(含 12 个真缺陷与 1 条部分未达成的验收)

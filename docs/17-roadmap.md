@@ -495,7 +495,7 @@ record 返回类型由运行时反射得到;`with()` 的根字段由 APT 从
 > 见 [V0.6-RESULT.md](../V0.6-RESULT.md)。
 > 全仓 2545 条测试全绿,parity 最差 1.29 / 1.30。
 > 下一站 v0.7,第一刀是 redis 驱动(见下表的 v0.7 一行)。
-| v0.7 | `jaravel-dashboard`(Horizon 等价);幂等性中间件;`jaravel-permissions`(RBAC);Kafka/RabbitMQ/SQS 驱动 | 5 |
+| v0.7 | `jaravel-dashboard`(Horizon 等价);幂等性中间件;`jaravel-permissions`(RBAC);RabbitMQ / SQS 驱动(Kafka **明确不做成队列驱动**,需独立事件流设计) | 5 |
 
 > **v0.7 进度**:第一刀 **cache / session 的 redis 驱动**已落地
 > (docs/09 §1.4):`RedisStore`(Lettuce、惰性连接、SET NX PX、INCRBY、
@@ -529,7 +529,15 @@ record 返回类型由运行时反射得到;`with()` 的根字段由 APT 从
 > `VisibilityTimeout`、release = 重发 + 删原消息、touch =
 > `ChangeMessageVisibility`;延迟上限 15 分钟等硬限制已写入文档。
 > 真实 Redis / RabbitMQ / ElasticMQ 契约测试在给了对应连接串时加入。
-> 仍未做:Kafka(语义与任务队列不同,需要单独设计)。
+> **Kafka 没有做成队列驱动** —— 它是事件流语义(consumer group + offset,
+> 没有单条消息的 ack/重投),硬套 `QueueStore` 会得到「看起来有重试、
+> 实际语义不对」的东西;要做应该是独立的事件流集成。理由与验收口径
+> 见 [V0.7-RESULT.md](../V0.7-RESULT.md) §2.4。
+>
+> **v0.7 已收口**:逐项证据、明确没做的事与文档对账见
+> [V0.7-RESULT.md](../V0.7-RESULT.md)。
+> 默认 2616 条测试全绿;接上 Redis / RabbitMQ / SQS 后 **2681** 条全绿。
+> parity 最差 1.29 / 1.30。下一站 v0.8。
 | v0.8 | 浏览器测试(Playwright);多租户支持包;Inertia 适配;并行测试 | 4 |
 
 并行进行:**IntelliJ 插件**(8~12 周,独立人力)。

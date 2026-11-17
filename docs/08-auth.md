@@ -348,7 +348,8 @@ user.givePermissionTo("publish-posts");
 user.hasRole("editor");
 user.hasPermissionTo("publish-posts");
 
-r.get("/admin", X::y).middleware("role:admin", "permission:view-dashboard");
+r.get("/admin", X::y)
+ .middleware("web", "auth", "role:admin", "permission:view-dashboard");
 ```
 
 > ### v0.7:已实现(`jaravel-permissions`)
@@ -373,6 +374,9 @@ r.get("/admin", X::y).middleware("role:admin", "permission:view-dashboard");
 >
 > **中间件**:`role:admin,editor` 与 `permission:publish-posts` 都是
 > **any** 语义;`auth` 必须先跑(未登录这里返回 401,不是 403)。
+> 基于会话的认证还要把 `web`(StartSession)放在最前 —— 少了它的症状是
+> 500 `NoSessionException`,不是 401;`DefaultKernel.priority()` 只固定
+> 已知中间件的相对顺序,不会替你补上没声明的 `StartSession`。
 > `permission` 会同时看直接授予与角色继承。
 >
 > **存储**:

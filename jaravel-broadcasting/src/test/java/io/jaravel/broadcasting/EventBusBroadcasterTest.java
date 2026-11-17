@@ -3,8 +3,11 @@ package io.jaravel.broadcasting;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -14,6 +17,12 @@ import org.junit.jupiter.api.Test;
 
 import io.jaravel.events.Event;
 import io.jaravel.events.EventBus;
+import io.jaravel.queue.JobSerializer;
+import io.jaravel.queue.Queue;
+import io.jaravel.queue.QueueManager;
+import io.jaravel.queue.QueueStore;
+import io.jaravel.queue.QueuedJob;
+import io.jaravel.queue.ShouldQueue;
 
 /**
  * 事件 → 广播的桥(docs/19 §2)。
@@ -74,6 +83,7 @@ class EventBusBroadcasterTest {
     void tearDown() {
         Event.reset();
         Broadcast.reset();
+        Queue.reset();
     }
 
     @Nested
@@ -190,6 +200,106 @@ class EventBusBroadcasterTest {
 
             assertThat(listenerRan[0]).isTrue();
             assertThat(manager.recorder().to("orders")).hasSize(1);
+        }
+    }
+
+    @Nested
+    @DisplayName("ShouldQueue 时入队")
+    class Queued {
+
+        record QueuedOrderPaid(Long orderId) implements ShouldBroadcast, ShouldQueue {
+            @Override public List<String> broadcastOn() {
+                return List.of("orders", "private-users." + orderId);
+            }
+
+            @Override public String queue() {
+                return "broadcasts";
+            }
+        }
+
+        record NullableEvent(Long id, String note) implements ShouldBroadcast, ShouldQueue {
+            @Override public List<String> broadcastOn() {
+                return List.of("orders");
+            }
+        }
+
+        static class CapturingQueue implements QueueStore {
+            final List<QueuedJob> pushed = new ArrayList<>();
+
+            @Override public String name() { return "capture"; }
+            @Override public String push(QueuedJob job) { pushed.add(job); return job.uuid(); }
+            @Override public Optional<QueuedJob> pop(String queue, Duration retryAfter) {
+                return Optional.empty();
+            }
+            @Override public void delete(QueuedJob job) { }
+            @Override public void release(QueuedJob job, Duration delay) { }
+            @Override public long size(String queue) { return pushed.size(); }
+            @Override public void clear(String queue) { pushed.clear(); }
+        }
+
+        @Test
+        @DisplayName("★ 事件实现 ShouldQueue → 不在请求线程发布,而是入队")
+        void queuedInsteadOfSynchronousPublish() {
+            var queue = new CapturingQueue();
+            Queue.use(new QueueManager(new JobSerializer())
+                    .register("capture", queue)
+                    .defaultConnection("capture"));
+            manager.fake();
+
+            bus.dispatch(new QueuedOrderPaid(7L));
+
+            assertThat(manager.recorder().all())
+                    .as("队列化之后 HTTP 请求线程一次发布会都不做")
+                    .isEmpty();
+            assertThat(queue.pushed).hasSize(1);
+
+            QueuedJob envelope = queue.pushed.get(0);
+            assertThat(envelope.jobClass()).isEqualTo(BroadcastJob.class.getName());
+            assertThat(envelope.queue()).isEqualTo("broadcasts");
+            assertThat(envelope.data().get("event")).isEqualTo("QueuedOrderPaid");
+            assertThat(envelope.data().get("channels"))
+                    .isEqualTo(List.of("orders", "private-users.7"));
+        }
+
+        @Test
+        @DisplayName("★ payload 里有 null 值也能入队")
+        void nullPayloadValuesSurvive() {
+            var queue = new CapturingQueue();
+            Queue.use(new QueueManager(new JobSerializer())
+                    .register("capture", queue)
+                    .defaultConnection("capture"));
+
+            // Map.copyOf 在这里会 NPE —— 事件的可选字段为 null 很常见
+            bus.dispatch(new NullableEvent(1L, null));
+
+            assertThat(queue.pushed).hasSize(1);
+            @SuppressWarnings("unchecked")
+            var data = (Map<String, Object>) queue.pushed.get(0).data().get("data");
+            assertThat(data).containsKey("note");
+            assertThat(data.get("note")).isNull();
+        }
+
+        @Test
+        @DisplayName("worker 执行 BroadcastJob 时才逐频道发布")
+        void jobPublishesOnHandle() {
+            var queue = new CapturingQueue();
+            var serializer = new JobSerializer();
+            Queue.use(new QueueManager(serializer)
+                    .register("capture", queue)
+                    .defaultConnection("capture"));
+            manager.fake();
+
+            bus.dispatch(new QueuedOrderPaid(7L));
+
+            Broadcast.use(manager);
+            var job = (BroadcastJob) serializer.toJob(queue.pushed.get(0));
+            job.handle();
+
+            assertThat(manager.recorder().all())
+                    .extracting(BroadcastManager.FakeRecorder.Entry::channel)
+                    .containsExactly("orders", "private-users.7");
+            assertThat(manager.recorder().all().get(0).data())
+                    .containsEntry("orderId", 7L);
         }
     }
 }

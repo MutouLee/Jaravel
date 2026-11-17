@@ -3,6 +3,8 @@ package io.jaravel.broadcasting;
 import java.util.Map;
 
 import io.jaravel.events.EventBus;
+import io.jaravel.queue.Queue;
+import io.jaravel.queue.ShouldQueue;
 
 /**
  * 事件总线 → 广播的桥(docs/19 §2.2)。由 starter 装配进
@@ -37,8 +39,19 @@ public final class EventBusBroadcaster implements EventBus.Broadcaster {
         if (!broadcast.broadcastWhen()) return;
 
         Map<String, Object> payload = payloadOf(broadcast, event);
+        var channels = broadcast.broadcastOn();
 
-        for (String channel : broadcast.broadcastOn()) {
+        // 事件同时实现 ShouldQueue → 广播入队,由 worker 发布。
+        // 监听器仍然同步跑(那是事件总线的语义,不是广播的),
+        // 这里只把「推给前端」这一步异步化 —— 一个慢的 WS 驱动
+        // 不该拖慢发起事件的那个请求。
+        if (event instanceof ShouldQueue queued) {
+            Queue.dispatch(new BroadcastJob(channels, broadcast.broadcastAs(),
+                    payload, queued.queue()));
+            return;
+        }
+
+        for (String channel : channels) {
             manager.publish(channel, broadcast.broadcastAs(), payload);
         }
     }

@@ -502,7 +502,7 @@ Broadcast.assertBroadcastedTo("orders", OrderPaid.class);
 |---|---|---|
 | `broadcasting/auth` HTTP 端点签发频道授权 | **没有这个端点**;鉴权在 WS 订阅消息上凭会话 cookie 完成 | Laravel 需要端点是因为 WS 服务与 HTTP 应用是两个进程(Reverb / Pusher 云)。Jaravel 的 WS 嵌在应用里,握手带着会话,再走一遍 HTTP 往返是纯仪式。代价:pusher-js 要多写一个占位 authorizer(§5.1);跨域场景受 cookie 政策影响(§9) |
 | `broadcast(new X)` 只广播不触发监听器 | `Broadcast.emit(...)` | 语义相同,名字不绑死「事件对象」这个形态 |
-| `ShouldBroadcast` 默认队列化 | v0.6 同步;v0.7 队列驱动已就绪,但事件 → 广播的 ShouldQueue 桥接**仍未接** | 广播的队列化要比队列驱动多一层「事件实现 ShouldQueue 时如何入队」;API 不变,列入后续 |
+| `ShouldBroadcast` 默认队列化 | ✅ v0.7:事件**同时实现 `ShouldQueue`** 时改为入队 `BroadcastJob`;不同步队列 | 监听器仍同步跑;只有「推给前端」这一步异步化。`BroadcastJob` 存频道/事件/payload 快照,不存事件对象 —— 改字段不会让积压任务失效 |
 | `broadcastAs` 默认 = FQCN 转 `.` | 默认 = 类简单名 | 没有 `App\Events\` 命名空间要表达;JS 端 `bind('OrderPaid')` 与 Java 端同名 |
 | `channels.php` 回调有依赖注入与模型绑定 | 频道参数是 `Map<String,String>` 字符串,回调里手动转换 | Laravel 的参数注入来自其容器解析字符串;Jaravel 不做字符串 → 类型的隐式解析(类型化 helper 在 §9) |
 | auth 回调跑在 HTTP 请求上下文 | 回调跑在**连接作用域** | 这是没有端点的直接后果,同时是个升级:`Auth.user()` 在鉴权回调里照常可用 |
@@ -518,7 +518,11 @@ Broadcast.assertBroadcastedTo("orders", OrderPaid.class);
   每实例一个 presence hash + TTL(见 §6.2 的 v0.7 注记)。
 - [ ] **广播面板进调试工具栏**:事件面板已按线程收集事件名;
   广播可以并进去或单开面板。随 dashboard(v0.7)一起评估。
-- [ ] **`ShouldBroadcast` 的队列化**:队列驱动(含 redis)已就绪,
-  但事件 → 广播的 ShouldQueue 桥接还没接;同步广播的 API 不变。
+- [x] **`ShouldBroadcast` 的队列化**:事件同时实现 `ShouldQueue` 时,
+  `EventBusBroadcaster` 入队 `BroadcastJob`(频道/事件/payload 快照,
+  队列取自事件的 `queue()`),worker 执行时再逐频道发布。
+  测试:`EventBusBroadcasterTest$Queued` 3 条(含 payload 里有 null 的
+  情况)+ `QueuedJobTest` 2 条(null 字段 JSON 往返)—— 后两条顺带修了
+  `QueuedJob` 用 `Map.copyOf` 导致「任务字段为 null 就入队失败」的缺陷。
 - [x] **presence 的 user_id 从哪来**:已实现为「连接用户的 id 字符串化」(`Authenticatable.getAuthIdentifier()`,非 Authenticatable 用 `toString`)—— 与 `Notifiable.notifiableId()` 解耦,一个只做 WS 不通知的用户类型不需要实现 Notifiable。
 - [x] **握手时会话续期**:已实现为「连接建立时定格」—— 与 Laravel 的 pusher auth(一次性 HTTP 检查)语义一致。重验意味着「踢人」语义,那是另一个功能,不做。

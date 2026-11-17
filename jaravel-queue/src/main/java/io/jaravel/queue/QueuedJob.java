@@ -74,9 +74,16 @@ public record QueuedJob(
 ) {
 
     public QueuedJob {
-        data = data == null ? Map.of() : Map.copyOf(data);
+        // 不用 Map.copyOf:任务的字段可以有 null(可选参数、事件的空字段),
+        // 而 Map.copyOf 对 null 值直接 NPE —— 一个 `queue = null` 的字段
+        // 就会让整个任务在入队那一刻失败,报错还指向 Map.copyOf。
+        data = data == null
+                ? Map.of()
+                : java.util.Collections.unmodifiableMap(new java.util.LinkedHashMap<>(data));
         chain = chain == null ? java.util.List.of() : java.util.List.copyOf(chain);
-        context = context == null ? Map.of() : Map.copyOf(context);
+        context = context == null
+                ? Map.of()
+                : java.util.Collections.unmodifiableMap(new java.util.LinkedHashMap<>(context));
     }
 
     /**

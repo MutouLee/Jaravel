@@ -27,6 +27,10 @@ import java.util.Map;
  *   <li>{@code Event.fake()} 时什么都不发生。</li>
  * </ul>
  *
+ * <p>事件**同时实现 {@link io.jaravel.queue.ShouldQueue}** 时,广播改为
+ * 入队一个 {@link BroadcastJob},由 worker 发布 —— 监听器仍然同步跑,
+ * 只有「推给前端」这一步异步化(v0.7)。
+ *
  * <h2>payload 里只放 JSON 可表示的东西</h2>
  * <p>广播的 payload 要穿过 WebSocket 到达 JS 端。字段是 Eloquent 模型时
  * 序列化会失败(报错发生在分发那一刻,与队列的 JobSerializer 同一哲学)——

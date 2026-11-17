@@ -55,6 +55,12 @@
       <artifactId>spring-boot-starter-test</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- BrowserTest 用;生产运行不需要它。版本由 jaravel-bom 管理 -->
+    <dependency>
+      <groupId>com.microsoft.playwright</groupId>
+      <artifactId>playwright</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>

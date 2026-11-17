@@ -13,7 +13,7 @@
   <artifactId>jaravel-testing</artifactId>
   <name>Jaravel :: 测试支持</name>
   <description>
-    FeatureTest / TestResponse / 数据库断言 / 每测试自动回滚。
+    FeatureTest / BrowserTest / TestResponse / 数据库断言 / 每测试自动回滚。
 
     不发明测试框架 —— 底层仍是 JUnit 5,本模块只提供基类与断言。
   </description>
@@ -39,6 +39,18 @@
     <dependency>
       <groupId>org.assertj</groupId>
       <artifactId>assertj-core</artifactId>
+    </dependency>
+
+    <!--
+      浏览器测试(docs/14 §6.1)。optional:绝大多数测试不需要真实浏览器,
+      而 Playwright 会拖入 driver + 浏览器二进制。要用 BrowserTest 的
+      应用在自己的 test 作用域里显式引入它。
+    -->
+    <dependency>
+      <groupId>com.microsoft.playwright</groupId>
+      <artifactId>playwright</artifactId>
+      <version>${playwright.version}</version>
+      <optional>true</optional>
     </dependency>
   </dependencies>
 </project>

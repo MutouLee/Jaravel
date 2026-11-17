@@ -16,6 +16,8 @@
 
   <properties>
     <jaravel.version>0.1.0-SNAPSHOT</jaravel.version>
+    <!-- 浏览器测试的可选依赖;与 parent pom 的 playwright.version 保持一致 -->
+    <playwright.version>1.49.0</playwright.version>
   </properties>
 
   <dependencyManagement>
@@ -52,6 +54,13 @@
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-security-bridge</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-testing</artifactId><version>${jaravel.version}</version></dependency>
       <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-spring-boot-starter</artifactId><version>${jaravel.version}</version></dependency>
+
+      <!--
+        BrowserTest 的可选依赖:jaravel-testing 里它是 optional,所以要用
+        浏览器测试的应用需要在自己的 test 作用域显式声明它。版本在这里管,
+        用户 pom 不需要知道具体版本。
+      -->
+      <dependency><groupId>com.microsoft.playwright</groupId><artifactId>playwright</artifactId><version>${playwright.version}</version></dependency>
     </dependencies>
   </dependencyManagement>
 </project>

@@ -19,6 +19,7 @@ Laravel 的测试体验是其被低估的优势:一行 `$this->get('/users')->as
 | 数据库断言 + 每测试自动回滚 | ✅ |
 | `assertQueryCount`(N+1 回归测试) | ✅ |
 | 认证断言 `assertAuthenticated` / `assertGuest` | ✅ |
+| `BrowserTest` + Playwright 真实浏览器测试 | ✅ v0.8(默认关闭,见 §6.1) |
 | 模型工厂(§3) | ⏳ 已有 `Factory` 基类(v0.2),`Post.factory()` 的 APT 生成留到 v0.5 |
 | Fake(§4:Queue / Mail / Event / Storage / Notification) | ⏳ 这些子系统本身在 v0.4 |
 | Testcontainers 自动注入(§2.2) | ⏳ v0.5 |
@@ -495,7 +496,7 @@ class InventoryServiceTest extends AppTest {     // 启动容器,不启动 HTTP
 
 ## 6. 其他
 
-### 6.1 浏览器测试(v0.8)
+### 6.1 浏览器测试(Playwright)✅ v0.8
 
 ```java
 class LoginTest extends BrowserTest {
@@ -510,7 +511,61 @@ class LoginTest extends BrowserTest {
 }
 ```
 
-基于 Playwright for Java(对应 Laravel Dusk)。列入 v0.8。
+`BrowserTest` 自带 `@SpringBootTest(classes = JaravelTestApplication.class,
+webEnvironment = RANDOM_PORT)`,测试类放哪个包都可以。需要用自己的入口类或额外配置时,
+在子类上写自己的 `@SpringBootTest(...)` 覆盖。
+
+基于 Playwright for Java(对应 Laravel Dusk),底层不是 Selenium:
+
+- **自动等待**:`press` / `assertSee` 自己等元素出现,测试里不写 sleep;
+- **真实浏览器**:真端口、真 HTTP、真页面 JS —— 与 `FeatureTest` 的 MockServlet 互补;
+- **浏览器实例复用**:一个测试 JVM 共用一个浏览器(默认 Chromium),退出时由 shutdown hook 关闭;
+- **逃逸口**:`browser().page()` 直接拿 Playwright 的 `Page`,高级交互不用等封装。
+
+两条硬约束:
+
+1. 必须在真实端口上跑。基类默认 `RANDOM_PORT`;若子类覆盖了
+   `@SpringBootTest` 的环境,必须用 `RANDOM_PORT` 或 `DEFINED_PORT` ——
+   浏览器不会走 MockServlet,`@LocalServerPort` 必须真的有值;
+2. `BrowserTest` 刻意不继承 `FeatureTest`:后者默认每测试回滚事务、在进程内直接调
+   handler;混在一起会得到「以为测了浏览器,实际走的还是 MockServlet」。
+
+**默认关闭**,因为它要浏览器二进制、每个用例秒级,而默认套件必须保持可跑。
+用系统属性打开:
+
+```bash
+# 首次:Playwright 自动下载浏览器(Chromium/Firefox/WebKit,合计数百 MB,一次性)
+mvn -pl examples/todo -am test -Djaravel.browser.enabled=true
+
+# 已预装 Chromium,且不想让 Playwright 再装另外两个浏览器
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+  mvn -pl examples/todo -am test -Djaravel.browser.enabled=true
+
+# 看真实窗口
+mvn -pl examples/todo -am test -Djaravel.browser.enabled=true \
+  -Djaravel.browser.headed=true
+
+# 换引擎(chromium 默认 / firefox / webkit)
+mvn -pl examples/todo -am test -Djaravel.browser.enabled=true \
+  -Djaravel.browser.name=firefox
+```
+
+Playwright 对 `jaravel-testing` 是 **optional** 依赖 —— 绝大多数测试不需要真实
+浏览器,不该让所有应用都拖入 driver 与浏览器二进制。要写浏览器测试的应用在自己的
+`test` 作用域加一行(版本由 `jaravel-bom` 管理):
+
+```xml
+<dependency>
+  <groupId>com.microsoft.playwright</groupId>
+  <artifactId>playwright</artifactId>
+  <scope>test</scope>
+</dependency>
+```
+
+验收样例:`examples/todo` 的 `TodoBrowserTest` —— 添加 → 完成 → 删除走完整流程,
+外加一条「页面脚本真的执行了」的断言(输入框拿到焦点)。后者正是 MockServlet 看不到的
+那一层。另一个 `TodoHomeBrowserTest` 专门盯「同一 JVM 里多个浏览器测试类共用
+一个浏览器实例」这条不变量。
 
 ### 6.2 架构测试
 

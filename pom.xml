@@ -104,6 +104,8 @@
     <spring-boot.version>3.4.1</spring-boot.version>
     <!-- AWS SDK v2(SQS 驱动)。Spring Boot BOM 不管理 AWS SDK,显式钉版本 -->
     <aws-sdk.version>2.25.60</aws-sdk.version>
+    <!-- Playwright for Java(浏览器测试);不是 Spring BOM 管理项 -->
+    <playwright.version>1.49.0</playwright.version>
     <!-- ADR-011:jblade 以 jte 为后端 -->
     <jte.version>3.1.12</jte.version>
     <junit.version>5.11.4</junit.version>

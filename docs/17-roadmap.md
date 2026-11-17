@@ -538,7 +538,7 @@ record 返回类型由运行时反射得到;`with()` 的根字段由 APT 从
 > [V0.7-RESULT.md](../V0.7-RESULT.md)。
 > 默认 2616 条测试全绿;接上 Redis / RabbitMQ / SQS 后 **2681** 条全绿。
 > parity 最差 1.29 / 1.30。下一站 v0.8。
-| v0.8 | 浏览器测试(Playwright);多租户支持包;Inertia 适配;并行测试 | 4 |
+| v0.8 | 浏览器测试(Playwright)✅;多租户支持包;Inertia 适配;并行测试 | 4 |
 
 并行进行:**IntelliJ 插件**(8~12 周,独立人力)。
 

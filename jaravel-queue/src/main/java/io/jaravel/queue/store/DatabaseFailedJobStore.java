@@ -144,7 +144,7 @@ public class DatabaseFailedJobStore implements FailedJobStore {
      * failed_jobs 的行会被反复读(列表页)。截断点写明,
      * 免得让人以为堆栈本身就这么短。
      */
-    private static String stackTraceOf(Throwable cause) {
+    static String stackTraceOf(Throwable cause) {
         if (cause == null) return "(没有异常信息)";
 
         var writer = new StringWriter();

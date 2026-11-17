@@ -325,14 +325,19 @@ QueueWorker
 > `release`,payload 里的 attempts 是旧的;pop 时 `HINCRBY` 一份独立
 > 计数器,崩溃 3 次的任务重试上限仍然成立。
 >
+> **failed_jobs / job_batches 也有 redis 版本**(v0.7):
+> `RedisFailedJobStore`(uuid 唯一覆盖、`prune` 按时间)与
+> `RedisBatchRepository`(Lua 原子计数、`markFinished` 只成功一次)。
+> 无库 + redis 队列的应用把 `queue.failed.driver: redis` 与
+> `queue.batching.driver: redis` 配上即可,不再退化到
+> `LoggingFailedJobStore`。
+>
 > **还没做**:
-> - `failed_jobs` / `job_batches` 仍是 database 存储 —— 无库 + redis 队列
->   的应用在任务永久失败时走 `LoggingFailedJobStore`(只打日志,不保留);
 > - RabbitMQ / Kafka / SQS 驱动;
 > - `queue:restart` / `queue:monitor` / `queue:prune-batches`。
 >
-> **测试**:`RedisQueueTest`(9 条:原子 pop、崩溃回收、延迟、release
-> 保留 attempts、touch、size、clear、4 线程并发不重复)。给了
+> **测试**:`RedisQueueTest`(9 条)+ `RedisFailedJobStoreTest`(4 条)+
+> `RedisBatchRepositoryTest`(7 条)。给了
 > `-Djaravel.test.redis.uri=redis://127.0.0.1:6379/15`(或环境变量
 > `JARAVEL_TEST_REDIS_URI`)才跑;用 DB 15 + 唯一前缀,结束时清理。
 
@@ -374,11 +379,18 @@ queue:
       queue: default
       retry-after: 90s
   failed:
-    driver: database
+    driver: database                 # database | redis | log(不保留)
     table: failed_jobs
     prune-after: 7d
+    # redis:
+    #   uri: redis://localhost:6379/0
+    #   prefix: jaravel:failed:
   batching:
+    driver: database                 # database | redis | none
     table: job_batches
+    # redis:
+    #   uri: redis://localhost:6379/0
+    #   prefix: jaravel:batch:
 ```
 
 ### 1.6 序列化

@@ -25,6 +25,8 @@ import io.jaravel.queue.store.DatabaseBatchRepository;
 import io.jaravel.queue.store.DatabaseFailedJobStore;
 import io.jaravel.queue.store.DatabaseQueue;
 import io.jaravel.queue.store.NullQueue;
+import io.jaravel.queue.store.RedisBatchRepository;
+import io.jaravel.queue.store.RedisFailedJobStore;
 import io.jaravel.queue.store.RedisQueue;
 import io.jaravel.queue.store.SyncQueue;
 import io.jaravel.support.Arr;
@@ -96,16 +98,41 @@ public class JaravelQueueAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public FailedJobStore jaravelFailedJobStore(ConfigRepository config,
-                                                ObjectProvider<Connection> connection) {
+                                                ObjectProvider<Connection> connection,
+                                                JobSerializer serializer) {
         Connection conn = connection.getIfAvailable();
-        if (conn == null) {
-            // 无库应用(redis 队列)也要有一个失败归档。
-            // 返回一个只打日志的实现比让启动失败好 ——
-            // 但必须说清楚「失败任务不会被保留」
-            return new LoggingFailedJobStore();
-        }
-        return new DatabaseFailedJobStore(conn,
-                config.string("queue.failed.table", "failed_jobs"));
+        String driver = config.string("queue.failed.driver",
+                conn == null ? "log" : "database");
+
+        return switch (driver) {
+            case "database" -> {
+                if (conn == null) {
+                    throw new IllegalStateException("""
+                            queue.failed.driver = "database" 但没有任何 DataSource。
+                              改配 spring.datasource.url,或把 driver 改成 redis / log。""");
+                }
+                yield new DatabaseFailedJobStore(conn,
+                        config.string("queue.failed.table", "failed_jobs"));
+            }
+            case "redis" -> {
+                if (!LETTUCE_PRESENT) {
+                    throw new IllegalStateException("""
+                            queue.failed.driver = "redis" 需要 Lettuce,但它不在 classpath 上。
+                              加 io.lettuce:lettuce-core,或改回 database / log。""");
+                }
+                yield new RedisFailedJobStore(
+                        config.string("queue.failed.uri", "redis://localhost:6379/0"),
+                        serializer,
+                        config.string("queue.failed.prefix",
+                                RedisFailedJobStore.DEFAULT_PREFIX));
+            }
+            // 无库应用的兜底:只打日志,不保留 —— 消息里必须说清楚
+            case "log" -> new LoggingFailedJobStore();
+            default -> throw new IllegalStateException("""
+                    未知的 queue.failed.driver "%s"。
+                      可选:database / redis / log(不保留)"""
+                    .formatted(driver));
+        };
     }
 
     @Bean
@@ -191,10 +218,39 @@ public class JaravelQueueAutoConfiguration {
                              ObjectProvider<Connection> connection,
                              ConfigRepository config) {
         Connection db = connection.getIfAvailable();
-        if (db == null) return;
+        String driver = config.string("queue.batching.driver",
+                db == null ? "none" : "database");
 
-        queues.batches(new DatabaseBatchRepository(db, serializer,
-                config.string("queue.batching.table", "job_batches")));
+        switch (driver) {
+            case "none" -> {
+                // 不装批次存储。Queue.batch(...) 会给出指向 job_batches 的报错。
+            }
+            case "database" -> {
+                if (db == null) {
+                    throw new IllegalStateException("""
+                            queue.batching.driver = "database" 但没有任何 DataSource。
+                              配 spring.datasource.url,或改成 redis / none。""");
+                }
+                queues.batches(new DatabaseBatchRepository(db, serializer,
+                        config.string("queue.batching.table", "job_batches")));
+            }
+            case "redis" -> {
+                if (!LETTUCE_PRESENT) {
+                    throw new IllegalStateException("""
+                            queue.batching.driver = "redis" 需要 Lettuce,但它不在 classpath 上。
+                              加 io.lettuce:lettuce-core,或改回 database / none。""");
+                }
+                queues.batches(new RedisBatchRepository(
+                        config.string("queue.batching.uri", "redis://localhost:6379/0"),
+                        serializer,
+                        config.string("queue.batching.prefix",
+                                RedisBatchRepository.DEFAULT_PREFIX)));
+            }
+            default -> throw new IllegalStateException("""
+                    未知的 queue.batching.driver "%s"。
+                      可选:database / redis / none"""
+                    .formatted(driver));
+        }
     }
 
     private void registerBuiltin(QueueManager queues, String name, String driver,

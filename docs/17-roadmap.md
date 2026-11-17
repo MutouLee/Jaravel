@@ -515,9 +515,12 @@ record 返回类型由运行时反射得到;`with()` 的根字段由 APT 从
 > 第六刀 **`jaravel-permissions`(RBAC)** 已落地(docs/08 §5.4):
 > 角色/权限、Array/Database 两种存储、`HasPermissions`、
 > `role` / `permission` 中间件。
+> 第七刀 **failed_jobs / job_batches 的 redis 版本**已落地
+> (docs/10 §1.5):`RedisFailedJobStore` + `RedisBatchRepository`,
+> 无库的 redis 队列不再退化到「失败只打日志」。
 > 真实 Redis 契约测试在给了 `-Djaravel.test.redis.uri` 时加入。
-> 仍未做:RabbitMQ/Kafka/SQS、failed_jobs/job_batches
-> 的 redis 版本、ShouldBroadcast 的队列化。
+> 仍未做:RabbitMQ/Kafka/SQS、ShouldBroadcast 的队列化、
+> tiered 的 L1 跨实例失效传播。
 | v0.8 | 浏览器测试(Playwright);多租户支持包;Inertia 适配;并行测试 | 4 |
 
 并行进行:**IntelliJ 插件**(8~12 周,独立人力)。

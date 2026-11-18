@@ -538,14 +538,16 @@ record 返回类型由运行时反射得到;`with()` 的根字段由 APT 从
 > [V0.7-RESULT.md](../V0.7-RESULT.md)。
 > 默认 2616 条测试全绿;接上 Redis / RabbitMQ / SQS 后 **2681** 条全绿。
 > parity 最差 1.29 / 1.30。下一站 v0.8。
-| v0.8 | 浏览器测试(Playwright)✅;并行测试✅;Inertia 适配(可选包);多租户移出 core(ADR-016) | 4 |
+| v0.8 | 浏览器测试(Playwright)✅;并行测试✅;Testcontainers 自动注入✅;多租户移出 core(ADR-016) | 4 |
 
 > **2026-11-17 调整**:浏览器测试已落地(docs/14 §6.1),并行测试已落地(docs/14 §6.3、ADR-017),
 > Testcontainers 自动注入已落地(docs/14 §2.2、ADR-018)。
 > 「多租户支持包」按 [ADR-016](18-risks-and-decisions.md) 移出核心 —— 核心只保留
 > `ScopedValue`、`@GlobalScope`、可切换 `Connection` 等通用原语,多租户由应用接线
 > 或将来独立的 opt-in 包提供;v1.0 的 `multi-tenant` 示例是验收对象。
-> v0.8 接下来做 **Inertia 适配**。
+> **v0.8 已收口**:逐项证据、文档对账与 parity 复测见
+> [V0.8-RESULT.md](../V0.8-RESULT.md)。默认 2674 条测试全绿;
+> parity 最差 1.29 / 1.30。下一站 v0.9。
 
 并行进行:**IntelliJ 插件**(8~12 周,独立人力)。
 

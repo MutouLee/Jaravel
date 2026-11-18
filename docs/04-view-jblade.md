@@ -687,7 +687,7 @@ loadViewsFrom("classpath:/vendor/sms/views", "sms");
 | 想用 Thymeleaf / Freemarker | 实现 `ViewEngine` 契约并注册;官方提供两者的适配器 |
 | 需要运行时动态模板(用户上传的模板) | `View.fromString(src, data)` —— 走弱类型 + 解释执行路径(有性能与安全代价,文档明确警告) |
 | 模板里需要复杂逻辑 | 用类组件;或 `@inject` 服务;或在控制器算好传进来(推荐) |
-| 需要 SSR 框架(Inertia/Livewire 风格) | v1.1 路线图,`jaravel-inertia` 适配器 |
+| 需要客户端渲染(SPA 风格) | 前端框架直连 JSON API(见 docs/12 的资源层与内容协商);首屏与 SEO 页面继续用 jblade |
 | 需要直接写 HTML 拼接 | `Response.text("<html>...")` |
 
 ---

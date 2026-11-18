@@ -21,11 +21,11 @@ Laravel 的测试体验是其被低估的优势:一行 `$this->get('/users')->as
 | 认证断言 `assertAuthenticated` / `assertGuest` | ✅ |
 | `BrowserTest` + Playwright 真实浏览器测试 | ✅ v0.8(默认关闭,见 §6.1) |
 | Testcontainers 自动注入(`@UseDatabase`) | ✅ v0.8(默认关闭,见 §2.2) |
-| 模型工厂(§3) | ⏳ 已有 `Factory` 基类(v0.2),`Post.factory()` 的 APT 生成留到 v0.5 |
-| Fake(§4:Queue / Mail / Event / Storage / Notification) | ⏳ 这些子系统本身在 v0.4 |
-| Testcontainers 自动注入(§2.2) | ⏳ v0.5 |
-| `@RefreshDatabase` 等隔离策略注解 | ⏳ 目前只有默认的事务回滚 |
-| `UploadedFile.fake()`、`Clock.freeze` | ⏳ v0.4 |
+| 并行测试(`jaravel test --parallel` + 每进程测试库) | ✅ v0.8(见 §6.3) |
+| 模型工厂(§3) | ⏳ 只有 `Factory` 基类;`Post.factory()` 的 APT 生成与 `make:factory` **仍未实现** |
+| Fake(§4) | ⚠️ 部分 —— Mail / Event / Storage / Notifications / Broadcast / Http 已有;`Queue.fake`、`Cache.fake`、`Clock`、`UploadedFile.fake()` 未实现 |
+| `@RefreshDatabase` 等隔离策略注解 | ⏳ 未实现;当前只有默认事务回滚与 `@WithoutRollback` |
+| `AppTest`(容器 + 数据库,无 HTTP,§5) | ⏳ 未实现;当前只有 `JaravelTestApplication` + `FeatureTest` |
 
 ### 写出来之后发现的三件事
 
@@ -245,6 +245,10 @@ class PostTest extends FeatureTest {
 
 事务回滚是默认策略——**测试不需要写任何清理代码**。
 
+> ⚠ **上面四个注解尚不存在。** 当前只有默认的每测试事务回滚与
+> `@WithoutRollback`;`@RefreshDatabase` / `@DatabaseTransactions` /
+> `@DatabaseMigrations` / `@WithoutDatabase` 是待实现设计,见 §10。
+
 ### 2.2 测试数据库:Testcontainers 自动注入 ✅ v0.8
 
 ```java
@@ -370,7 +374,16 @@ Post p5 = Post.factory().hasAttached(Tag.factory().count(2), Map.of("primary", t
 
 工厂由 `jaravel make:factory` 生成骨架,`@Model` 的 APT 生成 `Post.factory()` 静态方法与类型安全的 `hasXxx()` 关联方法。
 
+> ⚠ **这是目标 API,尚未实现。** `make:factory` 与 `Post.factory()` 的 APT
+> 生成都还没有;现有的是 `jaravel-migration` 的 `Factory` 基类
+> (`Factory.of(ModelMeta, ...)`),工厂方法需要手写。见 §10。
+
 Faker 用 `net.datafaker:datafaker`,支持 `locale: zh_CN`。
+
+> ⚠ **同样未实现。** 仓库里没有 `datafaker` 依赖,`Factory.Faker` 是内置的
+> 最小实现:`word` / `words` / `sentence` / `paragraph` / `unique` /
+> `email` / `slug` / `uuid` / `number` / `longNumber` / `sequence` / `random`;
+> 没有 `book()` / `lorem()` / `locale`。
 
 ---
 
@@ -382,7 +395,7 @@ Faker 用 `net.datafaker:datafaker`,支持 `locale: zh_CN`。
     var mail  = Mail.fake();
     var event = Event.fake();
     var disk  = Storage.fake("s3");
-    var notif = Notification.fake();
+    var notif = Notifications.fake();
     Clock.freeze(Instant.parse("2026-10-28T10:00:00Z"));
 
     service.checkout(order);
@@ -406,14 +419,28 @@ Faker 用 `net.datafaker:datafaker`,支持 `locale: zh_CN`。
 }
 ```
 
+> ⚠ **这段是目标 API,不是当前状态。** 已实现的是
+> `Mail.fake()` / `Event.fake()` / `Notifications.fake()` /
+> `Broadcast.fake()` / `Http.fake()`,它们的断言是**静态方法**
+> (`Mail.assertSent(...)`、`Event.assertDispatched(...)`、
+> `Notifications.assertSentTo(...)`),不返回示例里的记录器;
+> `Storage.fake(...)` 返回 `FakeDisk`,示例里的 `disk` 用法成立。
+> 未实现:`Queue.fake()` / `Cache.fake()` 及其相应断言、
+> `Clock` 时间控制、`UploadedFile.fake()`。
+> 门面名是 `Notifications`(`Notification` 是通知的基类)。
+> 事件的部分假实现是 `Event.fake(OrderPaid.class)`(只假装指定类型,
+> 其余照常分发),没有 `fakeExcept`。
+
 ### 4.1 部分假实现
 
 ```java
-Queue.fake(List.of(SendInvoice.class));   // 只假装这一个,其他真实执行
-Event.fakeExcept(List.of(OrderPaid.class));
+Queue.fake(List.of(SendInvoice.class));   // ⏳ 未实现
+Event.fake(OrderPaid.class);              // 只假装这一个,其余照常分发
 ```
 
 ### 4.2 时间控制
+
+> ⚠ **`Clock` 门面尚未实现**;这一节是设计,当前还不能冻结/快进时间。
 
 ```java
 Clock.freeze();
@@ -521,12 +548,15 @@ class InventoryServiceTest extends AppTest {     // 启动容器,不启动 HTTP
 }
 ```
 
+> ⚠ **`AppTest` 尚未实现。** 当前可用的只有不继承基类的单元测试与
+> `FeatureTest`(容器 + 数据库 + 进程内 HTTP)。
+
 三层测试基类:
 
 | 基类 | 启动内容 | 速度 | 用途 |
 |---|---|---|---|
 | (无) | 什么都不启动 | ~1ms | 纯逻辑单元测试 |
-| `AppTest` | 容器 + 数据库 | ~50ms/测试类 | 服务层、仓储、作业 |
+| `AppTest` ⏳ | 容器 + 数据库 | ~50ms/测试类 | 服务层、仓储、作业 |
 | `FeatureTest` | 容器 + 数据库 + HTTP 内核 | ~60ms/测试类 | 端到端功能 |
 
 ---
@@ -674,6 +704,12 @@ jaravel test --parallel --offline             # 依赖已缓存的 CI
 
 ## 7. 内部架构
 
+> ⚠ **这是目标结构,不是当前实现。** 当前 `jaravel-testing` 的类是平铺的
+> (`FeatureTest`、`BrowserTest`、`RollbackExtension`、`TestcontainersSupport`、
+> `testcontainers/` 等),没有 `bases/` / `fakes/` / `time/` 这些包;
+> `AppTest`、`QueueFake`、`CacheFake`、`TestClock`、`JaravelExtension` 也都
+> 不存在 —— 当前是 `RollbackExtension` + Spring 的 `SpringExtension`。
+
 ```
 jaravel-testing
 ├── bases/      FeatureTest · AppTest · BrowserTest · ArchTest
@@ -742,3 +778,11 @@ public class JaravelExtension implements BeforeAllCallback, BeforeEachCallback,
   `CREATE DATABASE ... TEMPLATE` / dump-restore 的性能优化仍可做,但不阻塞交付。
 - [ ] 测试中的 `ScopedValue` 绑定:`AppTest` 没有 HTTP 请求,但 `Auth.user()` 需要作用域。需要 `actingAs` 在非 HTTP 测试中也能建立一个合成作用域。
 - [ ] 工厂的 `definition()` 返回 `Map<String,Object>` 缺少类型安全。考虑生成 `PostFactory` 的类型化 setter(`.title("X").status(PUBLISHED)`)。**v0.6 / v0.7 均未做**,仍开放;等真实使用反馈再定。
+- [ ] 测试隔离注解(`@RefreshDatabase` / `@DatabaseTransactions` /
+  `@DatabaseMigrations` / `@WithoutDatabase`)与 `AppTest` 未实现;当前只有
+  默认事务回滚、`@WithoutRollback` 与 `FeatureTest`(§2.1、§5)。
+- [ ] `Queue.fake()` / `Cache.fake()` 与相应断言、`Clock` 时间控制、
+  `UploadedFile.fake()` 未实现;`Event.fakeExcept` 也不存在,
+  部分假实现用 `Event.fake(types)`(§4)。
+- [ ] 工厂:`Post.factory()` 的 APT 生成与 `make:factory` 未实现,
+  `Factory.Faker` 仍是内置最小实现而非 `datafaker`(§3)。

@@ -928,22 +928,27 @@ uploads:
 
 三个模块都提供 `fake()`:
 
+> ⚠ 示例里的 `mail.assertSent(...)` / `notif.assertSentTo(...)` 实例写法
+> 尚未实现;当前的断言是**静态的**:`Mail.assertSent(...)`、
+> `Notifications.assertSentTo(...)`。`Storage.fake(...)` 返回 `FakeDisk`,
+> 实例断言成立。
+
 ```java
 @Test void sends_shipped_mail() {
-    var mail = Mail.fake();
+    Mail.fake();
     service.ship(order);
-    mail.assertSent(OrderShipped.class, m -> m.hasTo(order.customerEmail()));
-    mail.assertQueued(OrderShipped.class);
-    mail.assertNotSent(OrderCancelled.class);
-    mail.assertSentCount(1);
+    Mail.assertSent(OrderShipped.class, m -> m.hasTo(order.customerEmail()));
+    Mail.assertQueued(OrderShipped.class);
+    Mail.assertNotSent(OrderCancelled.class);
+    Mail.assertSent(OrderShipped.class, 1);
 }
 
 @Test void notifies_user() {
-    var notif = Notification.fake();
+    Notifications.fake();
     service.markPaid(invoice);
-    notif.assertSentTo(user, InvoicePaid.class,
-        (n, channels) -> channels.contains("mail") && channels.contains("database"));
-    notif.assertNothingSentTo(otherUser);
+    Notifications.assertSentTo(user, InvoicePaid.class);
+    Notifications.assertSentOnChannel(user, InvoicePaid.class, "mail");
+    Notifications.assertNotSentTo(otherUser, InvoicePaid.class);
 }
 
 @Test void stores_avatar() {

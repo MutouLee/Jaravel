@@ -123,6 +123,9 @@ public class SpringContainer implements Container {
 
 `overrides` 的存在是为了支持测试期替换(`Cache.fake()`、`Queue.fake()`),不走 Spring 的 bean 覆盖机制——后者在运行时替换单例非常别扭。
 
+> ⚠ **这两个 `fake()` 目前都还没有实现** —— 这里说的是机制支持的用途。
+> 已实现的 fake 与仍缺的部分见 [14](14-testing.md) §4 的状态表。
+
 ### 2.2 为什么不自己写 IoC
 
 写一个 DI 容器只要两周,但会立刻失去:Spring 生态的全部 starter、AOP、事务传播语义、`@Transactional` 的代理、Actuator、配置体系。**自研 IoC 是本项目性价比最低的选项**,明确否决(见 ADR-002)。

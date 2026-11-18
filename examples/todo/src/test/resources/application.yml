@@ -1,0 +1,12 @@
+# 测试库放在 target/ 下:每次 clean 后是一份空库,由 migrate.on-boot 建表。
+# 不用 storage/todo.db —— 干净 clone 里没有那个目录,CI 会因此起不来。
+# 相对文件路径在 jaravel test --parallel 下由 ForkedDatabase 按 PID 派生。
+spring:
+  datasource:
+    url: jdbc:sqlite:target/todo-test.db
+    driver-class-name: org.sqlite.JDBC
+
+logging:
+  level:
+    root: WARN
+    io.jaravel: WARN

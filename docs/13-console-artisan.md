@@ -370,21 +370,27 @@ jaravel migrate        # 终端 B:检测到通道存在 → 发给那个进程�
 ### 2.1 脚手架
 
 ```bash
-jaravel new <name>                      # 新项目,交互式选择:数据库/前端栈/认证脚手架
+jaravel new <name>                      # 新项目(web 默认;--preset=api/minimal)
 jaravel new <name> --preset=api         # 预设:api / web / minimal
 jaravel install:auth                    # 在已有项目中加认证脚手架(登录/注册/重置)
+```
+
+> **v1.0 已实现**:`new` 与 `install:auth` 已落地,另有
+> `examples/api-only` / `examples/multi-tenant` 两个 v1.0 示例。
+> 其余 `install:*` 仍未实现,见 [KNOWN-ISSUES.md](../KNOWN-ISSUES.md)。
+
+```text
 jaravel install:api                     # 加 API 脚手架(token 认证 + 异常格式)
 jaravel install:broadcasting            # v0.6 计划 —— 仍未实现(见下)
 ```
 
-> ### ⚠ v0.5 / v0.6:这一组**一条都没实现**
+> ### v1.0:`new` / `install:auth` 已实现
 >
-> `jaravel new` 要先回答 §10 里那个还没定的问题(模板内嵌在二进制里
-> 还是从 GitHub 下载),而 `install:*` 要先有可装的脚手架。
-> v0.6 的广播功能本身已落地(docs/19),但 `install:broadcasting`
-> 这条**安装器**跟着整组一起没做 —— 广播不需要额外依赖,
-> 应用侧只差一个 `config/broadcasting.yml` 与 `Channels.java`,
-> 照 `examples/queue` 抄即可。
+> 模板内嵌在 CLI 里(`project.*` / `auth.*` stubs),离线可用;
+> `--preset` 支持 web / api / minimal。`install:api` /
+> `install:broadcasting` 等仍未实现,见 [KNOWN-ISSUES.md](../KNOWN-ISSUES.md)。
+> 广播功能本身在 v0.6 已落地(docs/19),应用侧只差一个
+> `config/broadcasting.yml` 与 `Channels.java`,照 `examples/queue` 抄即可。
 
 ### 2.2 代码生成
 

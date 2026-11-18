@@ -1,0 +1,46 @@
+# {{appName}}
+
+由 `jaravel new` 生成。
+
+## 运行
+
+```bash
+mvn spring-boot:run
+```
+
+打开 http://localhost:8000 。
+
+## 目录
+
+```
+src/main/java/app/            应用代码
+src/main/java/routes/         路由
+src/main/resources/views/     jblade 模板(web preset)
+src/main/resources/config/    config/*.yml
+```
+
+## 常用命令
+
+```bash
+jaravel make:model Post -mcr
+jaravel migrate
+jaravel test
+jaravel list
+```
+
+## 加认证
+
+```bash
+jaravel install:auth
+```
+
+会生成用户模型、迁移、登录/注册/重置控制器与模板。
+
+## 打包
+
+```bash
+mvn package
+java -jar target/{{artifactId}}-0.1.0-SNAPSHOT.jar
+```
+
+模板会在 `process-classes` 阶段预编译(见 `jaravel-maven-plugin`)。

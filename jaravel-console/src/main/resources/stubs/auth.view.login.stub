@@ -1,0 +1,40 @@
+@params(String csrf, String email, String error, String status)
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>登录</title>
+  <style>
+    body { font: 16px/1.6 system-ui, sans-serif; max-width: 360px; margin: 80px auto; padding: 0 24px; }
+    label { display: block; margin: 14px 0 4px; }
+    input[type=email], input[type=password], input[type=text] { width: 100%; padding: 8px; box-sizing: border-box; }
+    button { margin-top: 18px; width: 100%; padding: 10px; }
+    .error { color: #b91c1c; background: #fef2f2; padding: 8px 12px; border-radius: 6px; }
+    .ok { color: #166534; background: #f0fdf4; padding: 8px 12px; border-radius: 6px; }
+    a { color: #2563eb; }
+  </style>
+</head>
+<body>
+  <h1>登录</h1>
+
+  @if (status != null && !status.isBlank())
+  <p class="ok">\{{ status }}</p>
+  @endif
+  @if (error != null && !error.isBlank())
+  <p class="error">\{{ error }}</p>
+  @endif
+
+  <form method="post" action="/login">
+    <input type="hidden" name="_token" value="\{{ csrf }}">
+    <label for="email">邮箱</label>
+    <input id="email" type="email" name="email" value="\{{ email }}" required autofocus>
+    <label for="password">密码</label>
+    <input id="password" type="password" name="password" required>
+    <label><input type="checkbox" name="remember"> 记住我</label>
+    <button type="submit">登录</button>
+  </form>
+
+  <p><a href="/register">没有账号?注册</a> · <a href="/forgot-password">忘记密码</a></p>
+</body>
+</html>

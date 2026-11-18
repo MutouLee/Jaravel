@@ -1,0 +1,27 @@
+@params(String csrf, String name, String email, String status)
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>控制台</title>
+  <style>
+    body { font: 16px/1.6 system-ui, sans-serif; max-width: 640px; margin: 80px auto; padding: 0 24px; }
+    .ok { color: #166534; background: #f0fdf4; padding: 8px 12px; border-radius: 6px; }
+    button { padding: 6px 12px; margin-top: 18px; }
+  </style>
+</head>
+<body>
+  <h1>你好,\{{ name }}</h1>
+  <p>\{{ email }}</p>
+
+  @if (status != null && !status.isBlank())
+  <p class="ok">\{{ status }}</p>
+  @endif
+
+  <form method="post" action="/logout">
+    <input type="hidden" name="_token" value="\{{ csrf }}">
+    <button type="submit">登出</button>
+  </form>
+</body>
+</html>

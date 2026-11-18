@@ -1,0 +1,202 @@
+package app.http.controllers;
+
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
+
+import org.springframework.stereotype.Component;
+
+import app.http.requests.LoginRequest;
+import app.http.requests.RegisterRequest;
+import app.http.requests.ResetPasswordRequest;
+import app.models.User;
+import io.jaravel.auth.Auth;
+import io.jaravel.auth.Intended;
+import io.jaravel.auth.LoginThrottle;
+import io.jaravel.auth.hash.Hash;
+import io.jaravel.auth.passwords.Password;
+import io.jaravel.auth.passwords.PasswordBroker;
+import io.jaravel.http.Redirect;
+import io.jaravel.http.Request;
+import io.jaravel.http.Response;
+import io.jaravel.http.View;
+import io.jaravel.mail.Mail;
+import io.jaravel.mail.Mailable;
+import io.jaravel.session.Session;
+import io.jaravel.validation.Validator;
+
+/**
+ * 登录 / 注册 / 登出 / 密码重置。
+ *
+ * <p>安全相关的部分都在框架里:会话重建、密码哈希、重置 token 的
+ * 单次有效与常数时间比较、CSRF 校验。这里只写流程。
+ */
+@Component
+public class AuthController {
+
+    private final LoginThrottle throttle;
+
+    public AuthController(LoginThrottle throttle) {
+        this.throttle = throttle;
+    }
+
+    // ================= 登录 =================
+
+    public View loginPage() {
+        return View.of("auth.login")
+                .with("csrf", Session.token())
+                .with("email", old("email"))
+                .with("error", error("email"))
+                .with("status", status());
+    }
+
+    public Response login(Request request, LoginRequest form) {
+        String email = form.email();
+        String ip = request.ip();
+        throttle.guardAttempt(email, ip);
+
+        boolean remember = request.input("remember").isPresent();
+        if (Auth.attempt(form.credentials(), remember)) {
+            throttle.clear(email, ip);
+            return Redirect.to(Intended.pull("/dashboard"));
+        }
+
+        throttle.recordFailure(email, ip);
+        return Redirect.to("/login")
+                .withErrors(Map.of("email", "邮箱或密码不正确"))
+                .withInput();
+    }
+
+    public Response logout() {
+        Auth.logout();
+        return Redirect.to("/login").with("status", "已登出");
+    }
+
+    // ================= 注册 =================
+
+    public View registerPage() {
+        return View.of("auth.register")
+                .with("csrf", Session.token())
+                .with("name", old("name"))
+                .with("email", old("email"))
+                .with("error", error("email"))
+                .with("status", status());
+    }
+
+    public Response register(RegisterRequest form) {
+        User user = new User();
+        user.name = form.name();
+        user.email = form.email();
+        user.password = Hash.make(form.password());
+        user.save();
+
+        Auth.login(user);
+        return Redirect.to("/dashboard").with("status", "注册成功");
+    }
+
+    // ================= 密码重置 =================
+
+    public View forgotPage() {
+        return View.of("auth.forgot")
+                .with("csrf", Session.token())
+                .with("email", old("email"))
+                .with("error", error("email"))
+                .with("status", status());
+    }
+
+    public Response sendResetLink(Request request) {
+        var data = Validator.make(request.all(), Map.of("email", "required|email")).validate();
+        String email = data.string("email");
+
+        var status = Password.sendResetLink(Map.of("email", email), (user, token) -> {
+            User model = (User) user.unwrap();
+            String link = baseUrl(request) + "/reset-password?token="
+                    + enc(token) + "&email=" + enc(model.email);
+            Mail.to(model.email).send(Mailable.simple()
+                    .subject("重置密码")
+                    .line("点击下面的按钮重置密码。链接 1 小时内有效。")
+                    .action("重置密码", link));
+        });
+
+        return switch (status) {
+            case SENT -> Redirect.to("/login")
+                    .with("status", "若该邮箱已注册,重置链接已发出");
+            case THROTTLED -> Redirect.to("/forgot-password")
+                    .withErrors(Map.of("email", "请求过于频繁,请稍后再试"));
+            default -> Redirect.to("/forgot-password")
+                    .withErrors(Map.of("email", "无法发送重置链接"));
+        };
+    }
+
+    public View resetPage(Request request) {
+        return View.of("auth.reset")
+                .with("csrf", Session.token())
+                .with("token", request.query("token").orElse(""))
+                .with("email", request.query("email").orElse(""))
+                .with("error", error("token"))
+                .with("status", status());
+    }
+
+    public Response resetPassword(ResetPasswordRequest form) {
+        var status = Password.reset(form.credentials(), (user, plaintext) -> {
+            User model = (User) user.unwrap();
+            model.password = Hash.make(plaintext);
+            model.save();
+        });
+
+        if (status == PasswordBroker.Status.RESET) {
+            return Redirect.to("/login").with("status", "密码已重置,请重新登录");
+        }
+
+        String message = switch (status) {
+            case EXPIRED_TOKEN -> "重置链接已过期,请重新申请";
+            case INVALID_TOKEN -> "重置链接无效或已被使用";
+            default -> "无法重置密码";
+        };
+        return Redirect.to("/reset-password?token="
+                        + enc(form.credentials().get("token").toString())
+                        + "&email=" + enc(form.credentials().get("email").toString()))
+                .withErrors(Map.of("token", message));
+    }
+
+    // ================= 登录后 =================
+
+    public View dashboard() {
+        User me = Auth.userOrFail(User.class);
+        return View.of("dashboard")
+                .with("csrf", Session.token())
+                .with("name", me.name)
+                .with("email", me.email)
+                .with("status", status());
+    }
+
+    // ================= 工具 =================
+
+    private static String error(String field) {
+        return Session.tryCurrent()
+                .flatMap(s -> s.get("errors", Map.class))
+                .map(m -> m.get(field))
+                .map(Object::toString)
+                .orElse("");
+    }
+
+    private static String old(String field) {
+        return Session.oldInput(field).map(Object::toString).orElse("");
+    }
+
+    private static String status() {
+        return Session.tryCurrent()
+                .flatMap(s -> s.get("status", String.class))
+                .orElse("");
+    }
+
+    private static String enc(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    private static String baseUrl(Request request) {
+        String url = request.url();
+        String path = request.path();
+        return url.endsWith(path) ? url.substring(0, url.length() - path.length()) : url;
+    }
+}

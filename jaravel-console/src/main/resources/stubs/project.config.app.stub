@@ -1,0 +1,8 @@
+app:
+  name: {{appName}}
+  env: ${APP_ENV:local}
+  debug: ${APP_DEBUG:true}
+  url: ${APP_URL:http://localhost:8000}
+  # 会话加密、签名 URL、加密字段都依赖它。
+  # 生成时写入一个开发默认值;生产请用 APP_KEY 环境变量覆盖。
+  key: ${APP_KEY:{{appKey}}}

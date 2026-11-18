@@ -1,0 +1,24 @@
+auth:
+  default: web
+
+  guards:
+    web:
+      driver: session
+      provider: users
+      remember: P30D
+
+  providers:
+    users:
+      driver: eloquent
+      model: app.models.User
+
+  passwords:
+    provider: users
+    table: password_reset_tokens
+    expire: PT1H
+    throttle: PT60S
+
+  throttle:
+    max-per-account: 5
+    max-per-ip: 20
+    window: PT1M

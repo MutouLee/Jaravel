@@ -1,0 +1,28 @@
+package app.http.requests;
+
+import java.util.Map;
+
+import io.jaravel.validation.FormRequest;
+
+public class LoginRequest extends FormRequest {
+
+    @Override
+    public Map<String, String> rules() {
+        return Map.of(
+                "email", "required|email",
+                // 登录不校验密码复杂度:规则只管写入新密码的入口
+                "password", "required|string");
+    }
+
+    @Override
+    public Map<String, String> attributes() {
+        return Map.of("email", "邮箱", "password", "密码");
+    }
+
+    public String email()    { return validated().string("email"); }
+    public String password() { return validated().string("password"); }
+
+    public Map<String, Object> credentials() {
+        return Map.of("email", email(), "password", password());
+    }
+}

@@ -1,0 +1,25 @@
+package app.http.requests;
+
+import java.util.Map;
+
+import io.jaravel.validation.FormRequest;
+
+public class RegisterRequest extends FormRequest {
+
+    @Override
+    public Map<String, String> rules() {
+        return Map.of(
+                "name", "required|string|max:80",
+                "email", "required|email|unique:users,email",
+                "password", "required|string|min:8|confirmed");
+    }
+
+    @Override
+    public Map<String, String> attributes() {
+        return Map.of("name", "姓名", "email", "邮箱", "password", "密码");
+    }
+
+    public String name()     { return validated().string("name"); }
+    public String email()    { return validated().string("email"); }
+    public String password() { return validated().string("password"); }
+}

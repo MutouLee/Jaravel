@@ -1,0 +1,16 @@
+package routes;
+
+import org.springframework.stereotype.Component;
+
+import app.http.controllers.HomeController;
+import io.jaravel.routing.RouteDefinition;
+import io.jaravel.routing.Router;
+
+@Component
+public class WebRoutes implements RouteDefinition {
+
+    @Override
+    public void define(Router r) {
+        r.get("/", HomeController::index).name("home");
+    }
+}

@@ -1,0 +1,34 @@
+package {{migrationPackage}};
+
+import io.jaravel.migration.Migration;
+import io.jaravel.migration.schema.Schema;
+
+public class CreateAuthTables implements Migration {
+
+    @Override
+    public void up() {
+        Schema.create("users", t -> {
+            t.id();
+            t.string("name", 80);
+            t.string("email").unique();
+
+            // 存哈希。pbkdf2 的输出比 bcrypt 的 60 字符长,留足空间
+            t.string("password", 255);
+            t.timestamp("email_verified_at").nullable();
+            t.rememberToken();
+            t.timestamps();
+        });
+
+        Schema.create("password_reset_tokens", t -> {
+            t.string("email").primary();
+            t.string("token", 64);
+            t.timestamp("created_at");
+        });
+    }
+
+    @Override
+    public void down() {
+        Schema.dropIfExists("password_reset_tokens");
+        Schema.dropIfExists("users");
+    }
+}

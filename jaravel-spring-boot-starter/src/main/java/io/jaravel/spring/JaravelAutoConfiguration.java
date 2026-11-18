@@ -232,17 +232,33 @@ public class JaravelAutoConfiguration {
         Path viewRoot = Path.of(config.string("view.root", "src/main/resources/views"));
         Path classDir = Path.of(config.string("view.compiled", "target/jblade-classes"));
 
-        // 开发期从目录读(改模板即生效);没有目录时:
-        //   - 构建期预编译过(marker 在 classpath)→ 加载生成的 class,零运行时编译;
-        //   - 否则从 classpath 读源码,退化为运行时编译(展开的 classpath 仍可用)。
-        if (java.nio.file.Files.isDirectory(viewRoot)) {
+        // 开发期从目录读(改模板即生效);打包成 jar 后即使当前工作目录
+        // 里还有 src/main/resources/views,也必须走预编译 —— 自包含 jar
+        // 里没有 javac,jte 的运行时编译会直接报「必须预编译」。
+        boolean fromJar = runningFromJar();
+        boolean precompiled = getClass().getClassLoader().getResource(
+                "META-INF/jaravel/jblade-precompiled") != null;
+
+        if (!fromJar && java.nio.file.Files.isDirectory(viewRoot)) {
             return JbladeEngine.forDirectory(viewRoot, classDir, getClass().getClassLoader());
         }
-        if (getClass().getClassLoader().getResource(
-                "META-INF/jaravel/jblade-precompiled") != null) {
+        if (precompiled) {
             return JbladeEngine.forPrecompiled(getClass().getClassLoader());
         }
         return JbladeEngine.forClasspath("views", classDir, getClass().getClassLoader());
+    }
+
+    /**
+     * 当前代码是从 jar 里加载的吗。
+     *
+     * <p>不能只看 {@code src/main/resources/views} 是否存在:
+     * 在项目根目录直接 {@code java -jar target/app.jar} 时那个目录也在,
+     * 于是会误选开发模式,然后在自包含 jar 里尝试运行时编译模板并失败。
+     */
+    private static boolean runningFromJar() {
+        var self = JaravelAutoConfiguration.class.getResource(
+                "JaravelAutoConfiguration.class");
+        return self != null && "jar".equals(self.getProtocol());
     }
 
     // ================= 路由 =================

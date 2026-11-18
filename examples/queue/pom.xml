@@ -11,6 +11,8 @@
   <description>v0.4 切片:任务投递 / 重试 / 失败归档 / 唯一性 / 中间件 / 链 / 批,端到端</description>
 
   <properties>
+    <!-- 示例不作为 Maven Central 构件发布 -->
+    <maven.deploy.skip>true</maven.deploy.skip>
     <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <jaravel.version>0.1.0-SNAPSHOT</jaravel.version>

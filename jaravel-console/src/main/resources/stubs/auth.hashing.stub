@@ -1,0 +1,3 @@
+hashing:
+  # pbkdf2 是 JDK 自带、零额外依赖的默认值
+  driver: ${HASH_DRIVER:pbkdf2}

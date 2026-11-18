@@ -2,11 +2,11 @@
 
 > Laravel 级开发体验,构建在 Spring Boot 之上的 Java 应用框架。
 
-**当前状态:v0.9 已收口(详见 [V0.9-RESULT.md](V0.9-RESULT.md))。**
-37 个模块、**2688 个测试**全绿(默认套件;外部 Redis / RabbitMQ / SQS 组合本次未重测),四个示例应用都在构建里
-(`examples/{todo,blog,auth,queue}`)。
+**当前状态:v1.0 功能面完成,正式发布待执行(详见 [V1.0-RESULT.md](V1.0-RESULT.md))。**
+37 个框架模块、**2702 个测试**全绿(默认套件;外部 Redis / RabbitMQ / SQS 组合未重测),
+六个示例都在构建里(`examples/{todo,blog,auth,queue,api-only,multi-tenant}`)。
 队列 / 事件 / 调度 / 邮件 / 通知 / 存储到位(v0.4),
-终端上有 **43 条命令**、本地命令通道、冷启动启动器、`jaravelw`、`tinker`;
+终端上有 **45 条命令**、本地命令通道、冷启动启动器、`jaravelw`、`tinker`;
 Resource 层、分页、统一异常处理、Problem JSON、内容协商(JSON / XML / CSV)、
 `openapi:generate` / `openapi:diff`、`@ApiDoc` 与响应 schema 的 APT
 都已到位(v0.5,docs/12)。
@@ -22,6 +22,11 @@ v0.9 已收口:**jblade 构建期预编译**(`jaravel-maven-plugin`)、**jaravel
 **JMH + 路由前缀索引**(大表 404 14.1µs → 0.14µs)、**安全修复 + 依赖升级**;
 JSON 吞吐 ≈ 裸 MVC 1.19×,模板渲染 ≈ 8.8× Thymeleaf。
 native 范围是 `jaravel-cli`(Web 应用 native 不需要)。
+v1.0 功能面:**`jaravel new`** 与 **`install:auth`** 可生成并跑通带认证的项目;
+`examples/api-only` / `examples/multi-tenant` 补齐示例矩阵;
+[文档站](docs-site/)(快速开始 + 迁移指南 + API 参考)可 `mkdocs build --strict`;
+发布流程、`SECURITY.md`、`CHANGELOG.md`、[KNOWN-ISSUES.md](KNOWN-ISSUES.md) 已就位。
+**Maven Central 发布、tag 与外部 30 分钟验收待执行**(见 [RELEASE.md](RELEASE.md))。
 
 **v0.7 已收口**(详见 [V0.7-RESULT.md](V0.7-RESULT.md)):cache / session /
 queue / 广播的 **redis 驱动**已落地(`RedisStore` + `RedisQueue` +
@@ -45,7 +50,7 @@ Artisan 线的五条验收里 3 条达成、2 条部分达成(收口时覆盖率
 过程中发现并修掉 **14 个真实缺陷** —— 其中三个是**自己的门禁与示例在说谎**
 (两个示例按提交的样子起不来、`jaravel list` 列不全、parity 的度量对象没有测试)。
 
-详见 [V0.9-RESULT.md](V0.9-RESULT.md) · [V0.8-RESULT.md](V0.8-RESULT.md) · [V0.7-RESULT.md](V0.7-RESULT.md) · [V0.6-RESULT.md](V0.6-RESULT.md) · [V0.5-RESULT.md](V0.5-RESULT.md) ·
+详见 [V1.0-RESULT.md](V1.0-RESULT.md) · [V0.9-RESULT.md](V0.9-RESULT.md) · [V0.8-RESULT.md](V0.8-RESULT.md) · [V0.7-RESULT.md](V0.7-RESULT.md) · [V0.6-RESULT.md](V0.6-RESULT.md) · [V0.5-RESULT.md](V0.5-RESULT.md) ·
 [V0.3-RESULT.md](V0.3-RESULT.md) · [V0.2-RESULT.md](V0.2-RESULT.md) ·
 [V0.1-RESULT.md](V0.1-RESULT.md)。
 (v0.4 没有单独的结果文档 —— 它的验收逐条结果、文档↔现实对账表与 parity
@@ -139,6 +144,12 @@ p.save();                  // 与快照比对,只 UPDATE 变化的列
 
 ```
 DESIGN.md                 设计总纲:可行性结论、三条顶层决策、模块结构、路线图
+V1.0-RESULT.md            v1.0 结果:脚手架/示例/文档站/发布流程(含发布待执行项)
+RELEASE.md                发布流程(Maven Central / GPG / tag / CLI 资产)
+SECURITY.md               漏洞报告与安全响应
+CHANGELOG.md              变更记录
+KNOWN-ISSUES.md           已知问题 / 刻意不做项
+docs-site/                面向使用者的文档站(MkDocs Material)
 V0.9-RESULT.md            v0.9 结果:预编译/native/JMH/路由优化/安全审计(含未做的两项)
 SECURITY-AUDIT.md         内部安全检查表与修复记录
 V0.8-RESULT.md            v0.8 结果:浏览器/并行/Testcontainers 测试与多租户移出核心(含文档对账)
@@ -192,6 +203,8 @@ examples/todo/            v0.1 的垂直切片(v0.2 已迁到 Eloquent)
 examples/blog/            v0.2 切片:关联 + 预加载 + 迁移 + FormRequest,零裸 SQL
 examples/auth/            v0.3 切片:注册/登录/记住我/密码重置/邮箱验证/Policy,端到端
 examples/queue/           v0.4 切片:队列 + 邮件 + 通知 + 调度;v0.5 又加了三条自定义命令
+examples/api-only/        v1.0 示例:纯 JSON API(资源/校验/404/Problem JSON)
+examples/multi-tenant/    v1.0 示例:共享库 + tenant_id + @GlobalScope + 租户上下文
 benchmark/laravel-parity/ parity 门禁:与等价 Laravel 实现的代码量对比
 benchmark/jpa-comparison/ 与 Spring Data JPA 的单条主键查询对照基准
 benchmark/jmh/            JMH:路由 / 转义 / 查询构造 / 模板 vs Thymeleaf

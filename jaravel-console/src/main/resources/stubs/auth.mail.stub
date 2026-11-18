@@ -1,0 +1,20 @@
+mail:
+  # 开发默认 log:邮件正文(含重置链接)写日志,不会真的发出去
+  default: ${MAIL_MAILER:log}
+
+  from:
+    address: ${MAIL_FROM:noreply@example.com}
+    name: ${MAIL_FROM_NAME:Jaravel}
+
+  mailers:
+    log:
+      transport: log
+      body: true
+    array:
+      transport: array
+    smtp:
+      transport: smtp
+      host: ${MAIL_HOST:localhost}
+      port: ${MAIL_PORT:1025}
+      encryption: ${MAIL_ENCRYPTION:none}
+      timeout: 10s

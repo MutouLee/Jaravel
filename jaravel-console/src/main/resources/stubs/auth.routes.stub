@@ -1,0 +1,34 @@
+package routes;
+
+import org.springframework.stereotype.Component;
+
+import app.http.controllers.AuthController;
+import io.jaravel.routing.RouteDefinition;
+import io.jaravel.routing.Router;
+
+@Component
+public class AuthRoutes implements RouteDefinition {
+
+    @Override
+    public void define(Router r) {
+        r.prefix("").middleware("web", "guest").group(guest -> {
+            guest.get("/login", AuthController::loginPage).name("login");
+            guest.post("/login", AuthController::login).middleware("throttle:10,1");
+            guest.get("/register", AuthController::registerPage).name("register");
+            guest.post("/register", AuthController::register);
+        });
+
+        r.prefix("").middleware("web").group(web -> {
+            web.get("/forgot-password", AuthController::forgotPage).name("password.request");
+            web.post("/forgot-password", AuthController::sendResetLink)
+               .middleware("throttle:5,1");
+            web.get("/reset-password", AuthController::resetPage).name("password.reset");
+            web.post("/reset-password", AuthController::resetPassword);
+        });
+
+        r.prefix("").middleware("web", "auth").group(auth -> {
+            auth.get("/dashboard", AuthController::dashboard).name("dashboard");
+            auth.post("/logout", AuthController::logout).name("logout");
+        });
+    }
+}

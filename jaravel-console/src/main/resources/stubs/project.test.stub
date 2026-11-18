@@ -1,0 +1,16 @@
+package apptest;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import org.junit.jupiter.api.Test;
+
+import io.jaravel.testing.FeatureTest;
+
+class HomeTest extends FeatureTest {
+
+    @Test
+    void home_responds() {
+        var response = get("/");
+        assertThat(response.status()).isBetween(200, 399);
+    }
+}

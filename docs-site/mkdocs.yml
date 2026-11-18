@@ -1,0 +1,70 @@
+site_name: Jaravel
+site_description: Laravel 级开发体验,构建在 Spring Boot 之上的 Java 应用框架
+site_url: https://jaravel.dev/
+repo_url: https://github.com/MutouLee/Jaravel
+repo_name: MutouLee/Jaravel
+edit_uri: edit/main/docs-site/docs/
+
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: 切到深色
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: 切到浅色
+
+nav:
+  - 首页: index.md
+  - 快速开始(30 分钟): quickstart.md
+  - 安装: installation.md
+  - 指南:
+      - 认证: authentication.md
+      - 路由与 HTTP: routing.md
+      - 数据库与 Eloquent: database.md
+      - 测试: testing.md
+      - 部署: deployment.md
+  - 迁移:
+      - 从 Spring Boot 迁移: migrate-from-spring-boot.md
+      - 从 Laravel 迁移: migrate-from-laravel.md
+  - API 参考: api-reference.md
+  - English:
+      - Overview: en/index.md
+      - Quickstart: en/quickstart.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/MutouLee/Jaravel

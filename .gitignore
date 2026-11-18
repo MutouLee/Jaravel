@@ -12,6 +12,9 @@ build/
 # 三样都不该跟着仓库走
 .jaravel/
 
+# 本地 SQLite 数据库
+*.db
+
 # 验证工程的中间产物
 verification/**/out/
 verification/**/negout/

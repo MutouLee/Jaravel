@@ -1,0 +1,9 @@
+jaravel:
+  migrate:
+    on-boot: true
+  seed:
+    # 演示时用 SEED_ON_BOOT=true 生成 alpha / beta 两个租户;
+    # 测试自己造数据,所以默认关闭
+    on-boot: ${SEED_ON_BOOT:false}
+  eloquent:
+    prevent-lazy-loading: ${PREVENT_LAZY:true}

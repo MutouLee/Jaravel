@@ -600,6 +600,21 @@ record 返回类型由运行时反射得到;`with()` 的根字段由 APT 从
 3. 所有 `docs/` 中的「待决问题」已关闭或转为 issue;
 4. `parity-check` 全部场景 ≤ 1.3。
 
+### 验收结果(v1.0 功能面完成,发布待执行)
+
+完整证据、剩余发布动作与明确没做的项见
+[V1.0-RESULT.md](../V1.0-RESULT.md)。摘要:
+
+| # | 结果 |
+|---|---|
+| 1 | ⚠️ **内部路径跑通,外部计时待做** —— `jaravel new` + `install:auth` 的 demo 与 `examples/todo` 都由本项目手工走完;还没有未参与开发的人做正式 30 分钟验收 |
+| 2 | ⚠️ **部分** —— 使用指南 + Javadoc 聚合;没有逐个公开 API 的站点页面 |
+| 3 | ✅ 开放项集中到 [KNOWN-ISSUES.md](../KNOWN-ISSUES.md) |
+| 4 | ✅ 1.05 / 1.10 / 1.29 / 1.14 / 1.28,最差 1.29 |
+
+> 发布到 Maven Central、打 tag、GitHub Release 资产、外部 30 分钟验收
+> 与文档站英文完整版仍未执行;流程见 [RELEASE.md](../RELEASE.md)。
+
 ---
 
 ## 1. 并行化建议(3~4 人团队)

@@ -1,0 +1,8 @@
+target/
+.env
+*.db
+storage/
+.jaravel/
+.idea/
+*.iml
+.DS_Store

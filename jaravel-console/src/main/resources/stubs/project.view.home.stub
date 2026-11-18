@@ -1,0 +1,18 @@
+@params(String name)
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>\{{ name }}</title>
+  <style>
+    body { font: 16px/1.6 system-ui, sans-serif; max-width: 640px; margin: 80px auto; padding: 0 24px; }
+    code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>\{{ name }} 已启动</h1>
+  <p>改 <code>src/main/java/routes/WebRoutes.java</code> 或
+     <code>src/main/resources/views/home.jblade.html</code>,刷新即可。</p>
+</body>
+</html>

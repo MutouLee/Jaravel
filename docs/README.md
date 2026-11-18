@@ -6,6 +6,10 @@
 > 请先读 [verification/README.md](../verification/README.md)** —— 这两篇的部分内容已被验证结论取代,
 > 文档顶部有相应提示。
 
+> 面向**使用者**的文档站(快速开始、认证、迁移指南)在
+> [`docs-site/`](../docs-site/)。开放项集中在
+> [KNOWN-ISSUES.md](../KNOWN-ISSUES.md)。
+
 ## 阅读顺序
 
 **第一次阅读**,按以下顺序:

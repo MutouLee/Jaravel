@@ -1,0 +1,7 @@
+session:
+  # 留空时按环境选:开发(file)、生产(cache)
+  driver: ${SESSION_DRIVER:}
+  files: ${SESSION_FILES:storage/framework/sessions}
+  cookie: jaravel_session
+  lifetime: PT2H
+  same-site: Lax

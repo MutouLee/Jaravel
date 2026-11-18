@@ -85,6 +85,11 @@ public final class Stub {
         return this;
     }
 
+    public Stub with(Map<String, String> all) {
+        all.forEach(this::with);
+        return this;
+    }
+
     public String render() {
         String template = read();
         Matcher matcher = PLACEHOLDER.matcher(template);
@@ -155,6 +160,19 @@ public final class Stub {
                        "listener", "listener.event", "policy", "seeder",
                        "mail", "notification", "command",
                        "view", "component", "component.view",
-                       "test.feature", "test.unit");
+                       "test.feature", "test.unit",
+                       "project.pom", "project.application", "project.routes",
+                       "project.controller.web", "project.controller.api",
+                       "project.view.home", "project.test",
+                       "project.config.app", "project.config.database",
+                       "project.config.jaravel", "project.application.yml",
+                       "project.env", "project.env.example", "project.gitignore",
+                       "project.readme",
+                       "auth.user", "auth.migration", "auth.login.request",
+                       "auth.register.request", "auth.reset.request",
+                       "auth.controller", "auth.routes",
+                       "auth.config", "auth.session", "auth.hashing", "auth.mail",
+                       "auth.view.login", "auth.view.register", "auth.view.forgot",
+                       "auth.view.reset", "auth.view.dashboard");
     }
 }

@@ -1,0 +1,5 @@
+jaravel:
+  migrate:
+    on-boot: true
+  eloquent:
+    prevent-lazy-loading: ${PREVENT_LAZY:true}

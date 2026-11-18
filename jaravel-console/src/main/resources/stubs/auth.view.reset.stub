@@ -1,0 +1,39 @@
+@params(String csrf, String token, String email, String error, String status)
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>重置密码</title>
+  <style>
+    body { font: 16px/1.6 system-ui, sans-serif; max-width: 360px; margin: 60px auto; padding: 0 24px; }
+    label { display: block; margin: 14px 0 4px; }
+    input { width: 100%; padding: 8px; box-sizing: border-box; }
+    button { margin-top: 18px; width: 100%; padding: 10px; }
+    .error { color: #b91c1c; background: #fef2f2; padding: 8px 12px; border-radius: 6px; }
+    .ok { color: #166534; background: #f0fdf4; padding: 8px 12px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h1>重置密码</h1>
+
+  @if (status != null && !status.isBlank())
+  <p class="ok">\{{ status }}</p>
+  @endif
+  @if (error != null && !error.isBlank())
+  <p class="error">\{{ error }}</p>
+  @endif
+
+  <form method="post" action="/reset-password">
+    <input type="hidden" name="_token" value="\{{ csrf }}">
+    <input type="hidden" name="token" value="\{{ token }}">
+    <label for="email">邮箱</label>
+    <input id="email" type="email" name="email" value="\{{ email }}" required>
+    <label for="password">新密码(至少 8 位)</label>
+    <input id="password" type="password" name="password" required minlength="8">
+    <label for="password_confirmation">确认新密码</label>
+    <input id="password_confirmation" type="password" name="password_confirmation" required minlength="8">
+    <button type="submit">重置密码</button>
+  </form>
+</body>
+</html>

@@ -11,6 +11,8 @@
   <description>v0.1 垂直切片:路由 + jblade 页面 + 查询构造器 CRUD</description>
 
   <properties>
+    <!-- 示例不作为 Maven Central 构件发布 -->
+    <maven.deploy.skip>true</maven.deploy.skip>
     <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <jaravel.version>0.1.0-SNAPSHOT</jaravel.version>

@@ -110,7 +110,8 @@ v0.9 交付了:
 - `allDeclaredFields` —— `ArgumentBinder` / `Usage` 读写 `@Argument` / `@Option`;
 - 三个注解类型本身 —— 运行时要 `getAnnotation(...)`。
 
-`jaravel-cli` 用 `scanDependencies=true` 扫到 **22 个命令**;
+`jaravel-cli` 用 `scanDependencies=true` 扫到命令类(v0.9 测量时 **22 个**;
+v1.0 新增 `new` / `install:auth` 后为 **24 个**);
 `jaravel-console` 另有静态的 `resource-config.json`,把 `stubs/*` 打进镜像
 (否则 `make:model` 在 native 里会报「没有 stub "model"」)。
 
@@ -171,7 +172,7 @@ Docker 29。CLI 命令 `list`,容器内预热一次后 n=30:
 功能验收:
 
 - `jaravel --version` → `Jaravel 0.1.0-SNAPSHOT (Java 21)`;
-- `jaravel list` → 22 条离线命令,分组正确;
+- `jaravel list` → 离线命令,分组正确(v0.9 测量时 22 条;v1.0 为 24 条);
 - `jaravel help make:model` → 参数/选项表正确;
 - `jaravel make:model Post` → 写出 `src/main/java/app/models/Post.java`。
 

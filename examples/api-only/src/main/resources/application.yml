@@ -1,0 +1,12 @@
+server:
+  port: ${SERVER_PORT:8010}
+
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:sqlite:api.db}
+    driver-class-name: org.sqlite.JDBC
+
+logging:
+  level:
+    root: WARN
+    io.jaravel: INFO

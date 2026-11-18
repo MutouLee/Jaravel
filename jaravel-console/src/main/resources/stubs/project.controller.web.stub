@@ -1,0 +1,13 @@
+package app.http.controllers;
+
+import org.springframework.stereotype.Component;
+
+import io.jaravel.http.View;
+
+@Component
+public class HomeController {
+
+    public View index() {
+        return View.of("home").with("name", "{{appName}}");
+    }
+}

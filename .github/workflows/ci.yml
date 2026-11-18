@@ -47,24 +47,40 @@ jobs:
       - name: test failures summary
         if: failure()
         run: |
+          files=$(grep -rlE 'Failures: [1-9]|Errors: [1-9]' \
+                  --include='*.txt' . | head -n 10)
           {
             echo "## Test failures"
-            found=0
-            while IFS= read -r f; do
-              found=1
-              echo "### $f"
-              head -n 60 "$f"
-            done < <(grep -rlE 'Failures: [1-9]|Errors: [1-9]' \
-                     --include='*.txt' . | head -n 5)
-            if [ "$found" -eq 0 ]; then
+            if [ -z "$files" ]; then
               echo "No surefire failure files; last 80 lines of the Maven log:"
               echo '```'
               tail -n 80 target/ci-test.log
               echo '```'
+            else
+              while IFS= read -r f; do
+                echo "### $f"
+                head -n 80 "$f"
+              done <<< "$files"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
-          grep -E '^\[ERROR\]' target/ci-test.log | head -n 10 | \
-            while IFS= read -r line; do echo "::error::$line"; done
+
+          # 断言原文也进注解:注解可以匿名读取(下载 artifact 要登录),
+          # 失败时第一个入口就能看到「期望 / 实际」,而不是只有测试名。
+          if [ -n "$files" ]; then
+            while IFS= read -r f; do
+              body=$(head -n 120 "$f")
+              body=${body//\%/%25}
+              body=${body//$'\r'/}
+              body=${body//$'\n'/%0A}
+              echo "::error title=$(basename "$f")::$body"
+            done <<< "$files"
+          else
+            body=$(tail -n 60 target/ci-test.log)
+            body=${body//\%/%25}
+            body=${body//$'\r'/}
+            body=${body//$'\n'/%0A}
+            echo "::error title=maven::$body"
+          fi
 
       - name: upload surefire reports
         if: failure()

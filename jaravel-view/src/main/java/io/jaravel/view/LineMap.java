@@ -46,6 +46,14 @@ public final class LineMap {
 
     public int jteLineCount() { return mapping.length; }
 
+    /** 供预编译插件把映射写进 metadata;返回副本,调用方不能改到内部状态。 */
+    public int[] toArray() { return mapping.clone(); }
+
+    /** 从 metadata 还原。数组长度即 jte 行数。 */
+    public static LineMap fromArray(String sourceName, int[] mapping) {
+        return new LineMap(mapping.clone(), sourceName);
+    }
+
     /** 是否严格 1:1(诊断与测试用) */
     public boolean isIdentity() {
         for (int i = 0; i < mapping.length; i++) {

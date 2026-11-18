@@ -223,10 +223,15 @@ class FileSessionStoreTest {
             store.write("abc", Map.of("v", 0L), Duration.ofHours(1));
 
             var failures = new java.util.concurrent.atomic.AtomicInteger();
+            var writerFailures = new java.util.concurrent.atomic.AtomicInteger();
             var writer = new Thread(() -> {
                 for (int i = 0; i < 200; i++) {
-                    store.write("abc", Map.of("v", (long) i, "pad", "x".repeat(500)),
-                                Duration.ofHours(1));
+                    try {
+                        store.write("abc", Map.of("v", (long) i, "pad", "x".repeat(500)),
+                                    Duration.ofHours(1));
+                    } catch (RuntimeException e) {
+                        writerFailures.incrementAndGet();
+                    }
                 }
             });
             var reader = new Thread(() -> {
@@ -246,6 +251,9 @@ class FileSessionStoreTest {
             reader.join();
 
             assertThat(failures.get()).isZero();
+            assertThat(writerFailures.get())
+                    .as("并发写同一个会话不该以 500 收场(v0.9 安全/健壮性审计)")
+                    .isZero();
         }
 
         @Test

@@ -275,7 +275,7 @@ class OrderRepositoryTest extends FeatureTest {
 ```xml
 <dependency>
   <groupId>org.testcontainers</groupId><artifactId>mysql</artifactId>
-  <version>1.21.3</version><scope>test</scope>
+  <version>1.21.4</version><scope>test</scope>
 </dependency>
 <dependency>
   <groupId>com.mysql</groupId><artifactId>mysql-connector-j</artifactId><scope>test</scope>
@@ -295,11 +295,11 @@ mvn test -Djaravel.testcontainers=true          # 或 JARAVEL_TESTCONTAINERS=tru
 方言差异重新漏过去。需要在没有 Docker 的机器上跳过,用
 `@EnabledIf("dockerAvailable")` 并调用 `TestcontainersSupport.dockerAvailable()`。
 
-**版本**:本项目钉 Testcontainers **1.21.3**。Spring Boot 3.4.1 的 BOM 管的是
-1.20.4,而那个版本连不上 Docker Engine 29;`TestcontainersSupport` 还会在第一次
-连 Docker 前把 `api.version` 设成 `1.44`(Docker 29 的最低版本)。
-更老的 Docker 可用 `-Dapi.version=...` / `-Djaravel.testcontainers.api-version=...`
-覆盖。
+**版本**:本项目钉 Testcontainers **1.21.4**。Spring Boot 3.5.16 的 BOM 已管理
+1.21.4;显式钉住是为了不随 BOM 回退(1.20.x 连不上 Docker Engine 29)。
+`TestcontainersSupport` 仍会在第一次连 Docker 前把 `api.version` 设成 `1.44` ——
+不依赖具体补丁版本的默认行为。更老的 Docker 可用
+`-Dapi.version=...` / `-Djaravel.testcontainers.api-version=...` 覆盖。
 
 **与并行测试**:每个 fork 是独立 JVM,各自起自己的容器;`--processes=4` 就是
 最多 4 个容器,成本要算。测试显式指定 `spring.datasource.url` 时,自动注入会让位

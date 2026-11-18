@@ -296,6 +296,8 @@ jaravel <command>
 > `Implementation-Version`。)
 
 - 用 GraalVM native-image 编译(v0.9);
+  **v0.9 已实现 Linux x86_64 的构建与测量**(启动中位 ~96ms),
+  Windows/macOS 构建与分发脚本仍是后续项 —— 见 [20](20-native-and-performance.md) §3;
 - 分发:单文件二进制(Windows/macOS/Linux × x64/arm64),也提供 `jaravel.bat` / shell 包装脚本;
 - 项目内也可通过 `./jaravelw`(类比 `mvnw`)调用,自动下载匹配版本;
 - 安装:`scoop install jaravel` / `brew install jaravel` / `curl | sh`。

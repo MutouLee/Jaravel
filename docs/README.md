@@ -61,6 +61,7 @@
 | [14-testing.md](14-testing.md) | HTTP 测试 DSL、数据库断言、模型工厂、假驱动、Faker | v0.5 |
 | [15-devx-hot-reload.md](15-devx-hot-reload.md) | 三层热重载、`jaravel serve` 实现、开发期错误页 | v0.3 |
 | [16-module-layout.md](16-module-layout.md) | Maven 多模块结构、BOM、starter 分层、Maven 插件、应用骨架 | v0.1 |
+| [20-native-and-performance.md](20-native-and-performance.md) | jblade 预编译、jaravel-maven-plugin、GraalVM CLI、JMH 与路由优化 | v0.9 |
 
 ### 规划与决策
 

@@ -135,13 +135,18 @@ Auth.provider("custom", (app, cfg) -> new MyUserProvider());
 
 ## 2. 使用
 
+> **登录后回跳的安全口径(v0.9)**:`url.intended` 只存**相对路径**
+> (path + query),不存完整 URL —— 后者会把请求的 Host 头带进会话,
+> 登录后的 302 可被外部域名劫持。`Intended.pull(...)` 会再校验一次:
+> 绝对 URL、`//host`、带反斜杠或换行的值一律回落到 fallback。
+
 ```java
 // 登录
 if (Auth.attempt(Map.of("email", email, "password", password), remember)) {
     Session.regenerate();                    // 防会话固定攻击
-    return Redirect.intended("/dashboard");
+    return Redirect.to(Intended.pull("/dashboard"));
 }
-return Redirect.back().withInput().withErrors(Map.of("email", "凭据不匹配"));
+return Redirect.back(request, "/login").withInput().withErrors(Map.of("email", "凭据不匹配"));
 
 // 带额外条件
 Auth.attempt(Map.of("email", e, "password", p, "status", "active"));

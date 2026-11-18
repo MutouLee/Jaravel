@@ -77,6 +77,18 @@ public class CorsFilter extends OncePerRequestFilter {
         this.exposedHeaders = config.stringList("cors.exposed-headers");
         this.maxAge = config.longValue("cors.max-age", 0);
         this.credentials = config.bool("cors.supports-credentials", false);
+
+        // ★ 通配来源 + 凭据 = 任意站点都能读带登录态的响应。
+        // 浏览器对 "Access-Control-Allow-Origin: *" + credentials 会拒绝,
+        // 但这个 filter 是**回显具体 Origin** 的 —— 那在浏览器看来完全合法,
+        // 于是保护就没了。必须在启动时失败,而不是等部署后被人发现。
+        if (credentials && (allowedOrigins.contains("*")
+                || config.stringList("cors.allowed-origins-patterns").contains("*"))) {
+            throw new IllegalStateException("""
+                    cors.allowed-origins 是 "*" 时不能同时开 supports-credentials。
+                      那等于允许任意站点带着用户的 Cookie 读取响应。
+                      改成具体来源,或用 allowed-origins-patterns 限定域名。""");
+        }
     }
 
     public boolean enabled() {

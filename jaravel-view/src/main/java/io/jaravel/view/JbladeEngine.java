@@ -15,7 +15,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import gg.jte.CodeResolver;
 import gg.jte.ContentType;
 import gg.jte.TemplateEngine;
 import gg.jte.TemplateException;
@@ -56,22 +55,7 @@ public final class JbladeEngine implements ViewEngine {
 
     private final TemplateRepository repository;
     private final TemplateEngine jte;
-    /** 模板名 → 行号映射。转写时写入,报错时查询。 */
-    private final Map<String, LineMap> lineMaps = new ConcurrentHashMap<>();
-    /** 模板名 → @params 声明。报错时用于反射出候选成员名,生成「是否想写 X ?」建议。 */
-    private final Map<String, List<String>> declaredParams = new ConcurrentHashMap<>();
-    /** 模板名 → 它调用的组件。热重载要把组件的时间戳算进调用方(见 getLastModified)。 */
-    private final Map<String, List<String>> componentDeps = new ConcurrentHashMap<>();
-    /**
-     * 组件名 → 它的 @props 名字。属性袋的路由要查它,每个带组件的模板转写时都查。
-     *
-     * <p>带时间戳:开发模式下组件的 @props 改了就要重新扫 ——
-     * 否则「加了一个 prop,组件里读不到」会一直是陈旧缓存的锅。
-     * 生产模式(classpath)的时间戳是常量,等于缓存一次到底。
-     */
-    private final Map<String, CachedProps> propsCache = new ConcurrentHashMap<>();
-
-    private record CachedProps(long stamp, Optional<List<String>> props) {}
+    private final TranspilingCodeResolver resolver;
     private final ClassLoader typeLoader;
     private final boolean devMode;
 
@@ -80,8 +64,17 @@ public final class JbladeEngine implements ViewEngine {
         this.repository = repository;
         this.devMode = devMode;
         this.typeLoader = parent != null ? parent : JbladeEngine.class.getClassLoader();
-        this.jte = TemplateEngine.create(new TranspilingCodeResolver(), classDirectory,
-                                         ContentType.Html, parent);
+        this.resolver = new TranspilingCodeResolver(repository, typeLoader);
+        this.jte = TemplateEngine.create(resolver, classDirectory, ContentType.Html, parent);
+    }
+
+    private JbladeEngine(TemplateRepository repository, ClassLoader parent,
+                         boolean devMode, TemplateEngine precompiled) {
+        this.repository = repository;
+        this.devMode = devMode;
+        this.typeLoader = parent != null ? parent : JbladeEngine.class.getClassLoader();
+        this.resolver = new TranspilingCodeResolver(repository, typeLoader);
+        this.jte = precompiled;
     }
 
     /** 开发模式:从目录读取,文件变更自动重编译 */
@@ -92,6 +85,55 @@ public final class JbladeEngine implements ViewEngine {
     /** 生产模式:从 classpath 读取 */
     public static JbladeEngine forClasspath(String resourcePrefix, Path classDirectory, ClassLoader parent) {
         return new JbladeEngine(new ClasspathRepository(resourcePrefix, parent), classDirectory, parent, false);
+    }
+
+    /**
+     * 预编译模式:加载 {@code jaravel-maven-plugin} 在构建期生成的模板类。
+     *
+     * <p>生成的类在 {@code gg.jte.generated.precompiled} 包下,由 jte 的
+     * {@link TemplateEngine#createPrecompiled(ContentType)} 从应用 classpath 加载。
+     * 同时读取插件写出的 {@code META-INF/jaravel/jblade-metadata.properties},
+     * 让运行期异常仍能映射回 {@code .jblade.html} 的行号。
+     */
+    public static JbladeEngine forPrecompiled(ClassLoader parent) {
+        var engine = new JbladeEngine(new ClasspathRepository("views", parent), parent, false,
+                TemplateEngine.createPrecompiled(ContentType.Html));
+        engine.loadPrecompiledMetadata();
+        return engine;
+    }
+
+    private void loadPrecompiledMetadata() {
+        try (InputStream in = typeLoader.getResourceAsStream(
+                "META-INF/jaravel/jblade-metadata.properties")) {
+            if (in == null) return;
+            var props = new java.util.Properties();
+            props.load(in);
+
+            for (String key : props.stringPropertyNames()) {
+                if (!key.startsWith("lineMap.")) continue;
+                String view = key.substring("lineMap.".length());
+                int[] mapping = parseInts(props.getProperty(key));
+                resolver.putMetadata(view, LineMap.fromArray(view, mapping), null);
+            }
+            for (String key : props.stringPropertyNames()) {
+                if (!key.startsWith("params.")) continue;
+                String view = key.substring("params.".length());
+                String raw = props.getProperty(key, "");
+                List<String> names = raw.isBlank() ? List.of()
+                        : java.util.Arrays.stream(raw.split(","))
+                                .map(String::trim).filter(s -> !s.isEmpty()).toList();
+                resolver.putMetadata(view, null, names);
+            }
+        } catch (IOException | NumberFormatException e) {
+            // metadata 损坏不该让应用起不来:模板本身仍可渲染,只是错误定位退化
+        }
+    }
+
+    private static int[] parseInts(String raw) {
+        if (raw == null || raw.isBlank()) return new int[0];
+        return java.util.Arrays.stream(raw.split(","))
+                .map(String::trim).filter(s -> !s.isEmpty())
+                .mapToInt(Integer::parseInt).toArray();
     }
 
     /** 测试:直接给定模板内容 */
@@ -122,14 +164,14 @@ public final class JbladeEngine implements ViewEngine {
 
     @Override
     public boolean exists(String name) {
-        return repository.read(name).isPresent();
+        if (repository.read(name).isPresent()) return true;
+        // 预编译模式:模板源码可能没有打进 jar,但生成的 class 还在
+        return !devMode && jte.hasTemplate(toJtePath(name));
     }
 
     @Override
     public void invalidate() {
-        lineMaps.clear();
-        componentDeps.clear();
-        propsCache.clear();
+        resolver.invalidate();
         // jte 的 DirectoryCodeResolver 靠 getLastModified 判断,无需显式清理
     }
 
@@ -181,7 +223,7 @@ public final class JbladeEngine implements ViewEngine {
 
         // 出错的可能是被 @include 的子模板,而非入口模板
         String failingView = jtePath != null ? fromJtePath(jtePath) : viewName;
-        LineMap map = lineMaps.get(failingView);
+        LineMap map = resolver.lineMap(failingView);
         int sourceLine = (map != null && jteLine > 0) ? map.toSourceLine(jteLine) : 0;
 
         String source = repository.read(failingView).orElse(null);
@@ -199,7 +241,7 @@ public final class JbladeEngine implements ViewEngine {
      * 去掉 jte 的内部细节:生成的 Java 文件路径、jte 行号。
      * 用户不该看到 {@code JtetypoGenerated.java:15}。
      */
-    private String cleanJteMessage(String message) {
+    static String cleanJteMessage(String message) {
         List<String> keep = new ArrayList<>();
         for (String line : message.split("\\R")) {
             String t = line.trim();
@@ -228,7 +270,7 @@ public final class JbladeEngine implements ViewEngine {
     private List<String> candidateNames(String viewName, String source, int line) {
         var out = new java.util.LinkedHashSet<String>();
 
-        for (String decl : declaredParams.getOrDefault(viewName, List.of())) {
+        for (String decl : resolver.declaredParams(viewName)) {
             for (String typeName : classLikeTokens(decl)) {
                 Class<?> type = tryLoad(typeName);
                 if (type == null) continue;
@@ -330,83 +372,6 @@ public final class JbladeEngine implements ViewEngine {
         return name.isEmpty() ? null : name;
     }
 
-    // ================= jte 接入 =================
-
-    /**
-     * jte 向我们索要模板源码时,按需把 {@code .jblade.html} 转写成 jte 源码。
-     * 不落盘,因此没有中间文件的同步问题。
-     */
-    private final class TranspilingCodeResolver implements CodeResolver {
-
-        @Override
-        public String resolve(String jtePath) {
-            String viewName = fromJtePath(jtePath);
-            String blade = repository.read(viewName).orElse(null);
-            if (blade == null) return null;
-
-            var result = JbladeTranspiler.transpile(blade, viewName + SUFFIX,
-                    this::propsOf, this::classComponentOf);
-            lineMaps.put(viewName, result.lineMap());
-            declaredParams.put(viewName, result.declaredParams());
-            componentDeps.put(viewName, result.components());
-            return result.jteSource();
-        }
-
-        /**
-         * 组件的 {@code @props} 声明 —— 属性袋要靠它分出「prop」和「透传」。
-         *
-         * <p>只扫组件源码的 {@code @props} 那一行,不做完整转写:
-         * 这个查询在每次转写一个带组件的模板时都会发生。
-         */
-        /** 组件视图 → 类组件信息;不是类组件时返回 empty(按匿名组件处理) */
-        private Optional<JbladeTranspiler.ClassComponent> classComponentOf(String componentView) {
-            return ClassComponentResolver.resolve(
-                    componentView, repository.read(componentView), typeLoader);
-        }
-
-        private Optional<List<String>> propsOf(String componentView) {
-            long stamp = repository.lastModified(componentView);
-            CachedProps hit = propsCache.get(componentView);
-            if (hit != null && hit.stamp() == stamp) return hit.props();
-
-            Optional<List<String>> props =
-                    repository.read(componentView).flatMap(JbladeEngine::declaredPropNames);
-            propsCache.put(componentView, new CachedProps(stamp, props));
-            return props;
-        }
-
-        /**
-         * 热重载:**一个模板的时间戳要算上它调用的组件**。
-         *
-         * <p>不然:给组件的 {@code @props} 加一个属性,调用方的生成码里
-         * 那个属性仍然走属性袋(路由是转写期决定的),而调用方的文件没动过,
-         * jte 不会重新转写它。症状是「我声明了 prop,组件里却读不到」——
-         * 改完组件再去动一下调用方的文件就好了,所以极难复现。
-         *
-         * <p>组件自己的 body 改动不需要这个(组件是独立的 jte 模板,
-         * 它自己会重编),这里修的只是**路由决定**的陈旧。
-         */
-        @Override
-        public long getLastModified(String jtePath) {
-            String viewName = fromJtePath(jtePath);
-            long own = repository.lastModified(viewName);
-            for (String component : componentDeps.getOrDefault(viewName, List.of())) {
-                own = Math.max(own, repository.lastModified(component));
-            }
-            return own;
-        }
-
-        @Override
-        public boolean exists(String jtePath) {
-            return repository.read(fromJtePath(jtePath)).isPresent();
-        }
-
-        @Override
-        public List<String> resolveAllTemplateNames() {
-            return repository.allNames().stream().map(JbladeEngine::toJtePath).toList();
-        }
-    }
-
     // ================= 模板来源 =================
 
     /** 模板源码的来源抽象:目录(开发)/ classpath(生产)/ Map(测试) */
@@ -486,17 +451,20 @@ public final class JbladeEngine implements ViewEngine {
         }
 
         @Override public List<String> allNames() {
-            if (!Files.isDirectory(root)) return List.of();
-            try (var s = Files.walk(root)) {
-                return s.filter(Files::isRegularFile)
-                        .map(root::relativize)
-                        .map(p -> p.toString().replace('\\', '/'))
-                        .filter(n -> n.endsWith(SUFFIX))
-                        .map(n -> n.substring(0, n.length() - SUFFIX.length()).replace('/', '.'))
-                        .toList();
-            } catch (IOException e) {
-                return List.of();
+            var names = new java.util.LinkedHashSet<String>();
+            if (Files.isDirectory(root)) {
+                try (var s = Files.walk(root)) {
+                    s.filter(Files::isRegularFile)
+                            .map(root::relativize)
+                            .forEach(p -> addTemplateName(names, p.toString()));
+                } catch (IOException e) {
+                    // 回落仍然可用
+                }
             }
+            // 依赖里的模板(邮件组件、dashboard)也要一起预编译:
+            // 它们和应用的模板进同一个 jte 引擎,漏一个就会在运行期报找不到类。
+            names.addAll(fallback.allNames());
+            return List.copyOf(names);
         }
     }
 
@@ -522,7 +490,48 @@ public final class JbladeEngine implements ViewEngine {
         /** classpath 资源不会变,返回常量让 jte 一直用缓存 */
         @Override public long lastModified(String viewName) { return 1L; }
 
-        @Override public List<String> allNames() { return List.of(); }
+        /**
+         * 扫出 classpath 上所有 {@code views/} 下的模板。
+         *
+         * <p>预编译插件要连依赖里的模板一起编(邮件组件、dashboard);
+         * 运行时不靠它 —— 预编译模式直接用生成的类。
+         */
+        @Override public List<String> allNames() {
+            var names = new java.util.LinkedHashSet<String>();
+            try {
+                var urls = loader.getResources(prefix);
+                while (urls.hasMoreElements()) {
+                    java.net.URL url = urls.nextElement();
+                    if ("file".equals(url.getProtocol())) {
+                        Path dir = Path.of(url.toURI());
+                        try (var s = Files.walk(dir)) {
+                            s.filter(Files::isRegularFile).forEach(p ->
+                                    addTemplateName(names, dir.relativize(p).toString()));
+                        }
+                    } else if ("jar".equals(url.getProtocol())) {
+                        var conn = (java.net.JarURLConnection) url.openConnection();
+                        try (var jar = conn.getJarFile()) {
+                            String entry = conn.getEntryName();
+                            if (entry == null) entry = prefix;
+                            String p = entry.endsWith("/") ? entry : entry + "/";
+                            jar.stream()
+                                    .filter(e -> !e.isDirectory() && e.getName().startsWith(p))
+                                    .forEach(e -> addTemplateName(
+                                            names, e.getName().substring(p.length())));
+                        }
+                    }
+                }
+            } catch (IOException | java.net.URISyntaxException | ClassCastException e) {
+                // 扫依赖失败不阻塞应用自己的模板
+            }
+            return List.copyOf(names);
+        }
+    }
+
+    private static void addTemplateName(java.util.Set<String> names, String relative) {
+        String n = relative.replace('\\', '/');
+        if (!n.endsWith(SUFFIX)) return;
+        names.add(n.substring(0, n.length() - SUFFIX.length()).replace('/', '.'));
     }
 
     static final class MapRepository implements TemplateRepository {
@@ -557,10 +566,6 @@ public final class JbladeEngine implements ViewEngine {
 
     /** 调试用:看转写出的 jte 源码({@code jaravel view:show} 的数据源) */
     public String transpiledSource(String viewName) {
-        String blade = repository.read(viewName)
-                .orElseThrow(() -> new JbladeException(viewName + SUFFIX, 0, "模板不存在"));
-        var resolvers = new TranspilingCodeResolver();
-        return JbladeTranspiler.transpile(blade, viewName + SUFFIX,
-                resolvers::propsOf, resolvers::classComponentOf).jteSource();
+        return resolver.transpiledSource(viewName);
     }
 }

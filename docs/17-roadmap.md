@@ -570,6 +570,17 @@ record 返回类型由运行时反射得到;`with()` 的根字段由 APT 从
 3. 模板渲染 ≥ Thymeleaf 的 3 倍;
 4. 外部安全审计无高危项。
 
+### 验收结果(v0.9 收口回填)
+
+完整证据、偏差与「没做到」见 [V0.9-RESULT.md](../V0.9-RESULT.md)。摘要:
+
+| # | 结果 |
+|---|---|
+| 1 | ⚠️ **CLI 通过,Web 未做** —— jaravel-cli native 中位 ~96ms(n=30);Web 应用 native 需要应用级反射 hints,见 [ADR-019](18-risks-and-decisions.md) |
+| 2 | ✅ **1.19 倍** —— 同一 LoadGen / 同一 Tomcat,单机对照(裸 MVC 中位 31.4k rps,Jaravel 37.5k) |
+| 3 | ✅ **8.8 倍** —— jblade 预编译 1.710µs vs Thymeleaf 15.085µs(同一 10 项列表模板) |
+| 4 | ❌ **外部审计未做** —— 内部审计 + OSV 复扫完成([SECURITY-AUDIT.md](../SECURITY-AUDIT.md));外部审计仍是缺口 |
+
 ---
 
 ## v1.0 · 发布(8 周)

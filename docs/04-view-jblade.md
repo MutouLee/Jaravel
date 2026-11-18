@@ -509,10 +509,16 @@ Blade.if_("subscribed", () -> Auth.user().isSubscribed());   // → @subscribed 
    ▼
 [4 javac]  → .class
    │  开发模式:javax.tools.JavaCompiler 内存编译 + 自定义 ClassLoader
-   │  生产模式:jaravel-maven-plugin 在 compile 阶段批量生成到 target/generated-sources
+   │  生产模式:jaravel-maven-plugin 在 process-classes 阶段批量生成
+   │            gg.jte.generated.precompiled 包下的 class(见 docs/20 §1)
    ▼
 运行时直接 new + render,零反射
 ```
+
+> **v0.9 实现说明**:实际用的是 jte 的 `TemplateEngine#precompileAll`,
+> class 直接写进 `target/classes`,不落 `target/generated-sources`;
+> 生成的 `.java` 会删掉。这条图里的「生成到 target/generated-sources」
+> 是早期设计,不是现状。
 
 ### 2.1 生成物形态
 

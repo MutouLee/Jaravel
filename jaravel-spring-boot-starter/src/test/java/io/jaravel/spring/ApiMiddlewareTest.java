@@ -1,6 +1,7 @@
 package io.jaravel.spring;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -58,6 +59,19 @@ class ApiMiddlewareTest {
                             这件事的项目把 API 对全世界打开 ——
                             那是安全默认值问题,不是便利性问题。""")
                     .isFalse();
+        }
+
+        @Test
+        @DisplayName("★ 通配来源 + 凭据在启动时报错(v0.9 安全审计)")
+        void wildcardOriginWithCredentialsIsRejected() {
+            assertThatThrownBy(() -> cors("""
+                    cors:
+                      paths: [ "api/*" ]
+                      allowed-origins: [ "*" ]
+                      supports-credentials: true
+                    """))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("supports-credentials");
         }
 
         @Test

@@ -44,6 +44,17 @@ public final class Route {
     private boolean isStatic;
 
     /**
+     * 单参数、无约束、无可选/通配时的快速匹配器。
+     *
+     * <p>请求路径上最常见的形态是 {@code /users/{id}},它不需要正则:
+     * {@code startsWith(prefix) + endsWith(suffix)} 加一次 substring 就够。
+     * 有约束、可选参数或多参数时退回正则。
+     */
+    private String fastPrefix;
+    private String fastSuffix;
+    private String fastParam;
+
+    /**
      * 直出路由的处理器(r.view / r.redirect)。非 null 时不解析控制器,
      * 直接调用它 —— 这类路由没有控制器可注入。
      */
@@ -93,6 +104,26 @@ public final class Route {
         Matcher m = PARAM_TOKEN.matcher(uri);
         while (m.find()) paramNames.add(m.group(1));
         this.isStatic = paramNames.isEmpty();
+        prepareFastPath();
+    }
+
+    private void prepareFastPath() {
+        if (isStatic || paramNames.size() != 1) return;
+
+        Matcher m = PARAM_TOKEN.matcher(uri);
+        if (!m.find()) return;
+        if (m.group(2) != null || m.group(3) != null) return;   // 可选 / 通配
+
+        String param = m.group(1);
+        if (constraints.containsKey(param)) return;
+
+        Matcher second = PARAM_TOKEN.matcher(uri);
+        second.find();
+        if (second.find()) return;                               // 多参数
+
+        fastPrefix = uri.substring(0, m.start());
+        fastSuffix = uri.substring(m.end());
+        fastParam = param;
     }
 
     // ---------- 链式配置 ----------
@@ -122,6 +153,7 @@ public final class Route {
         }
         constraints.put(param, regex);
         compiled = null;     // 约束变了,需重新编译
+        fastPrefix = null;   // 快速匹配不处理约束
         return this;
     }
 
@@ -196,11 +228,29 @@ public final class Route {
 
     /** 匹配路径;命中返回参数名→值,否则空。 */
     public Optional<Map<String, String>> match(String requestMethod, String requestPath) {
+        return matchNormalized(requestMethod, normalize(requestPath));
+    }
+
+    /**
+     * 已经归一化过的路径,省掉每条路由都做一次 {@code normalize} 的重复成本。
+     * 路由表内部使用。
+     */
+    Optional<Map<String, String>> matchNormalized(String requestMethod, String path) {
         if (!method.equalsIgnoreCase(requestMethod)) return Optional.empty();
-        String path = normalize(requestPath);
 
         if (isStatic) {
             return uri.equals(path) ? Optional.of(Map.of()) : Optional.empty();
+        }
+
+        if (fastPrefix != null) {
+            if (!path.startsWith(fastPrefix) || !path.endsWith(fastSuffix)) {
+                return Optional.empty();
+            }
+            int end = path.length() - fastSuffix.length();
+            if (end <= fastPrefix.length()) return Optional.empty();
+            String value = path.substring(fastPrefix.length(), end);
+            if (value.indexOf('/') >= 0) return Optional.empty();
+            return Optional.of(Map.of(fastParam, value));
         }
 
         Matcher m = pattern().matcher(path);

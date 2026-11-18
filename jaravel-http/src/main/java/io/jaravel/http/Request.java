@@ -28,6 +28,18 @@ public interface Request {
     /** 完整 URL + 查询串 */
     String fullUrl();
 
+    /**
+     * 相对 URL:路径 + 查询串(不含 scheme / host)。
+     *
+     * <p>写进会话的「登录后回到这里」用它,不要用 {@link #fullUrl()} ——
+     * 后者把请求的 Host 头也存了进来,攻击者可以伪造 Host 让登录后的
+     * 302 跳到外部域名(开放重定向 / Host 头注入)。
+     */
+    default String pathWithQuery() {
+        String query = queryString();
+        return query == null || query.isBlank() ? path() : path() + "?" + query;
+    }
+
     String ip();
 
     default boolean isMethod(String m) {

@@ -250,6 +250,15 @@ public class HttpKernel extends Kernel {
 }
 ```
 
+> ⚠ **v0.9 对账**:上面全局列表里的 `TrustProxies` / `HandleCors` /
+> `PreventRequestsDuringMaintenance` / `TrimStrings` / `ConvertEmptyStringsToNull`
+> 目前都没有实现 —— 这段是目标形态。CORS 由 starter 的 `CorsFilter` 承担
+> (docs/12 §6.3);代理头请用 Spring Boot 的
+> `server.forward-headers-strategy`,**不要**采信客户端自带的
+> `X-Forwarded-For`(v0.9 起 `Request.ip()` 只取 `getRemoteAddr()`)。
+> `ThrottleRequests.class.named("api")` 也不是真实 API;参数化中间件用
+> `middleware("throttle:60,1")` 或 `Throttle.perMinute(...)`。
+
 ### 2.3 参数化中间件
 
 Laravel 写 `'throttle:60,1'`。Jaravel 同样支持字符串形式(保持简洁),但同时提供类型安全形式:

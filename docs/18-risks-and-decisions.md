@@ -447,10 +447,55 @@ docs/14 §2.2 一直承诺 Testcontainers,但仓库只有 SQLite;方言差异仍
 **代价**
 - Docker 是显式依赖;首次拉镜像慢;
 - 并行时每个 fork 一个容器,容器数 × 进程数;
-- Spring Boot 3.4.1 管理的 Testcontainers 1.20.4 与 Docker Engine 29 不兼容,项目钉 1.21.3 并设置 `api.version=1.44`;更老的 Docker 需覆盖。
+- v0.9 起 Spring Boot 3.5.16 管理 Testcontainers 1.21.4,项目显式钉住;`api.version=1.44` 覆盖保留,兼容更老的 Docker。
 
 **复审条件**
 Testcontainers 修复默认 API 版本后可移除覆盖;若 `jaravel new` 默认开启 Testcontainers,再评估是否把开关改为默认开。
+
+---
+
+## ADR-019 · v0.9 的 native 先做 CLI,Web 应用的反射 hints 延后
+
+**状态**:已采纳 · **日期**:2026-11-18
+
+**背景**
+v0.9 原计划是「全链路零反射审计 + native-image 构建通过」。实测发现两层反射:
+
+1. **CLI 路径**的反射面是有限的:命令类构造、`@Argument` / `@Option` 字段、
+   stub 资源。`jaravel-maven-plugin` 的 `native-config` / resource-config
+   可以把它们穷尽并写进镜像,CLI native 构建与启动验收已通过;
+2. **Web 应用**还需要应用自己的类:路由方法引用(`LambdaIntrospector`)、
+   `ModelRegistry` 的 `Class.forName("X_")`、`RowMapper` 的构造函数/字段、
+   `JobSerializer` / `ListenerIndex` 的类名还原。这些是**应用类**,框架的
+   插件扫不到,也不是 Spring AOT 能自动推断的。
+
+**决策**
+v0.9 的 native 交付以 **jaravel-cli** 为准;Web 应用的 native 构建推迟到
+引入「为应用生成 native hints」的 APT / 插件目标之后,不把它伪装成已通过。
+
+**理由**
+- CLI 是 DESIGN.md 里 native 的首要收益(启动 < 100ms 的交互体验),
+  且反射面可控;
+- 没有 hints 生成器时,让用户手写 `reflect-config.json` 会把「框架替你
+  处理反射」变成「框架把反射配置的锅交给你」;
+- 先在 CLI 上验证 native-image、反射配置、资源打包与测量方法,
+  这套工具链可以直接复用到 Web。
+
+**被否决的方案**
+- *用 native-image agent 追踪生成配置*:能跑通 demo,但用户项目每次改类
+  都要重新跑 agent,CI 不可靠;
+- *强制 Web 应用显式注册所有路由/模型以避开反射*:把 DX 成本转嫁给用户,
+  与「Laravel 级体验」的目标相反;
+- *宣称 native 已通过*:CLI 通过 ≠ Web 通过,验收口径必须分开写。
+
+**代价**
+v0.9 的「native 启动 < 100ms」只在 CLI 上达成;Web 的启动时间与镜像大小
+仍未测。v1.0 的文档与示例必须区分「CLI native」与「Web native」。
+
+**复审条件**
+`native-hints` 生成器落地后,用 `examples/todo` 做第一个 Web native
+验收,再推广到 auth;若 LambdaIntrospector 无法在 native 下工作,
+把路由 APT 索引(verification/v2)从候选提升为必做。
 
 ---
 

@@ -9,9 +9,9 @@ import org.testcontainers.DockerClientFactory;
  * <ol>
  *   <li>测试类上的 Docker 条件(JUnit 的 {@code @EnabledIf("dockerAvailable")})
  *       应该在**上下文创建之前**判断,而不是让容器启动失败;</li>
- *   <li>Docker Engine 29 不再接受旧版 docker-java 的默认 API 版本,
- *       而 Testcontainers 1.21.3 仍默认发旧版本。这里在第一次连 Docker 前
- *       设置 {@code api.version}(可用 {@code -Dapi.version=...} 或
+ *   <li>Docker Engine 29 不再接受旧版 docker-java 的默认 API 版本。
+ *       这里在第一次连 Docker 前设置 {@code api.version},不依赖具体
+ *       补丁版本的默认行为(可用 {@code -Dapi.version=...} 或
  *       {@code -Djaravel.testcontainers.api-version=...} 覆盖)。</li>
  * </ol>
  *

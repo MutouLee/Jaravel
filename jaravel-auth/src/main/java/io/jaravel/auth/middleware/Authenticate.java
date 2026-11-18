@@ -7,6 +7,7 @@ import java.util.function.Function;
 import io.jaravel.auth.Auth;
 import io.jaravel.auth.AuthManager;
 import io.jaravel.auth.Guard;
+import io.jaravel.auth.Intended;
 import io.jaravel.auth.guard.JwtGuard;
 import io.jaravel.auth.guard.SessionGuard;
 import io.jaravel.auth.guard.TokenGuard;
@@ -106,7 +107,7 @@ public class Authenticate implements Middleware.Parameterized {
      * 未认证时的响应。
      *
      * <p>API → 401 JSON;页面 → 跳登录页,并**记下原本想去的地址**,
-     * 登录成功后 {@code Redirect.intended()} 回到那里。
+     * 登录成功后 {@code Intended.pull(...)} 回到那里(只存相对路径)。
      * 少了这一步,用户点一个深链接、登录完被丢回首页,再自己找回去 ——
      * 这是最常见的体验缺陷之一。
      *
@@ -117,9 +118,10 @@ public class Authenticate implements Middleware.Parameterized {
             throw new HttpException(401, "Unauthenticated.");
         }
 
-        // 只记 GET 的 intended:POST 回放会重复提交
+        // 只记 GET 的 intended:POST 回放会重复提交。
+        // 记相对路径,不把 Host 头写进会话(开放重定向,见 Intended)。
         if (request.method().equalsIgnoreCase("GET") && Session.isActive()) {
-            Session.put("url.intended", request.fullUrl());
+            Intended.remember(request);
         }
 
         throw new HttpException(302, "需要登录",

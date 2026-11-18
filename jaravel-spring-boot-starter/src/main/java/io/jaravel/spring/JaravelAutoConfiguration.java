@@ -232,10 +232,17 @@ public class JaravelAutoConfiguration {
         Path viewRoot = Path.of(config.string("view.root", "src/main/resources/views"));
         Path classDir = Path.of(config.string("view.compiled", "target/jblade-classes"));
 
-        // 开发期从目录读(改模板即生效);目录不存在则从 classpath 读(打包后)
-        return java.nio.file.Files.isDirectory(viewRoot)
-                ? JbladeEngine.forDirectory(viewRoot, classDir, getClass().getClassLoader())
-                : JbladeEngine.forClasspath("views", classDir, getClass().getClassLoader());
+        // 开发期从目录读(改模板即生效);没有目录时:
+        //   - 构建期预编译过(marker 在 classpath)→ 加载生成的 class,零运行时编译;
+        //   - 否则从 classpath 读源码,退化为运行时编译(展开的 classpath 仍可用)。
+        if (java.nio.file.Files.isDirectory(viewRoot)) {
+            return JbladeEngine.forDirectory(viewRoot, classDir, getClass().getClassLoader());
+        }
+        if (getClass().getClassLoader().getResource(
+                "META-INF/jaravel/jblade-precompiled") != null) {
+            return JbladeEngine.forPrecompiled(getClass().getClassLoader());
+        }
+        return JbladeEngine.forClasspath("views", classDir, getClass().getClassLoader());
     }
 
     // ================= 路由 =================

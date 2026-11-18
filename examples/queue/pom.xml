@@ -14,21 +14,25 @@
     <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <jaravel.version>0.1.0-SNAPSHOT</jaravel.version>
-    <spring-boot.version>3.4.1</spring-boot.version>
+    <spring-boot.version>3.5.16</spring-boot.version>
   </properties>
 
   <dependencyManagement>
     <dependencies>
-      <dependency>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-dependencies</artifactId>
-        <version>${spring-boot.version}</version>
-        <type>pom</type><scope>import</scope>
-      </dependency>
+      <!--
+        v0.9:jaravel-bom 先 import —— 它带同一 patch line 的安全覆盖
+        (Tomcat / Jackson / Netty / RabbitMQ 等),同名依赖以第一次声明为准。
+      -->
       <dependency>
         <groupId>io.jaravel</groupId>
         <artifactId>jaravel-bom</artifactId>
         <version>${jaravel.version}</version>
+        <type>pom</type><scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${spring-boot.version}</version>
         <type>pom</type><scope>import</scope>
       </dependency>
     </dependencies>
@@ -69,6 +73,18 @@
 
   <build>
     <plugins>
+      <!-- v0.9:构建期预编译 jblade 模板(含依赖里的邮件组件) -->
+      <plugin>
+        <groupId>io.jaravel</groupId>
+        <artifactId>jaravel-maven-plugin</artifactId>
+        <version>${jaravel.version}</version>
+        <executions>
+          <execution>
+            <goals><goal>compile-views</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+
       <!--
         覆盖率的 agent。
 

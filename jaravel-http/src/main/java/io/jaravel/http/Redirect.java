@@ -42,9 +42,46 @@ public final class Redirect extends Response {
         return new Redirect(location, 301);
     }
 
-    /** 回到来源页。无 Referer 时回落到 fallback。 */
+    /**
+     * 回到来源页。无 Referer 时回落到 fallback。
+     *
+     * <p><b>只允许同源</b>:Referer 是攻击者可控的。一个恶意站点上的表单
+     * POST 到本站,校验失败后如果原样跳回 Referer,用户就被带到了外部站点
+     * (钓鱼 / 开放重定向)。相对路径原样接受;绝对 URL 只有在 host、scheme、
+     * port 都相同时,才归约成相对路径。其余一律回落到 fallback。
+     */
     public static Redirect back(Request request, String fallback) {
-        return new Redirect(request.header("Referer").orElse(fallback), 302);
+        return new Redirect(safeReferer(request, request.header("Referer").orElse(null), fallback), 302);
+    }
+
+    static String safeReferer(Request request, String referer, String fallback) {
+        if (referer == null || referer.isBlank()) return fallback;
+
+        if (referer.startsWith("/") && !referer.startsWith("//")
+                && referer.indexOf('\\') < 0
+                && referer.indexOf('\r') < 0 && referer.indexOf('\n') < 0) {
+            return referer;
+        }
+
+        try {
+            var ref = java.net.URI.create(referer);
+            var self = java.net.URI.create(request.url());
+            if (ref.getHost() == null || self.getHost() == null) return fallback;
+            if (!ref.getHost().equalsIgnoreCase(self.getHost())) return fallback;
+            if (!java.util.Objects.equals(ref.getScheme(), self.getScheme())) return fallback;
+            if (effectivePort(ref) != effectivePort(self)) return fallback;
+
+            String path = ref.getRawPath();
+            if (path == null || path.isBlank()) path = "/";
+            return ref.getRawQuery() == null ? path : path + "?" + ref.getRawQuery();
+        } catch (IllegalArgumentException e) {
+            return fallback;
+        }
+    }
+
+    private static int effectivePort(java.net.URI uri) {
+        if (uri.getPort() != -1) return uri.getPort();
+        return "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80;
     }
 
     /** 跳到外部地址。单独一个方法是为了让「离开本站」在代码里显式可见。 */

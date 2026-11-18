@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.function.Function;
 
+import io.jaravel.auth.Intended;
 import io.jaravel.http.HttpException;
 import io.jaravel.http.Middleware;
 import io.jaravel.http.Request;
@@ -63,7 +64,7 @@ public class ConfirmPassword implements Middleware.Parameterized {
         }
 
         if (Session.isActive()) {
-            Session.put("url.intended", request.fullUrl());
+            Intended.remember(request);
         }
         throw new HttpException(302, "需要确认密码",
                 Map.of("Location", redirectTo));

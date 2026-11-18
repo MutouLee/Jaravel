@@ -43,7 +43,26 @@ public class FileSessionStore implements SessionStore {
 
     private static final String SUFFIX = ".session.json";
 
+    /**
+     * 同一进程内按会话 id 分片的写锁。
+     *
+     * <p>原子移动能防「读到一半」,但防不住 Windows 上「另一个线程还开着
+     * 目标文件时 move 失败」—— 症状是并发请求写同一个会话时抛
+     * {@code AccessDeniedException},用户被 500 而不是被降级。
+     * 分片锁把同 JVM 内的写串起来;跨进程的重试在
+     * {@link #moveWithRetry} 里。
+     */
+    private static final Object[] WRITE_LOCKS = new Object[64];
+
+    static {
+        for (int i = 0; i < WRITE_LOCKS.length; i++) WRITE_LOCKS[i] = new Object();
+    }
+
     private final Path directory;
+
+    private static Object writeLock(String id) {
+        return WRITE_LOCKS[Math.floorMod(id.hashCode(), WRITE_LOCKS.length)];
+    }
 
     public FileSessionStore(Path directory) {
         this.directory = directory;
@@ -105,24 +124,59 @@ public class FileSessionStore implements SessionStore {
 
     @Override
     public void write(String id, Map<String, Object> data, Duration lifetime) {
+        synchronized (writeLock(id)) {
+            writeLocked(id, data, lifetime);
+        }
+    }
+
+    private void writeLocked(String id, Map<String, Object> data, Duration lifetime) {
         Path file = fileFor(id);
         long expiresAt = lifetime == null ? 0
                 : System.currentTimeMillis() + lifetime.toMillis();
 
+        Path temp = null;
         try {
-            Path temp = Files.createTempFile(directory, "tmp-", SUFFIX);
+            temp = Files.createTempFile(directory, "tmp-", SUFFIX);
             Files.writeString(temp, Payload.render(data, expiresAt), StandardCharsets.UTF_8);
-            try {
-                Files.move(temp, file, StandardCopyOption.ATOMIC_MOVE,
-                           StandardCopyOption.REPLACE_EXISTING);
-            } catch (java.nio.file.AtomicMoveNotSupportedException notAtomic) {
-                // 某些文件系统(部分网络盘)不支持原子移动。退化为普通
-                // 替换 —— 仍然比「直接写目标文件」好:窗口从
-                // 「整个写入过程」缩到「一次 move」
-                Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
-            }
+            moveWithRetry(temp, file);
         } catch (IOException e) {
+            if (temp != null) {
+                try {
+                    Files.deleteIfExists(temp);
+                } catch (IOException ignored) {
+                    // 尽力清理,不掩盖原异常
+                }
+            }
             throw new UncheckedIOException("写会话文件失败:" + file, e);
+        }
+    }
+
+    /**
+     * Windows 上目标文件被另一个线程/进程打开时,{@code move} 会失败。
+     * 短暂重试几次;仍然失败才算真失败。原子移动不可用时退化为普通替换。
+     */
+    private static void moveWithRetry(Path temp, Path file) throws IOException {
+        for (int attempt = 0; ; attempt++) {
+            try {
+                try {
+                    Files.move(temp, file, StandardCopyOption.ATOMIC_MOVE,
+                               StandardCopyOption.REPLACE_EXISTING);
+                } catch (java.nio.file.AtomicMoveNotSupportedException notAtomic) {
+                    // 某些文件系统(部分网络盘)不支持原子移动。退化为普通
+                    // 替换 —— 仍然比「直接写目标文件」好:窗口从
+                    // 「整个写入过程」缩到「一次 move」
+                    Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+                }
+                return;
+            } catch (java.nio.file.AccessDeniedException e) {
+                if (attempt >= 4) throw e;
+                try {
+                    Thread.sleep(10L * (attempt + 1));
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw e;
+                }
+            }
         }
     }
 

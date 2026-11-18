@@ -3,6 +3,7 @@ package io.jaravel.routing;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.DisplayName;
@@ -444,6 +445,53 @@ class RoutingTest {
             r.get("/a", UserController::index);
             r.get("/b/{id}", UserController::show);
             assertThat(r.compile().size()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("v0.9 前缀索引不改变注册顺序:先注册的通配路由仍然优先")
+        void prefixIndexPreservesRegistrationOrder() {
+            Route generic = Route.forTesting("GET", "/{a}/{b}",
+                    UserController.class, "generic", List.of());
+            Route specific = Route.forTesting("GET", "/about/{id}",
+                    UserController.class, "specific", List.of());
+
+            var genericFirst = RouteCollection.of(List.of(generic, specific));
+            assertThat(genericFirst.match("GET", "/about/42")).get()
+                    .extracting(m -> m.route().action())
+                    .isEqualTo("generic");
+
+            var specificFirst = RouteCollection.of(List.of(specific, generic));
+            assertThat(specificFirst.match("GET", "/about/42")).get()
+                    .extracting(m -> m.route().action())
+                    .isEqualTo("specific");
+        }
+
+        @Test
+        @DisplayName("首段未知时只查通配桶:字面量前缀的路由不参与")
+        void unknownPrefixSkipsLiteralBuckets() {
+            var collection = RouteCollection.of(List.of(
+                    Route.forTesting("GET", "/api/items/{id}",
+                            UserController.class, "show", List.of()),
+                    Route.forTesting("GET", "/{slug}/{id}",
+                            UserController.class, "generic", List.of())));
+
+            assertThat(collection.match("GET", "/nope")).isEmpty();
+            assertThat(collection.match("GET", "/about/1")).isPresent();
+        }
+
+        @Test
+        @DisplayName("前缀桶按方法隔离:GET 的路由不会参与 POST 匹配")
+        void prefixBucketsAreMethodScoped() {
+            var collection = RouteCollection.of(List.of(
+                    Route.forTesting("GET", "/api/x/{id}",
+                            UserController.class, "show", List.of()),
+                    Route.forTesting("POST", "/api/x/{id}",
+                            UserController.class, "update", List.of())));
+
+            assertThat(collection.match("POST", "/api/x/7")).get()
+                    .extracting(m -> m.route().action())
+                    .isEqualTo("update");
+            assertThat(collection.match("DELETE", "/api/x/7")).isEmpty();
         }
     }
 }

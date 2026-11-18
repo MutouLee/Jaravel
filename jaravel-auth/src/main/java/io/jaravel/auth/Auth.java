@@ -8,7 +8,7 @@ import java.util.Optional;
  *
  * <pre>{@code
  * if (Auth.attempt(Map.of("email", email, "password", password), remember)) {
- *     return Redirect.intended("/dashboard");
+ *     return Redirect.to(Intended.pull("/dashboard"));
  * }
  *
  * User me = Auth.userOrFail(User.class);

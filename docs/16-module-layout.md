@@ -247,6 +247,11 @@ server.error.whitelabel.enabled=false
 | `native` | `package`(profile) | GraalVM native-image 打包 |
 | `run` | — | `mvn jaravel:run -Dcmd="migrate"`(无 CLI 时的后备) |
 
+> ⚠ **v0.9 实际只实现了 `compile-views` 与 `native-config`**
+> (见 [20](20-native-and-performance.md));上表其余 goal 是目标形态,
+> 不是现状。`configure` / `verify-migrations` / `openapi*` / `parity-check`
+> 目前由示例 pom 或命令行完成。
+
 ### 4.1 额外 source root
 
 为了让目录结构接近 Laravel:

@@ -6,6 +6,13 @@
 #   而那看起来完全像是数据源配置写错了。
 
 spring:
+  # v0.9:Spring Boot 3.5 的 TestRestTemplate 默认跟随重定向,
+  # 而 AuthFlowTest 断言的是服务端**返回的** 302/419 本身。
+  # 不关掉的话所有 302 断言都会变成跟随后的 200。
+  http:
+    client:
+      redirects: dont-follow
+
   datasource:
     # 内存库 + 共享缓存。cache=shared 是必需的:没有它连接池里每条连接
     # 各看到一个**空的**独立数据库,于是「迁移在连接 A 上建了表,

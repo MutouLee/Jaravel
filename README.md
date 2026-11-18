@@ -2,8 +2,8 @@
 
 > Laravel 级开发体验,构建在 Spring Boot 之上的 Java 应用框架。
 
-**当前状态:v0.8 已收口(详见 [V0.8-RESULT.md](V0.8-RESULT.md))。**
-36 个模块、**2674 个测试**全绿(默认套件;外部 Redis / RabbitMQ / SQS 组合本次未重测),四个示例应用都在构建里
+**当前状态:v0.9 已收口(详见 [V0.9-RESULT.md](V0.9-RESULT.md))。**
+37 个模块、**2688 个测试**全绿(默认套件;外部 Redis / RabbitMQ / SQS 组合本次未重测),四个示例应用都在构建里
 (`examples/{todo,blog,auth,queue}`)。
 队列 / 事件 / 调度 / 邮件 / 通知 / 存储到位(v0.4),
 终端上有 **43 条命令**、本地命令通道、冷启动启动器、`jaravelw`、`tinker`;
@@ -17,7 +17,11 @@ v0.6 已收口:jblade **类组件**已落地(`<x-post-card :post="post" />`);
 **广播已落地**(docs/19):`ShouldBroadcast` 事件广播、频道与鉴权(`Channels.java`)、
 通知 broadcast 渠道、Pusher 协议子集(pusher-js 开箱即用)、ws/null/log 驱动,
 含真实 WS 端点的 e2e 测试。
-v0.8 已收口:浏览器测试(Playwright)、并行测试、Testcontainers 自动注入均已落地;多租户按 ADR-016 留给 v1.0 示例;下一站 v0.9(性能 / native / 安全审计)。
+v0.8 已收口:浏览器测试(Playwright)、并行测试、Testcontainers 自动注入均已落地;多租户按 ADR-016 留给 v1.0 示例。
+v0.9 已收口:**jblade 构建期预编译**(`jaravel-maven-plugin`)、**jaravel-cli native**(启动中位 ~86ms)、
+**JMH + 路由前缀索引**(大表 404 14.1µs → 0.14µs)、**内部安全审计 + 依赖升级**
+(OSV 50 → 3;JSON 吞吐 ≈ 裸 MVC 1.19×,模板渲染 ≈ 8.8× Thymeleaf)。
+**Web native 与第三方安全审计未做**,原因见 [V0.9-RESULT.md](V0.9-RESULT.md) / ADR-019。
 
 **v0.7 已收口**(详见 [V0.7-RESULT.md](V0.7-RESULT.md)):cache / session /
 queue / 广播的 **redis 驱动**已落地(`RedisStore` + `RedisQueue` +
@@ -41,7 +45,7 @@ Artisan 线的五条验收里 3 条达成、2 条部分达成(收口时覆盖率
 过程中发现并修掉 **14 个真实缺陷** —— 其中三个是**自己的门禁与示例在说谎**
 (两个示例按提交的样子起不来、`jaravel list` 列不全、parity 的度量对象没有测试)。
 
-详见 [V0.8-RESULT.md](V0.8-RESULT.md) · [V0.7-RESULT.md](V0.7-RESULT.md) · [V0.6-RESULT.md](V0.6-RESULT.md) · [V0.5-RESULT.md](V0.5-RESULT.md) ·
+详见 [V0.9-RESULT.md](V0.9-RESULT.md) · [V0.8-RESULT.md](V0.8-RESULT.md) · [V0.7-RESULT.md](V0.7-RESULT.md) · [V0.6-RESULT.md](V0.6-RESULT.md) · [V0.5-RESULT.md](V0.5-RESULT.md) ·
 [V0.3-RESULT.md](V0.3-RESULT.md) · [V0.2-RESULT.md](V0.2-RESULT.md) ·
 [V0.1-RESULT.md](V0.1-RESULT.md)。
 (v0.4 没有单独的结果文档 —— 它的验收逐条结果、文档↔现实对账表与 parity
@@ -135,6 +139,8 @@ p.save();                  // 与快照比对,只 UPDATE 变化的列
 
 ```
 DESIGN.md                 设计总纲:可行性结论、三条顶层决策、模块结构、路线图
+V0.9-RESULT.md            v0.9 结果:预编译/native/JMH/路由优化/安全审计(含未做的两项)
+SECURITY-AUDIT.md         内部安全审计:检查表、修复、SBOM + OSV 复扫
 V0.8-RESULT.md            v0.8 结果:浏览器/并行/Testcontainers 测试与多租户移出核心(含文档对账)
 V0.7-RESULT.md            v0.7 结果:redis / 面板 / 幂等性 / RBAC / RabbitMQ / SQS(含 Kafka 决策)
 V0.6-RESULT.md            v0.6 结果:组件/调试栏/广播/二步验证(含 4 条计时测试的修法)
@@ -142,7 +148,7 @@ V0.5-RESULT.md            v0.5 结果:Artisan + API(含 14 个真缺陷与被打
 V0.3-RESULT.md            v0.3 落地结果(含 12 个真缺陷与 1 条部分未达成的验收)
 V0.2-RESULT.md            v0.2 落地结果(含 8 个真 bug 与 1 条定错了的验收标准)
 V0.1-RESULT.md            v0.1 验收结果(含未达成项与修掉的 bug)
-docs/                     18 篇模块细化设计(约 8700 行)
+docs/                     20 篇模块细化设计(含 v0.9 的 native/性能篇)
 verification/             v0.0 技术验证:四个会推翻架构的技术点,含可运行代码
 
 jaravel-support/          Coll / Str / Arr / Cast
@@ -178,6 +184,7 @@ jaravel-devtools/         热重载:文件监听、变更分类、重启闸门(�
 jaravel-security-bridge/  Spring Security 双向桥接(企业 SSO 场景)
 jaravel-spring-boot-starter/   自动装配与 Spring 适配(与桥接模块是唯一接触 Spring 的地方)
                                —— 20 条在线命令也在这里(它们的发现机制本来就是 Spring 的)
+jaravel-maven-plugin/     compile-views(jblade 预编译) + native-config(命令反射配置)
 jaravel-archunit-rules/   ADR-001 的阻断式强制
 jaravel-coverage/         覆盖率汇总(report-aggregate;指令 75.3% / 分支 66.4%)
 
@@ -187,6 +194,8 @@ examples/auth/            v0.3 切片:注册/登录/记住我/密码重置/邮�
 examples/queue/           v0.4 切片:队列 + 邮件 + 通知 + 调度;v0.5 又加了三条自定义命令
 benchmark/laravel-parity/ parity 门禁:与等价 Laravel 实现的代码量对比
 benchmark/jpa-comparison/ 与 Spring Data JPA 的单条主键查询对照基准
+benchmark/jmh/            JMH:路由 / 转义 / 查询构造 / 模板 vs Thymeleaf
+benchmark/http/           与裸 Spring MVC 的端到端吞吐对照(bare / jaravel / LoadGen)
 ```
 
 ## 快速开始

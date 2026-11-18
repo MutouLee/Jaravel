@@ -1,0 +1,6 @@
+app:
+  name: Jaravel HTTP Bench
+  env: production
+  debug: false
+  key: base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+  url: http://localhost:18001

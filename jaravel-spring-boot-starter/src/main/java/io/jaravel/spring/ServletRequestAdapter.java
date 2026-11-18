@@ -165,12 +165,18 @@ final class ServletRequestAdapter {
         }
     }
 
-    /** 尊重反向代理头,但只在 TrustProxies 允许时(v0.1 简化:直接取第一跳) */
+    /**
+     * <b>不解析 {@code X-Forwarded-For}</b>。
+     *
+     * <p>客户端可以伪造这个头,而 IP 是登录节流、审计与按 IP 授权的依据 ——
+     * 直接采信它等于把这些基于 IP 的防护变成可绕过。
+     *
+     * <p>部署在反向代理后面时,用 Spring Boot 的
+     * {@code server.forward-headers-strategy=NATIVE|FRAMEWORK},让容器/框架
+     * 在受信代理层把 {@code getRemoteAddr()} 改成真实客户端地址;
+     * 那套机制带「只信任内网代理」的配置,比这里自己解析可靠。
+     */
     private static String clientIp(HttpServletRequest r) {
-        String forwarded = r.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
         return r.getRemoteAddr();
     }
 }

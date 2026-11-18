@@ -42,6 +42,26 @@
   <build>
     <plugins>
       <!--
+        v0.9:生成 GraalVM reflect-config。
+        命令类在 jaravel-console 里,所以 scanDependencies=true;
+        输出进 target/classes,随 CLI jar 一起被 native-image 读到。
+      -->
+      <plugin>
+        <groupId>io.jaravel</groupId>
+        <artifactId>jaravel-maven-plugin</artifactId>
+        <version>${project.version}</version>
+        <configuration>
+          <scanDependencies>true</scanDependencies>
+          <artifactId>jaravel-cli</artifactId>
+        </configuration>
+        <executions>
+          <execution>
+            <goals><goal>native-config</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!--
         可执行入口与版本号。
 
         Implementation-Version 是 jaravel 的版本号输出的来源(从 manifest 读,

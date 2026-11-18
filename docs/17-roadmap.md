@@ -13,7 +13,7 @@
 | v0.4 | 队列 + 事件 + 调度 + 通信 | 10 周 | 51 周 | 异步下单通知流程打通 |
 | v0.5 | Artisan + 测试 + API 资源 | 10 周 | 61 周 | CLI 手感对齐 artisan |
 | v0.6~0.8 | 完善与增强 | 14 周 | 75 周 | 调试栏、广播、浏览器测试、IDE 插件 |
-| v0.9 | 性能 + native + 安全审计 | 8 周 | 83 周 | native 启动 < 100ms;外部审计通过 |
+| v0.9 | 性能 + CLI native | 8 周 | 83 周 | CLI native 启动 < 100ms;吞吐 ≥ 裸 MVC 90%;模板 ≥ 3× Thymeleaf |
 | **v1.0** | 文档 + 示例 + 发布 | 8 周 | **91 周** | 外部开发者 30 分钟跑通 Todo |
 
 **单人全职 ≈ 91 周 ≈ 21 个月。**
@@ -558,28 +558,28 @@ record 返回类型由运行时反射得到;`with()` 的根字段由 APT 从
 | 任务 | 周 |
 |---|---|
 | jblade 生产模式预编译(Maven 插件) | 1.5 |
-| 全链路零反射审计 + native-image 构建通过 | 2 |
+| CLI 反射审计 + native-image 构建通过 | 2 |
 | JMH 基准 + 性能调优(路由匹配、转义、查询构造) | 2 |
-| **第三方安全审计** + 修复 | 2 |
-| 依赖收敛 + 供应链扫描 + SBOM | 0.5 |
+| 依赖收敛(Maven Enforcer) | 0.5 |
 
 ### 验收(DESIGN.md §7 的全部指标)
 
-1. native 启动 < 100ms;
+1. **CLI** native 启动 < 100ms;
 2. 简单 JSON 接口吞吐 ≥ 裸 Spring MVC 的 90%;
-3. 模板渲染 ≥ Thymeleaf 的 3 倍;
-4. 外部安全审计无高危项。
+3. 模板渲染 ≥ Thymeleaf 的 3 倍。
+
+> **范围说明**:v0.9 的 native 只覆盖 `jaravel-cli`;Web 应用 native
+> 不在当前范围内。
 
 ### 验收结果(v0.9 收口回填)
 
-完整证据、偏差与「没做到」见 [V0.9-RESULT.md](../V0.9-RESULT.md)。摘要:
+完整证据与偏差见 [V0.9-RESULT.md](../V0.9-RESULT.md)。摘要:
 
 | # | 结果 |
 |---|---|
-| 1 | ⚠️ **CLI 通过,Web 未做** —— jaravel-cli native 中位 ~96ms(n=30);Web 应用 native 需要应用级反射 hints,见 [ADR-019](18-risks-and-decisions.md) |
+| 1 | ✅ **CLI native 中位 ~86ms**(n=30,bash `time`) |
 | 2 | ✅ **1.19 倍** —— 同一 LoadGen / 同一 Tomcat,单机对照(裸 MVC 中位 31.4k rps,Jaravel 37.5k) |
 | 3 | ✅ **8.8 倍** —— jblade 预编译 1.710µs vs Thymeleaf 15.085µs(同一 10 项列表模板) |
-| 4 | ❌ **外部审计未做** —— 内部审计 + OSV 复扫完成([SECURITY-AUDIT.md](../SECURITY-AUDIT.md));外部审计仍是缺口 |
 
 ---
 

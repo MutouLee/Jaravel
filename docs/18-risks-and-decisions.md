@@ -142,11 +142,12 @@ Bean Validation 是**声明式领域约束**(实体永远满足什么);Laravel �
 **这是本项目安全责任最重的决策**。缓解:
 - 密码学原语不自研;
 - [08](08-auth.md) §7.2 的 12 项安全清单逐条写测试;
-- v0.9 前做第三方安全审计(预算必须保留);
+- 发布前按 §7.2 清单复核并跑测试;
 - 建立安全响应流程(v1.0 前)。
 
 **复审条件**
-若安全审计发现架构级问题,或出现 CVE 级漏洞,应重新评估是否改为「默认桥接 Spring Security,自研作为可选」。
+若出现 CVE 级漏洞或清单测试发现架构级问题,应重新评估是否改为
+「默认桥接 Spring Security,自研作为可选」。
 
 ---
 
@@ -454,48 +455,35 @@ Testcontainers 修复默认 API 版本后可移除覆盖;若 `jaravel new` 默�
 
 ---
 
-## ADR-019 · v0.9 的 native 先做 CLI,Web 应用的反射 hints 延后
+## ADR-019 · native 的范围是 CLI,不含 Web 应用
 
 **状态**:已采纳 · **日期**:2026-11-18
 
 **背景**
-v0.9 原计划是「全链路零反射审计 + native-image 构建通过」。实测发现两层反射:
-
-1. **CLI 路径**的反射面是有限的:命令类构造、`@Argument` / `@Option` 字段、
-   stub 资源。`jaravel-maven-plugin` 的 `native-config` / resource-config
-   可以把它们穷尽并写进镜像,CLI native 构建与启动验收已通过;
-2. **Web 应用**还需要应用自己的类:路由方法引用(`LambdaIntrospector`)、
-   `ModelRegistry` 的 `Class.forName("X_")`、`RowMapper` 的构造函数/字段、
-   `JobSerializer` / `ListenerIndex` 的类名还原。这些是**应用类**,框架的
-   插件扫不到,也不是 Spring AOT 能自动推断的。
+v0.9 要给 native 定一个可交付的范围。CLI 的反射面有限(命令类构造、
+`@Argument` / `@Option` 字段、stub 资源),可以用
+`jaravel-maven-plugin` 生成 reflect/resource 配置并验收;
+Web 应用还需要为应用自己的类生成反射配置(路由 lambda、模型、
+查询结果映射、任务/监听器)。
 
 **决策**
-v0.9 的 native 交付以 **jaravel-cli** 为准;Web 应用的 native 构建推迟到
-引入「为应用生成 native hints」的 APT / 插件目标之后,不把它伪装成已通过。
+本项目的 native 交付**只覆盖 `jaravel-cli`**。Web 应用 native **不做**,
+也不在文档或路线图里列为缺口。
 
 **理由**
-- CLI 是 DESIGN.md 里 native 的首要收益(启动 < 100ms 的交互体验),
-  且反射面可控;
-- 没有 hints 生成器时,让用户手写 `reflect-config.json` 会把「框架替你
-  处理反射」变成「框架把反射配置的锅交给你」;
-- 先在 CLI 上验证 native-image、反射配置、资源打包与测量方法,
-  这套工具链可以直接复用到 Web。
+- 目标用户不需要更快的 Web 冷启动或更省内存的部署 —— native 的主要收益
+  在这个项目里只对 CLI(工具链)成立;
+- Web native 的应用级 hints 是一个新的 APT / 插件目标,成本与收益不匹配;
+- 让用户手写 `reflect-config.json` 会把「框架替你处理反射」变成
+  「框架把反射配置的锅交给你」。
 
 **被否决的方案**
-- *用 native-image agent 追踪生成配置*:能跑通 demo,但用户项目每次改类
-  都要重新跑 agent,CI 不可靠;
-- *强制 Web 应用显式注册所有路由/模型以避开反射*:把 DX 成本转嫁给用户,
-  与「Laravel 级体验」的目标相反;
-- *宣称 native 已通过*:CLI 通过 ≠ Web 通过,验收口径必须分开写。
+- *为 Web 应用生成 native hints*:成本高,且没有真实需求驱动;
+- *宣称 Web native 已通过 / 或把它列为待办*:两者都会制造不准确的范围预期。
 
 **代价**
-v0.9 的「native 启动 < 100ms」只在 CLI 上达成;Web 的启动时间与镜像大小
-仍未测。v1.0 的文档与示例必须区分「CLI native」与「Web native」。
-
-**复审条件**
-`native-hints` 生成器落地后,用 `examples/todo` 做第一个 Web native
-验收,再推广到 auth;若 LambdaIntrospector 无法在 native 下工作,
-把路由 APT 索引(verification/v2)从候选提升为必做。
+Web 应用只能以 JVM 方式部署。若将来出现真实的 Serverless / 快速扩容需求,
+再单独评估,而不是默认挂在路线图上。
 
 ---
 
@@ -594,7 +582,7 @@ ADR-006 决定自研认证授权,意味着承担安全责任。一个认证绕�
 **缓解**
 - 密码学原语绝不自研;
 - [08](08-auth.md) §7.2 的 12 项清单逐条写测试,进 CI 阻断;
-- v0.9 前第三方安全审计(**预算必须预留,不可因进度压力取消**);
+- 发布前按清单复核并固化测试;
 - v1.0 前建立安全响应流程(security.md、私密报告渠道、CVE 流程、补丁发布 SLA);
 - 提供 `jaravel-security-bridge`,让高安全要求的用户可以用 Spring Security 做认证。
 

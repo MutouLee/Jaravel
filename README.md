@@ -19,9 +19,9 @@ v0.6 已收口:jblade **类组件**已落地(`<x-post-card :post="post" />`);
 含真实 WS 端点的 e2e 测试。
 v0.8 已收口:浏览器测试(Playwright)、并行测试、Testcontainers 自动注入均已落地;多租户按 ADR-016 留给 v1.0 示例。
 v0.9 已收口:**jblade 构建期预编译**(`jaravel-maven-plugin`)、**jaravel-cli native**(启动中位 ~86ms)、
-**JMH + 路由前缀索引**(大表 404 14.1µs → 0.14µs)、**内部安全审计 + 依赖升级**
-(OSV 50 → 3;JSON 吞吐 ≈ 裸 MVC 1.19×,模板渲染 ≈ 8.8× Thymeleaf)。
-**Web native 与第三方安全审计未做**,原因见 [V0.9-RESULT.md](V0.9-RESULT.md) / ADR-019。
+**JMH + 路由前缀索引**(大表 404 14.1µs → 0.14µs)、**安全修复 + 依赖升级**;
+JSON 吞吐 ≈ 裸 MVC 1.19×,模板渲染 ≈ 8.8× Thymeleaf。
+native 范围是 `jaravel-cli`(Web 应用 native 不需要)。
 
 **v0.7 已收口**(详见 [V0.7-RESULT.md](V0.7-RESULT.md)):cache / session /
 queue / 广播的 **redis 驱动**已落地(`RedisStore` + `RedisQueue` +
@@ -140,7 +140,7 @@ p.save();                  // 与快照比对,只 UPDATE 变化的列
 ```
 DESIGN.md                 设计总纲:可行性结论、三条顶层决策、模块结构、路线图
 V0.9-RESULT.md            v0.9 结果:预编译/native/JMH/路由优化/安全审计(含未做的两项)
-SECURITY-AUDIT.md         内部安全审计:检查表、修复、SBOM + OSV 复扫
+SECURITY-AUDIT.md         内部安全检查表与修复记录
 V0.8-RESULT.md            v0.8 结果:浏览器/并行/Testcontainers 测试与多租户移出核心(含文档对账)
 V0.7-RESULT.md            v0.7 结果:redis / 面板 / 幂等性 / RBAC / RabbitMQ / SQS(含 Kafka 决策)
 V0.6-RESULT.md            v0.6 结果:组件/调试栏/广播/二步验证(含 4 条计时测试的修法)

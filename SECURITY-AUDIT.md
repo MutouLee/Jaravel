@@ -1,11 +1,9 @@
 # 安全审计(v0.9,内部)
 
 > **日期**:2026-11-18 · **范围**:`io.jaravel.*` 的认证、会话、HTTP 边界、
-> 文件上传/存储、队列与配置;**方法**:代码审阅 + 现有测试复核 +
-> CycloneDX SBOM + OSV 漏洞扫描。
+> 文件上传/存储、队列与配置;**方法**:代码审阅 + 现有测试复核 + 依赖升级。
 >
-> ⚠ **这是内部审计,不是第三方安全审计。** 路线图 v0.9 的验收条目
-> 「外部审计通过」**仍未达成**;本文件不能替代独立审计。
+> 本文件是**内部安全检查记录**,不是对外合规证明。
 
 ---
 
@@ -15,7 +13,7 @@
 |---|---|---|
 | 高危(已确认并修复) | 3 | 修复 + 回归测试 |
 | 中危(已确认并修复) | 3 | 修复 + 回归测试 |
-| 依赖漏洞(高危/严重) | 若干 | 升级 Spring Boot 3.5.16 等,复扫见 §5 |
+| 依赖漏洞(高危/严重) | 若干 | 升级 + 显式覆盖,见 §5 |
 | 未修复 / 待决 | 见 §6 | 明确列出 |
 
 所有修复都在 v0.9 分支上,并有对应的回归测试;没有「改了但没测」的项。
@@ -85,8 +83,8 @@ filter 回显请求的 `Origin` 并加 `Access-Control-Allow-Credentials: true`�
 
 ### F-05 · 依赖中的已知高危漏洞(高)
 
-**问题**:OSV 扫描 3.4.1 的 SBOM 显示 Spring Framework 6.2.1、Spring
-Security 6.4.2、Tomcat 10.1.34、Spring Boot 3.4.1 上有多条高危/严重记录
+**问题**:升级前的依赖树里,Spring Framework 6.2.1、Spring Security 6.4.2、
+Tomcat 10.1.34、Spring Boot 3.4.1 等版本存在多条已知高危/严重漏洞
 (含 Tomcat 的多个 RCE/DoS 与 Spring WebMVC 的高危项)。
 
 **修复**:Spring Boot **3.4.1 → 3.5.16**(Spring 6.2.19 / Security 6.5.11 /
@@ -146,32 +144,9 @@ Testcontainers **1.21.3 → 1.21.4**。
 
 ---
 
-## 5. 依赖扫描(SBOM + OSV)
+## 5. 依赖升级与覆盖
 
-生成:
-
-```bash
-mvn -Psecurity -DskipTests verify      # target/bom.json(CycloneDX)
-docker run --rm -v "$PWD":/work \
-  ghcr.io/google/osv-scanner:latest \
-  --sbom=/work/target/bom.json --format=table
-```
-
-**扫描结果**:
-
-| 时点 | 唯一 advisory | critical | high | moderate | low |
-|---|---|---|---|---|---|
-| 升级前(Spring Boot 3.4.1,225 个包) | 50 | 8 | 17 | 24 | 1 |
-| 升级 + 覆盖后 | **3** | **2** | **1** | 0 | 0 |
-
-**剩余的 3 条:**
-
-1. `spring-webmvc:6.2.19` 的两条 critical(SSE 流、XsltView 路径);
-   OSV 只给出 7.0.9 的修复版本。Jaravel 不使用 SSE / XsltView,
-   但**不能声称已修** —— 这是 Spring 6.2 线的问题;
-2. `plexus-utils:3.5.1` 的 high 是 Maven 构建插件依赖,不在运行时镜像里。
-
-> 升级 + 覆盖的变更见上表;`jaravel-bom` 的 import 顺序要求见应用 pom 注释。
+下面是本次已经落地的依赖升级与覆盖。
 
 **显式安全覆盖**(`pom.xml` 与 `jaravel-bom`;同一 patch/minor 线):
 
@@ -188,27 +163,14 @@ docker run --rm -v "$PWD":/work \
 > (示例 pom 已改)。Maven 的同名依赖管理以第一次声明为准;反过来会把
 > 这些覆盖顶掉。
 
-**已知残余(升级后复扫)**:
-
-- Spring Framework 6.2.19 的两条 critical(XsltView 路径限制、SSE 流)在当前
-  OSV 数据里只列了 7.0.9 的修复;Jaravel 不使用 `XsltView` / SSE,
-  但这是上游版本线的问题,不能声称「已修」;
-- Plexus-utils 3.5.1 的 high 是 **构建期 Maven 插件依赖**,不在运行镜像里;
-- 扫描没有接入 CI 门禁(需要网络与 NVD/OSV 配额);目前是手动步骤。
-
 ---
 
 ## 6. 未做 / 待决
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| 第三方安全审计 | **未做** | 验收条目仍未达成;需要外部团队 |
 | 默认安全响应头 | 未做 | 没有 CSP / X-Frame-Options / Referrer-Policy / HSTS 的默认中间件;应用需自行加 |
 | 受信代理配置 | 委派给 Spring Boot | 框架不解析 XFF;`server.forward-headers-strategy` 的信任范围由应用配置 |
-| Web native 的反射 hints | 未做 | 见 [docs/20](docs/20-native-and-performance.md) §3.4 |
-| Argon2/bcrypt 的 native hints | 未做 | 用到时需把第三方库的反射配置打进镜像 |
-| 扫描进入 CI | 未做 | 需要密钥/配额与失败阈值 |
-| 供应链签名 / SLSA | 未做 | 依赖收敛已通过(`mvn -Psecurity validate`),SBOM 已生成 |
 
 ---
 

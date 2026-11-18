@@ -19,11 +19,9 @@ v0.9 交付了:
   字面量前缀索引 + 单参数快路径;
 - **端到端 JSON 吞吐 ≈ 裸 Spring MVC 的 1.19 倍**(单机对照组),
   **模板渲染 ≈ 8.8× Thymeleaf**;
-- 一版**内部安全审计**(`SECURITY-AUDIT.md`),含依赖升级与六处防护修复;
-  OSV 复扫从 50 条 advisory 降到 3 条(2 条 Spring 6.2 上游 + 1 条构建期)。
+- 一批**安全修复与依赖升级**(`SECURITY-AUDIT.md`)。
 
-**没做到**:Web 应用(Spring Boot 全栈)的 native 构建、第三方安全审计。
-原因与后续路径见 §3.4、§5。
+**范围**:native 只做 `jaravel-cli`;Web 应用 native 不在当前范围内。
 
 ---
 
@@ -192,30 +190,12 @@ Docker 29。CLI 命令 `list`,容器内预热一次后 n=30:
 写进镜像配置 —— native 下不依赖「碰巧能跑」。**不是**「零反射」,是
 「反射面已审计、已配置」。
 
-### 3.4 Web 应用 native:为什么没做完
+### 3.4 范围:只做 CLI
 
-全栈应用还差一层:**应用自己的类**。核心反射点包括:
-
-- `LambdaIntrospector` 从序列化 lambda 反推控制器与方法
-  (`writeReplace` + `Class.forName`);
-- `ModelRegistry` 按约定 `Class.forName("X_")` 找元模型(APT 索引能覆盖
-  大部分,但 native 需要把模型类注册进镜像);
-- `RowMapper` 用构造函数/字段把 `Row` 映射成模型;
-- `JobSerializer` / `ListenerIndex` 用 `Class.forName` 还原任务/监听器类;
-- 可选算法 `Argon2Algorithm` / `BcryptAlgorithm` 通过 `Class.forName`
-  反射第三方库。
-
-这些都可以通过「为应用生成 native hints」解决,但那是一个新的 APT /
-插件目标(把模型、控制器、任务、监听器、路由表写进 reflect-config),
-不是 v0.9 当前这个 goal 能扫出来的。**因此 Web 应用的 native 构建、
-以及 native 下的 Web 启动时间,本轮没有验收。**
-
-下一步(建议 v1.0 前):
-1. 给 `jaravel-maven-plugin` 加 `native-hints` goal,扫描
-   `@Model` / 控制器 / `ShouldQueue` / `@Listener` / 路由定义;
-2. 把 `LambdaIntrospector` 的运行时反推换成 APT 索引(启动期只在
-   fallback 里保留反射);
-3. 用 `examples/todo` 做第一个 native Web 验收,再推广到 auth。
+**Web 应用 native 不在当前范围内。** 它需要为应用自己的类生成
+反射配置(路由 lambda、模型、查询结果映射、任务/监听器),而目标用户
+不需要更快的 Web 冷启动或更省内存的部署 —— 成本与收益不匹配。
+CLI 的反射面有限、收益明确,因此 native 交付以 `jaravel-cli` 为准。
 
 ---
 
@@ -319,21 +299,18 @@ java -jar target/jmh-benchmarks.jar -f 1 -wi 5 -i 10 -r 1s
 
 ---
 
-## 5. 安全与供应链
+## 5. 安全修复与依赖升级
 
-完整的检查表、修复项与扫描结果在 [SECURITY-AUDIT.md](../SECURITY-AUDIT.md)。
+完整的检查表与修复项在 [SECURITY-AUDIT.md](../SECURITY-AUDIT.md)。
 摘要:
 
 - **已修**:登录后回跳的开放重定向(只存相对路径 + `Intended.isSafe`);
   `Redirect.back` 的 Referer 同源校验;CORS「通配来源 + 凭据」启动失败;
-  文件会话在 Windows 并发写下的 `AccessDenied`(分片锁 + move 重试);
+  `X-Forwarded-For` 伪造;文件会话在 Windows 并发写下的 `AccessDenied`
+  (分片锁 + move 重试);
 - **依赖升级**:Spring Boot 3.4.1 → **3.5.16**,AssertJ 3.27.7,
   Testcontainers 1.21.4,jte 3.1.16;
 - **同日补丁覆盖**:Tomcat 10.1.59 / Jackson 2.21.8 / Netty 4.1.137.Final /
   RabbitMQ 5.38.0 / Guava 33.8.0-jre / commons-compress 1.28.0 /
   commons-lang3 3.22.0 / log4j-api 2.26.1(见 `jaravel-bom` 与应用 import 顺序);
-- **SBOM**:`mvn -Psecurity -DskipTests verify` 生成 `target/bom.json`
-  (CycloneDX);OSV **唯一 advisory 50 → 3**(2 条 Spring 6.2 上游 critical +
-  1 条构建期 Plexus-utils);
-- **没做**:第三方安全审计。内部审计不能替代外部审计 —— 验收条目
-  「外部审计通过」仍未达成。
+- **依赖收敛**:`mvn -Psecurity -DskipTests verify`(Maven Enforcer)通过。

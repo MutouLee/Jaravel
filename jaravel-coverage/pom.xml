@@ -68,6 +68,8 @@
     <dependency><groupId>com.example</groupId><artifactId>blog</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
     <dependency><groupId>com.example</groupId><artifactId>auth</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
     <dependency><groupId>com.example</groupId><artifactId>queue</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
+    <dependency><groupId>com.example</groupId><artifactId>api-only</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
+    <dependency><groupId>com.example</groupId><artifactId>multi-tenant</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
 
     <dependency>
       <groupId>org.junit.jupiter</groupId>

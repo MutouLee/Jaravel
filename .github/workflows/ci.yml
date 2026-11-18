@@ -39,7 +39,32 @@ jobs:
       # 默认套件不依赖外部服务:浏览器 / Testcontainers / Redis / broker
       # 相关测试按开关跳过。需要真实服务的作业另开。
       - name: mvn test
-        run: mvn -B -ntp test
+        run: |
+          set -o pipefail
+          mkdir -p target
+          mvn -B -ntp test 2>&1 | tee target/ci-test.log
+
+      - name: test failures summary
+        if: failure()
+        run: |
+          {
+            echo "## Test failures"
+            found=0
+            while IFS= read -r f; do
+              found=1
+              echo "### $f"
+              head -n 60 "$f"
+            done < <(grep -rlE 'Failures: [1-9]|Errors: [1-9]' \
+                     --include='*.txt' . | head -n 5)
+            if [ "$found" -eq 0 ]; then
+              echo "No surefire failure files; last 80 lines of the Maven log:"
+              echo '```'
+              tail -n 80 target/ci-test.log
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          grep -E '^\[ERROR\]' target/ci-test.log | head -n 10 | \
+            while IFS= read -r line; do echo "::error::$line"; done
 
       - name: upload surefire reports
         if: failure()
@@ -50,6 +75,7 @@ jobs:
           path: |
             **/target/surefire-reports/
             **/target/*.dumpstream
+            target/ci-test.log
 
   parity:
     name: parity gate (≤ 1.30)

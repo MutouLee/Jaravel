@@ -72,7 +72,8 @@ class CoverageModulesTest {
                         不把它算进来,框架覆盖率会被报低一大截 ——
                         而那些测试恰恰覆盖的是「类与类之间的接线」,
                         也就是这个项目里最容易出缺陷的地方。""")
-                .contains("todo", "blog", "auth", "queue");
+                .contains("todo", "blog", "auth", "queue",
+                          "api-only", "multi-tenant");
     }
 
     private String read(Path path) throws IOException {

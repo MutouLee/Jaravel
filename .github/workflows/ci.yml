@@ -48,7 +48,7 @@ jobs:
         if: failure()
         run: |
           files=$(grep -rlE 'Failures: [1-9]|Errors: [1-9]' \
-                  --include='*.txt' . | head -n 10)
+                  --include='*.txt' . 2>/dev/null | head -n 8 || true)
           {
             echo "## Test failures"
             if [ -z "$files" ]; then
@@ -64,22 +64,30 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-          # 断言原文也进注解:注解可以匿名读取(下载 artifact 要登录),
-          # 失败时第一个入口就能看到「期望 / 实际」,而不是只有测试名。
-          if [ -n "$files" ]; then
-            while IFS= read -r f; do
-              body=$(head -n 120 "$f")
-              body=${body//\%/%25}
-              body=${body//$'\r'/}
-              body=${body//$'\n'/%0A}
-              echo "::error title=$(basename "$f")::$body"
-            done <<< "$files"
-          else
-            body=$(tail -n 60 target/ci-test.log)
+          # 注解可以匿名读取(下载 artifact 要登录)。Maven 控制台里
+          # 失败详情跟着 "<<< FAILURE!" 一行,把它连同后文一起发出来,
+          # 就是「期望 / 实际」的原文,而不是只有测试名。
+          emit() {
+            local title="$1" body="$2"
             body=${body//\%/%25}
             body=${body//$'\r'/}
             body=${body//$'\n'/%0A}
-            echo "::error title=maven::$body"
+            echo "::error title=${title}::${body}"
+          }
+
+          if [ -n "$files" ]; then
+            while IFS= read -r f; do
+              emit "$(basename "$f")" "$(head -n 120 "$f")"
+            done <<< "$files"
+          fi
+
+          body=$(grep -E -B 1 -A 25 '<<< (FAILURE|ERROR)!' target/ci-test.log \
+                 | head -n 250 || true)
+          if [ -n "$body" ]; then
+            emit "maven-failures" "$body"
+          else
+            emit "maven" "$(grep -E 'forked VM|dumpstream|Error occurred|\[ERROR\]' \
+                             target/ci-test.log | head -n 120 || true)"
           fi
 
       - name: upload surefire reports

@@ -29,11 +29,12 @@ jobs:
 
       # 示例不继承 jaravel-parent,并通过 annotationProcessorPaths /
       # <plugin> 引用 io.jaravel 的 SNAPSHOT 构件。Maven 不会把这些
-      # 从 reactor 解析,所以先安装框架模块(排除示例),再跑全量测试。
+      # 从 reactor 解析,所以先安装框架模块;jaravel-coverage 依赖
+      # 示例构件,也一起排除 —— 第二阶段在完整 reactor 里解析。
       - name: install framework artifacts
         run: >
           mvn -B -ntp -Dmaven.test.skip=true install
-          -pl '!examples/todo,!examples/blog,!examples/auth,!examples/queue,!examples/api-only,!examples/multi-tenant'
+          -pl '!examples/todo,!examples/blog,!examples/auth,!examples/queue,!examples/api-only,!examples/multi-tenant,!jaravel-coverage'
 
       # 默认套件不依赖外部服务:浏览器 / Testcontainers / Redis / broker
       # 相关测试按开关跳过。需要真实服务的作业另开。
@@ -93,5 +94,5 @@ jobs:
       - name: install framework artifacts
         run: >
           mvn -B -ntp -Dmaven.test.skip=true install
-          -pl '!examples/todo,!examples/blog,!examples/auth,!examples/queue,!examples/api-only,!examples/multi-tenant'
+          -pl '!examples/todo,!examples/blog,!examples/auth,!examples/queue,!examples/api-only,!examples/multi-tenant,!jaravel-coverage'
       - run: mvn -B -ntp -Psecurity -DskipTests validate

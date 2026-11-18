@@ -483,9 +483,15 @@ class OpenApiDiffTest {
         Outcome result = diff(tmp, base, current);
 
         assertThat(result.code()).isEqualTo(1);
-        assertThat(result.out().indexOf("/a"))
+
+        // 从「破坏性变更」段开始找:标题里的临时文件路径在 Linux 上
+        // 会包含 /tmp/.../base.json,直接 indexOf("/b") 会命中那个 /b,
+        // 于是这条断言在 Windows 上绿、在 Linux 上红(CI 第一次就撞到)。
+        int section = result.out().indexOf("破坏性变更");
+        assertThat(section).isNotNegative();
+        assertThat(result.out().indexOf("/a", section))
                 .as("哈希序会让 diff 每次都不一样,而那种红最难查")
-                .isLessThan(result.out().indexOf("/b"));
+                .isLessThan(result.out().indexOf("/b", section));
     }
 
     @Test

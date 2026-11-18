@@ -64,6 +64,7 @@ mkdocs build --strict
 - 全量测试 0 失败;
 - parity 最差 ≤ 1.30;
 - ArchUnit 边界规则通过(包含在 `mvn test`);
+- CI 全绿(`.github/workflows/ci.yml`:test / parity / docs / dependency-convergence);
 - docs 的「待决问题」已在 [KNOWN-ISSUES.md](KNOWN-ISSUES.md) 中登记或关闭。
 
 ## 4. 构建 native CLI

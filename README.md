@@ -1,5 +1,7 @@
 # Jaravel
 
+[![ci](https://github.com/MutouLee/Jaravel/actions/workflows/ci.yml/badge.svg)](https://github.com/MutouLee/Jaravel/actions/workflows/ci.yml)
+
 > Laravel 级开发体验,构建在 Spring Boot 之上的 Java 应用框架。
 
 **当前状态:v1.0 功能面完成,正式发布待执行(详见 [V1.0-RESULT.md](V1.0-RESULT.md))。**

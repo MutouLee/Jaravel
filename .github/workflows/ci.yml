@@ -17,15 +17,23 @@ jobs:
   test:
     name: test (JDK 21)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
           cache: maven
+
+      # 示例不继承 jaravel-parent,并通过 annotationProcessorPaths /
+      # <plugin> 引用 io.jaravel 的 SNAPSHOT 构件。Maven 不会把这些
+      # 从 reactor 解析,所以先安装框架模块(排除示例),再跑全量测试。
+      - name: install framework artifacts
+        run: >
+          mvn -B -ntp -Dmaven.test.skip=true install
+          -pl '!examples/todo,!examples/blog,!examples/auth,!examples/queue,!examples/api-only,!examples/multi-tenant'
 
       # 默认套件不依赖外部服务:浏览器 / Testcontainers / Redis / broker
       # 相关测试按开关跳过。需要真实服务的作业另开。
@@ -34,7 +42,7 @@ jobs:
 
       - name: upload surefire reports
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: surefire-reports
           if-no-files-found: ignore
@@ -47,8 +55,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: parity-check
@@ -62,8 +70,8 @@ jobs:
       run:
         working-directory: docs-site
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -74,12 +82,16 @@ jobs:
   dependency-convergence:
     name: dependency convergence
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
           cache: maven
+      - name: install framework artifacts
+        run: >
+          mvn -B -ntp -Dmaven.test.skip=true install
+          -pl '!examples/todo,!examples/blog,!examples/auth,!examples/queue,!examples/api-only,!examples/multi-tenant'
       - run: mvn -B -ntp -Psecurity -DskipTests validate

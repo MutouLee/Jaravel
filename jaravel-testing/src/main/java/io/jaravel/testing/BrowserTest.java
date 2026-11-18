@@ -9,8 +9,10 @@ import com.microsoft.playwright.Playwright;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.ApplicationContext;
 
 /**
  * 浏览器测试基类(docs/14 §6.1)。
@@ -80,8 +82,17 @@ public abstract class BrowserTest {
     @LocalServerPort
     protected int port;
 
+    @Autowired
+    private ApplicationContext applicationContext;
+
     protected String baseUrl() {
         return "http://127.0.0.1:" + port;
+    }
+
+    /** 与 {@link FeatureTest} 同一个理由:静态门面必须指向当前测试的上下文。 */
+    @BeforeEach
+    void rebindStaticFacades() {
+        StaticBindings.bind(applicationContext);
     }
 
     // ================= 生命周期 =================

@@ -11,6 +11,7 @@ import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ApplicationContext;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
@@ -129,6 +130,9 @@ public abstract class FeatureTest {
     @Autowired(required = false)
     protected io.jaravel.database.Connection connection;
 
+    @Autowired
+    private ApplicationContext applicationContext;
+
     // ---------- 下一个请求的状态 ----------
 
     private final Map<String, String> headers = new LinkedHashMap<>();
@@ -138,6 +142,22 @@ public abstract class FeatureTest {
     private boolean expectsJson;
     private boolean withCsrf = true;
     private String referer;
+
+    /**
+     * 把静态门面重绑到**这个测试的**上下文(见 {@link StaticBindings})。
+     *
+     * <p>一个测试 JVM 里会缓存多个 Spring 上下文,而 {@code Artisan} /
+     * {@code Queue} / {@code Eloquent} 等门面是 JVM 全局的静态字段。
+     * 不重绑的话,执行顺序会让「刚插入的数据,命令却查不到」——
+     * 单独跑全绿,全量跑偶发。
+     *
+     * <p>基类的 {@code @BeforeEach} 先于子类执行,所以子类在
+     * {@code @BeforeEach} 里安装的 fake 不会被这里覆盖。
+     */
+    @BeforeEach
+    void rebindStaticFacades() {
+        StaticBindings.bind(applicationContext);
+    }
 
     /**
      * 每个测试前重置。

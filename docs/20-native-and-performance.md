@@ -90,7 +90,7 @@ v0.9 交付了:
 
 ## 2. jaravel-maven-plugin
 
-模块:`jaravel-maven-plugin`(reactor 第 39 个模块左右,`maven-plugin` packaging)。
+模块:`jaravel-maven-plugin`(第 37 个框架模块,`maven-plugin` packaging)。
 
 ### 2.1 `compile-views`
 

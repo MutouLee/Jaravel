@@ -152,6 +152,33 @@ class QueueFeatureTest extends FeatureTest {
     }
 
     /**
+     * 有界地重复 drain,直到 {@code done} 成立。
+     *
+     * <p>用于「最后一个任务会再投一个任务」的场景:链的下一环、批次回调。
+     * {@code stopWhenEmpty} 的 worker 退出后,那个新任务偶尔要晚一点才
+     * 可见 —— CI 上见过单次 drain 退出时回调仍在队列里,断言看到 0
+     * (任务没丢,只是这一次 drain 已经退出)。这里给它一个有界的
+     * 第二次机会。
+     *
+     * <p>断言不放松:调用方仍然断言回调**恰好一次**;10 秒还没完成时
+     * 直接返回,让原始断言给出失败。
+     */
+    private void drainUntil(String queueName, java.util.function.BooleanSupplier done) {
+        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+
+        drain(queueName);
+        while (!done.getAsBoolean() && System.nanoTime() < deadline) {
+            try {
+                Thread.sleep(20);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            drain(queueName);
+        }
+    }
+
+    /**
      * 只跑**一个**任务就停。
      *
      * <p>必须有这个版本:{@code drain} 的 worker 在队列空之后会
@@ -375,7 +402,7 @@ class QueueFeatureTest extends FeatureTest {
                     .as("整条链入队时只占一条记录 —— 剩余环在信封里")
                     .isEqualTo(1);
 
-            drain("mail");
+            drainUntil("mail", () -> "archived".equals(Invoice.query().findOrFail(id).status));
 
             assertThat(Invoice.query().findOrFail(id).status)
                     .as("标记 → 发送 → 归档,最后停在 archived")
@@ -808,7 +835,10 @@ class QueueFeatureTest extends FeatureTest {
                     .assertJsonPath("processed", 0)
                     .assertJsonPath("finished", false);
 
-            drain("reports");
+            // 回调由「最后一个任务完成」时投递;单次 drain 可能在投递
+            // 可见之前就退出,这里等到两个回调都被处理(有界)。
+            drainUntil("reports", () -> ledger.countStartingWith("then:") > 0
+                    && ledger.countStartingWith("finally:") > 0);
 
             assertThat(Invoice.query().where(Invoice_.status, "stated").count())
                     .isEqualTo(4);
@@ -838,7 +868,8 @@ class QueueFeatureTest extends FeatureTest {
             // 也是批处理里最常见的一种失败
             db.table("invoices").where("id", doomed).delete();
 
-            drain("reports");
+            // finally 回调在最后一个有结果的任务之后投递,同样要等它可见。
+            drainUntil("reports", () -> ledger.countStartingWith("finally:") > 0);
 
             assertThat(Invoice.query().where(Invoice_.status, "stated").count())
                     .as("其余两张照常处理")
@@ -886,7 +917,7 @@ class QueueFeatureTest extends FeatureTest {
 
             String batchId = postJson("/api/statements", Map.of())
                     .assertOk().json().get("batch").asText();
-            drain("reports");
+            drainUntil("reports", () -> ledger.countStartingWith("then:") > 0);
 
             assertThat(ledger.countStartingWith("then:")).isEqualTo(1);
             assertThat(Queue.findBatch(batchId).orElseThrow().succeededJobs())

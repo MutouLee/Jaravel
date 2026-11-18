@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -23,9 +24,14 @@ import io.jaravel.http.Response;
  */
 class ErrorFormatTest {
 
+    @BeforeEach
     @AfterEach
     void resetEnvironment() {
         Application.setEnvironment("local");
+        // debug 也是全局可变状态:别的测试类(DoctorTest / DevErrorPageTest)
+        // 会把它打开,测试执行顺序变了就会泄漏到这里。CI 在 Linux 上
+        // 第一次撞到:错误体多了 exception / trace,两个断言同时红。
+        Application.setDebug(false);
     }
 
     /**

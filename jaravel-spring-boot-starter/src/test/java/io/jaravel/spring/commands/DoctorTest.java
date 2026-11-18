@@ -70,6 +70,7 @@ class DoctorTest {
         Artisan.reset();
         Schema.useConnection(null);
         Application.setEnvironment("local");
+        Application.setDebug(false);
         jdbc.close();
     }
 

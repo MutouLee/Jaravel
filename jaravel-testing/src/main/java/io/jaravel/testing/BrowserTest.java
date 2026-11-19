@@ -152,6 +152,12 @@ public abstract class BrowserTest {
         };
     }
 
+    /** 同 FeatureTest:测试结束后把时间放回去,免得漏进别的测试 */
+    @AfterEach
+    void restoreClock() {
+        io.jaravel.support.Clock.reset();
+    }
+
     @AfterEach
     void closePage() {
         if (context != null) context.close();

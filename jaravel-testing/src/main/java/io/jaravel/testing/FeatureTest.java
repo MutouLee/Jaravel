@@ -8,6 +8,7 @@ import java.util.Map;
 
 import jakarta.servlet.http.Cookie;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -175,6 +176,23 @@ public abstract class FeatureTest {
         expectsJson = false;
         withCsrf = true;
         referer = null;
+    }
+
+    /**
+     * 测试结束后把时间放回去(docs/14 §4.2)。
+     *
+     * <p>★ 为什么**前后都清**。{@link StaticBindings#bind} 在
+     * {@code @BeforeEach} 里也 {@code Clock.reset()},那条保证的是
+     * 「本测试从真实时间开始」;这条保证的是「我不污染别人」——
+     * 两者的区别在于**不继承 FeatureTest 的测试**:同一个 JVM 里
+     * 还有一堆普通单元测试与自带 {@code @SpringBootTest} 的类,
+     * 它们不会跑 StaticBindings,于是一个 travel 过的时钟会漏进去,
+     * 症状是「令牌莫名过期 / JWT 的 iat 在未来」,而且只在某个
+     * 执行顺序下出现(单独跑全绿)。
+     */
+    @AfterEach
+    void restoreClock() {
+        io.jaravel.support.Clock.reset();
     }
 
     // ================= 请求构造 =================

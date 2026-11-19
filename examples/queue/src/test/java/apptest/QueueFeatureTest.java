@@ -69,6 +69,26 @@ class QueueFeatureTest extends FeatureTest {
             .StorageTemporaryUrlRoute temporaryUrls;
 
     /**
+     * 「把队列跑空 / 等到回调」的耐心上限。
+     *
+     * <p>★ 这是一个**关于机器负载的**数字,不是一条语义断言。断言本身
+     * 不放松:回调仍然要求恰好一次、队列仍然要求真的空。放宽的只是
+     * 「等多久才判定它不会发生」。
+     *
+     * <p>原值 10 秒。本机在整个 reactor(46 个模块)一起跑时,
+     * 这一组偶发超时 —— 而同样的测试单独跑、整个 examples/queue 模块
+     * 单独跑,各 8 次与 5 次全绿。CI 上也出现过一次。
+     * 超时与否取决于当时有多少别的 JVM 在抢 CPU,
+     * 而那与这些测试要验证的东西毫无关系。
+     *
+     * <p>失败时的现场由 {@link #queueDiagnostics} / {@link #batchDiagnostics}
+     * 给出(剩余任务的 attempts 与 available_at、failed_jobs 的根因)——
+     * 真的有「无限重试」或「被跳过但没删掉」时,30 秒同样会失败,
+     * 而那时消息里有足够的东西定位它。
+     */
+    private static final Duration DRAIN_BUDGET = Duration.ofSeconds(30);
+
+    /**
      * 测试用的收件箱 —— config/mail.yml 里注册的 array 驱动。
      *
      * <p>用 array 驱动而不是 {@code Mail.fake()}:这里要断言**渲染结果**
@@ -131,7 +151,7 @@ class QueueFeatureTest extends FeatureTest {
      * 那条任务可取。{@code stopWhenEmpty} 是给测试与一次性消费用的。
      */
     private void drainIncludingRetries(String... queueNames) {
-        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        long deadline = System.nanoTime() + DRAIN_BUDGET.toNanos();
 
         while (System.nanoTime() < deadline) {
             drain(queueNames);
@@ -148,7 +168,46 @@ class QueueFeatureTest extends FeatureTest {
                 return;
             }
         }
-        throw new AssertionError("10 秒内没能把队列跑空 —— 任务可能在无限重试");
+        // 带上现场:只说「没跑空」查不出是谁没跑完、为什么。
+        // 一条在无限重试的任务与一条被跳过但没删掉的任务,
+        // 症状完全一样而原因毫不相干。
+        throw new AssertionError("%s 内没能把队列跑空 —— 任务可能在无限重试。现场:%s"
+                .formatted(DRAIN_BUDGET, queueDiagnostics(queueNames)));
+    }
+
+    /**
+     * 队列现场 —— 只给失败消息用。
+     *
+     * <p>剩在队列里的每条任务:展示名、队列、尝试次数、可取时刻。
+     * 「没跑空」的两种原因(无限重试 / 被跳过但没删掉)在这些列上
+     * 长得完全不同:前者 attempts 在涨,后者一直是 0。
+     */
+    private String queueDiagnostics(String... queueNames) {
+        var rows = db.table("jobs").get();
+        var failed = db.table("failed_jobs").get();
+
+        return "jobs=" + rows.stream()
+                    .map(row -> "%s@%s attempts=%s available_at=%s".formatted(
+                            displayNameIn(String.valueOf(row.get("payload"))),
+                            row.get("queue"), row.get("attempts"),
+                            row.get("available_at")))
+                    .toList()
+             + " · sizes=" + java.util.Arrays.stream(queueNames)
+                    .map(q -> q + "=" + Queue.size(q)).toList()
+             + " · failed_jobs=" + failed.stream()
+                    .map(row -> row.get("display_name") + " ← " + rootCauseOf(
+                            String.valueOf(row.get("exception"))))
+                    .toList();
+    }
+
+    /** 从 payload JSON 里抠出 displayName,找不到就返回前 60 字 */
+    private static String displayNameIn(String payload) {
+        String key = "\"displayName\":\"";
+        int at = payload.indexOf(key);
+        if (at < 0) return payload.substring(0, Math.min(60, payload.length()));
+        int from = at + key.length();
+        int to = payload.indexOf('"', from);
+        return to < 0 ? payload.substring(from) : payload.substring(from, to);
     }
 
     /**
@@ -164,7 +223,7 @@ class QueueFeatureTest extends FeatureTest {
      * 直接返回,让原始断言给出失败。
      */
     private void drainUntil(String queueName, java.util.function.BooleanSupplier done) {
-        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        long deadline = System.nanoTime() + DRAIN_BUDGET.toNanos();
 
         drain(queueName);
         while (!done.getAsBoolean() && System.nanoTime() < deadline) {
@@ -227,10 +286,25 @@ class QueueFeatureTest extends FeatureTest {
                         batch.map(b -> String.valueOf(b.succeededJobs())).orElse("?"))
              + " · queue(reports)=" + Queue.size("reports")
              + " · ledger=" + ledger.entries()
+             + " · invoices=" + Invoice.query().pluck(Invoice_.id)
              + " · failed_jobs=" + failed.stream()
-                    .map(row -> String.valueOf(row.get("exception")))
-                    .map(text -> text.lines().findFirst().orElse(""))
+                    .map(row -> row.get("display_name") + " ← " + rootCauseOf(
+                            String.valueOf(row.get("exception"))))
                     .toList();
+    }
+
+    /**
+     * 栈里最后一个 {@code Caused by:} —— 真正的原因。
+     *
+     * <p>只取首行的话看到的是 worker 的包装异常
+     * ({@code JobFailedException: 已尝试 1 次,达到上限 1}),
+     * 而那句话对「为什么失败」一个字都没说。
+     */
+    private static String rootCauseOf(String stackTrace) {
+        return stackTrace.lines()
+                .filter(line -> line.startsWith("Caused by:"))
+                .reduce((first, last) -> last)
+                .orElseGet(() -> stackTrace.lines().findFirst().orElse(""));
     }
 
     // ================= 投递 =================
@@ -941,6 +1015,15 @@ class QueueFeatureTest extends FeatureTest {
 
             String batchId = postJson("/api/statements", Map.of())
                     .assertOk().json().get("batch").asText();
+
+            // 前置条件钉在这里,而不是留给最后那条断言去暴露:
+            // 批次是按 invoices 表建的,8 张发票 → 8 个任务。
+            // 若这里就不是 8,问题在建批次之前(上一个测试的残留、
+            // 某个 POST 没落库),与回调逻辑无关。
+            assertThat(Queue.findBatch(batchId).orElseThrow().totalJobs())
+                    .as("现场:%s", batchDiagnostics(batchId))
+                    .isEqualTo(8);
+
             drainUntil("reports", () -> ledger.countStartingWith("then:") > 0);
 
             // ★ 失败时把现场带上。这条测试在本机重负载下偶发

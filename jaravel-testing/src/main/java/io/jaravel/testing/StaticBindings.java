@@ -129,6 +129,14 @@ final class StaticBindings {
             queues.stopFaking();
         }
 
+        // @csrf / @error / @old 的数据源(starter 的 SessionViewRequestState)。
+        // 它是 JVM 全局静态,所以与其它门面同样要重绑到当前上下文
+        io.jaravel.view.ViewRequestState.Source viewState =
+                bean(context, io.jaravel.view.ViewRequestState.Source.class);
+        if (viewState != null) {
+            io.jaravel.view.ViewRequestState.use(viewState);
+        }
+
         CacheManager caches = bean(context, CacheManager.class);
         if (caches != null) {
             Cache.use(caches);

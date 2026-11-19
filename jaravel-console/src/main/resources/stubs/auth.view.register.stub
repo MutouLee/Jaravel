@@ -1,4 +1,4 @@
-@params(String csrf, String name, String email, String error, String status)
+@params(String status)
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -21,18 +21,18 @@
   @if (status != null && !status.isBlank())
   <p class="ok">\{{ status }}</p>
   @endif
-  @if (error != null && !error.isBlank())
-  <p class="error">\{{ error }}</p>
-  @endif
+  @error('email') <p class="error">\{{ message }}</p> @enderror
 
   <form method="post" action="/register">
-    <input type="hidden" name="_token" value="\{{ csrf }}">
+    @csrf
     <label for="name">姓名</label>
-    <input id="name" type="text" name="name" value="\{{ name }}" required autofocus>
+    <input id="name" type="text" name="name" value="@old('name')" required autofocus>
+    @error('name') <p class="error">\{{ message }}</p> @enderror
     <label for="email">邮箱</label>
-    <input id="email" type="email" name="email" value="\{{ email }}" required>
+    <input id="email" type="email" name="email" value="@old('email')" required>
     <label for="password">密码(至少 8 位)</label>
     <input id="password" type="password" name="password" required minlength="8">
+    @error('password') <p class="error">\{{ message }}</p> @enderror
     <label for="password_confirmation">确认密码</label>
     <input id="password_confirmation" type="password" name="password_confirmation" required minlength="8">
     <button type="submit">注册</button>

@@ -11,7 +11,6 @@
 | `AppTest`(容器 + 数据库,无 HTTP) | 未实现 | 用 `@SpringBootTest` 或 `FeatureTest` 代替 |
 | 工厂 `Post.factory()` APT / `make:factory` | 未实现 | 现有 `Factory.of(ModelMeta, ...)` 手写 |
 | `Factory.Faker` 的 `datafaker` / locale | 未实现 | 内置最小 Faker |
-| `@error` / `@old` 模板指令与 ShareErrors 中间件 | 未实现 | `install:auth` 显式传 `error`/`old` |
 
 ## 控制台
 
@@ -27,7 +26,7 @@
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| `@csrf` 模板指令 | **未实现** | 生成器用显式 `<input name="_token">`;不要依赖 `@csrf` |
+| `@method` / `@auth` / `@can` / `@env` / `@lang` / `@vite` / `@inject` / `@once` / `@fragment` | 未实现 | docs/04 §1.8 的其余指令;`@csrf` / `@error` / `@old` / `@json` 已实现 |
 | `@aware` | 未实现 | |
 | 具名 slot / 属性袋 | 未实现 | 匿名组件与类组件已落地 |
 

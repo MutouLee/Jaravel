@@ -73,7 +73,11 @@ class StarterKitTest {
                 .contains("Auth.attempt")
                 .contains("Password.sendResetLink");
         assertThat(Files.readString(root.resolve("src/main/resources/views/auth/login.jblade.html")))
-                .contains("{{ csrf }}")
+                .as("生成的模板用框架指令,不再手写隐藏 input 与一堆显式参数(docs/04 §1.8)")
+                .contains("@csrf")
+                .contains("@error('email')")
+                .contains("@old('email')")
+                .doesNotContain("name=\"_token\"")
                 .doesNotContain("\\{{");
     }
 

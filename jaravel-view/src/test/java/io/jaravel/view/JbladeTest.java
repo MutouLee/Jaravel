@@ -1858,4 +1858,173 @@ class JbladeTest {
                     .contains("self = new io.jaravel.view.TestCard(\"Hello\", n)");
         }
     }
+
+    // ================= 框架指令 =================
+
+    @Nested
+    @DisplayName("框架指令:@csrf / @error / @old")
+    class FrameworkDirectives {
+
+        /** 一个「当前请求」的假实现 —— starter 在生产里装的是读请求作用域的那个 */
+        private ViewRequestState.Source source(String token,
+                                               Map<String, List<String>> errors,
+                                               Map<String, Object> old) {
+            return new ViewRequestState.Source() {
+                @Override public String csrfToken() { return token; }
+
+                @Override public List<String> errors(String field) {
+                    return errors.getOrDefault(field, List.of());
+                }
+
+                @Override public java.util.Optional<Object> old(String field) {
+                    return java.util.Optional.ofNullable(old.get(field));
+                }
+            };
+        }
+
+        @org.junit.jupiter.api.AfterEach
+        void clearSource() {
+            ViewRequestState.reset();
+        }
+
+        @Test
+        @DisplayName("★ @csrf 输出完整的隐藏 input —— 手写它的人会把 name 写错")
+        void csrfRendersTheWholeField(@TempDir Path tmp) {
+            ViewRequestState.use(source("tok-123", Map.of(), Map.of()));
+            var e = engine(tmp, Map.of("t", """
+                <form method="post">@csrf</form>
+                """));
+
+            assertThat(e.render("t", Map.of()))
+                    .contains("<input type=\"hidden\" name=\"_token\" value=\"tok-123\">");
+        }
+
+        @Test
+        @DisplayName("令牌值进属性时被转义")
+        void csrfEscapesTheToken(@TempDir Path tmp) {
+            ViewRequestState.use(source("a\"b<c", Map.of(), Map.of()));
+            var e = engine(tmp, Map.of("t", "<form>@csrf</form>\n"));
+
+            assertThat(e.render("t", Map.of()))
+                    .contains("value=\"a&quot;b&lt;c\"")
+                    .doesNotContain("value=\"a\"b");
+        }
+
+        @Test
+        @DisplayName("★ 没有请求时报错,而不是输出一个空令牌")
+        void csrfWithoutRequestFailsLoudly(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of("t", "<form>@csrf</form>\n"));
+
+            assertThatThrownBy(() -> e.render("t", Map.of()))
+                    .rootCause()
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("@csrf 需要一个 Web 请求与会话");
+        }
+
+        @Test
+        @DisplayName("@csrf 带参数是写错了")
+        void csrfTakesNoArguments(@TempDir Path tmp) {
+            assertThatThrownBy(() -> JbladeTranspiler.transpile(
+                    "@csrf('token')\n", "t.jblade.html"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("@csrf 不带参数");
+        }
+
+        @Test
+        @DisplayName("★ @error 块里能直接用 message,字段名只写一次")
+        void errorBlockExposesMessage(@TempDir Path tmp) {
+            ViewRequestState.use(source("t",
+                    Map.of("email", List.of("邮箱已被注册", "第二条")), Map.of()));
+            var e = engine(tmp, Map.of("t", """
+                <label>邮箱</label>
+                @error('email') <span class="err">{{ message }}</span> @enderror
+                """));
+
+            String out = e.render("t", Map.of());
+            assertThat(out).contains("邮箱已被注册");
+            assertThat(out)
+                    .as("只取第一条 —— 三行错误会把表单布局挤坏")
+                    .doesNotContain("第二条");
+        }
+
+        @Test
+        @DisplayName("没有错误时整块不输出")
+        void errorBlockIsSkippedWithoutErrors(@TempDir Path tmp) {
+            ViewRequestState.use(source("t", Map.of("name", List.of("必填")), Map.of()));
+            var e = engine(tmp, Map.of("t", """
+                @error('email') <span>{{ message }}</span> @enderror
+                """));
+
+            assertThat(e.render("t", Map.of())).doesNotContain("<span>");
+        }
+
+        @Test
+        @DisplayName("★ 嵌套 @error 直接报错 —— 否则 javac 会抱怨生成码里的变量重名")
+        void nestedErrorIsRejected() {
+            assertThatThrownBy(() -> JbladeTranspiler.transpile("""
+                    @error('a')
+                      @error('b') {{ message }} @enderror
+                    @enderror
+                    """, "t.jblade.html"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("@error 不能嵌套");
+        }
+
+        @Test
+        @DisplayName("@enderror 少了 @error 时报错")
+        void unmatchedEnderror() {
+            assertThatThrownBy(() -> JbladeTranspiler.transpile(
+                    "@enderror\n", "t.jblade.html"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("@enderror");
+        }
+
+        @Test
+        @DisplayName("★ @old 回填用户刚填的值,没有旧输入时用默认值")
+        void oldFallsBackToTheModel(@TempDir Path tmp) {
+            ViewRequestState.use(source("t", Map.of(), Map.of("title", "刚填的标题")));
+            var e = engine(tmp, Map.of("t", """
+                @params(String fromDb)
+                <input name="title" value="@old('title', fromDb)">
+                <input name="body" value="@old('body', fromDb)">
+                """));
+
+            String out = e.render("t", Map.of("fromDb", "库里的值"));
+            assertThat(out).contains("value=\"刚填的标题\"");
+            assertThat(out)
+                    .as("没有旧输入的字段用默认值 —— 这是编辑表单的标准写法")
+                    .contains("value=\"库里的值\"");
+        }
+
+        @Test
+        @DisplayName("@old 单参数时默认空串,且输出被转义")
+        void oldSingleArgumentIsEscaped(@TempDir Path tmp) {
+            ViewRequestState.use(source("t", Map.of(),
+                    Map.of("title", "<script>alert(1)</script>")));
+            var e = engine(tmp, Map.of("t", """
+                <input value="@old('title')">
+                <input value="@old('missing')">
+                """));
+
+            String out = e.render("t", Map.of());
+            assertThat(out)
+                    .as("旧输入是用户给的 —— 必须转义,否则这是一个反射型 XSS")
+                    .doesNotContain("<script>alert(1)</script>");
+            // 属性上下文里 jte 转义 < 与引号,> 可以原样留着(它在属性里无害)
+            assertThat(out).contains("&lt;script");
+            assertThat(out).contains("value=\"\"");
+        }
+
+        @Test
+        @DisplayName("@old 参数过多/缺失时报错")
+        void oldArgumentCount() {
+            assertThatThrownBy(() -> JbladeTranspiler.transpile("@old()\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("@old 需要一个字段名");
+            assertThatThrownBy(() -> JbladeTranspiler.transpile(
+                    "@old('a', b, c)\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("最多两个参数");
+        }
+    }
 }

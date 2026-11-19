@@ -44,6 +44,14 @@ public final class JbladeTranspiler {
     private final String source;
     private final String templateName;
 
+    /**
+     * 当前嵌在几层 {@code @error} 里。
+     *
+     * <p>只用来拒绝嵌套(见 {@link #openError});真正的块配对由
+     * {@link #blocks} 负责。
+     */
+    private int errorDepth;
+
     private final StringBuilder out = new StringBuilder();
     private final LineMap.Builder lineMap;
     /** 待输出的 jte 行,与 sourceLines 一一对应后再拼接 */
@@ -532,6 +540,12 @@ public final class JbladeTranspiler {
 
             // ---- 输出 ----
             case "json"         -> "$unsafe{io.jaravel.view.Jb.json(" + expr(args, name, line) + ")}";
+
+            // ---- 框架指令(docs/04 §1.8) ----
+            case "csrf"         -> handleCsrf(args, line);
+            case "error"        -> openError(args, line);
+            case "enderror"     -> { close("error", "enderror", line); errorDepth--; yield "@endif"; }
+            case "old"          -> "${io.jaravel.view.Jb.old(" + oldArgs(args, line) + ")}";
 
             // ---- 明确不支持 ----
             case "php", "endphp" -> throw new JbladeException(templateName, line,
@@ -1369,6 +1383,71 @@ public final class JbladeTranspiler {
     }
 
     // ================= 块结构校验 =================
+
+    // ================= 框架指令 =================
+
+    /**
+     * {@code @csrf} → 一个带当前令牌的隐藏 input。
+     *
+     * <p>走 {@code $unsafe} 是因为输出的是**标签**而不是值 ——
+     * 走转义会得到页面上的 {@code &lt;input ...&gt;}。令牌值本身由
+     * {@link Jb#csrfField()} 转义,见那里的注释。
+     */
+    private String handleCsrf(String args, int line) {
+        if (args != null && !args.isBlank()) {
+            throw new JbladeException(templateName, line,
+                    "@csrf 不带参数,收到:(" + args + ")"
+                  + "\n  要自定义字段名的话手写 <input type=\"hidden\" name=\"...\">;"
+                  + "\n  但框架校验的是 _token,改名会让它一直 419。");
+        }
+        return "$unsafe{io.jaravel.view.Jb.csrfField()}";
+    }
+
+    /**
+     * {@code @error('email') <span>{{ message }}</span> @enderror}。
+     *
+     * <p>块内多出一个局部变量 {@code message} —— 第一条错误消息。
+     * 这是 Blade 的写法,也是它好用的原因:字段名只写一次。
+     *
+     * <p>嵌套**直接报错**而不是让 javac 去抱怨「变量 message 已定义」:
+     * 后者的错误指向生成码里的一行,而那一行与模板里的两个 @error
+     * 看不出关系。
+     */
+    private String openError(String args, int line) {
+        String field = firstStringArg(args, "error", line);
+        if (errorDepth > 0) {
+            throw new JbladeException(templateName, line,
+                    "@error 不能嵌套 —— 内层会覆盖外层的 message。"
+                  + "\n  修复:把内层那段移到 @enderror 之后,"
+                  + "或者用 @if(...) 自己判断。");
+        }
+        open("error", line);
+        errorDepth++;
+        // 两条语句挤在一行:行号必须与模板 1:1(见 LineMap)
+        return "@if(io.jaravel.view.Jb.hasError(" + field + "))"
+             + "!{String message = io.jaravel.view.Jb.firstError(" + field + ");}";
+    }
+
+    /**
+     * {@code @old('title')} 或 {@code @old('title', post.title)}。
+     *
+     * <p>第二个参数是**表达式**(默认值通常来自模型),所以它走
+     * {@link #rewriteExpression},而字段名走字符串规范化。
+     */
+    private String oldArgs(String args, int line) {
+        List<String> parts = splitArgs(args);
+        if (parts.isEmpty()) {
+            throw new JbladeException(templateName, line,
+                    "@old 需要一个字段名,如 @old('title') 或 @old('title', post.title)");
+        }
+        if (parts.size() > 2) {
+            throw new JbladeException(templateName, line,
+                    "@old 最多两个参数(字段名、默认值),收到 " + parts.size() + " 个");
+        }
+        String field = normalizeString(parts.get(0));
+        return parts.size() == 1 ? field
+                : field + ", " + rewriteExpression(parts.get(1));
+    }
 
     private void open(String directive, int line) {
         blocks.push(new OpenBlock(directive, line));

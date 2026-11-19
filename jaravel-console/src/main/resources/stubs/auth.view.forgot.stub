@@ -1,4 +1,4 @@
-@params(String csrf, String email, String error, String status)
+@params(String status)
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -21,14 +21,12 @@
   @if (status != null && !status.isBlank())
   <p class="ok">\{{ status }}</p>
   @endif
-  @if (error != null && !error.isBlank())
-  <p class="error">\{{ error }}</p>
-  @endif
+  @error('email') <p class="error">\{{ message }}</p> @enderror
 
   <form method="post" action="/forgot-password">
-    <input type="hidden" name="_token" value="\{{ csrf }}">
+    @csrf
     <label for="email">邮箱</label>
-    <input id="email" type="email" name="email" value="\{{ email }}" required autofocus>
+    <input id="email" type="email" name="email" value="@old('email')" required autofocus>
     <button type="submit">发送重置链接</button>
   </form>
 

@@ -36,6 +36,7 @@ import io.jaravel.routing.RouteDefinition;
 import io.jaravel.routing.Router;
 import io.jaravel.view.JbladeEngine;
 import io.jaravel.view.ViewEngine;
+import io.jaravel.view.ViewRequestState;
 
 /**
  * Jaravel 的自动装配。**本模块是唯一允许 import Spring 的地方**(ADR-001)。
@@ -225,6 +226,82 @@ public class JaravelAutoConfiguration {
     }
 
     // ================= 视图 =================
+
+    /**
+     * 把 {@code @csrf} / {@code @error} / {@code @old} 接到会话上。
+     *
+     * <h2>★ 为什么是一个 SPI,而不是让 jaravel-view 直接读会话</h2>
+     * <p>这三个指令要的数据都在会话里(令牌、上一次请求闪存的
+     * errors 与 old),但 {@code jaravel-view} 不能依赖
+     * {@code jaravel-session} —— 一个只渲染邮件模板的应用不该为此背上
+     * 会话栈,而 ArchUnit 的 {@code viewIsIndependentOfWeb} 钉着这条边界。
+     *
+     * <p>所以视图那边留了 {@link ViewRequestState.Source},这里装上实现。
+     * 装的是**长期有效的实现**而不是一份快照:每次调用都去读当时的
+     * 请求作用域,否则第二个请求会读到第一个请求的令牌。
+     *
+     * <h2>★ 为什么没有 ShareErrors 中间件</h2>
+     * <p>Laravel 有一个 {@code ShareErrorsFromSession} 中间件,把
+     * {@code $errors} 塞进每个视图的数据里。这里**不需要**它:
+     * 指令自己去读会话,于是模板不必声明 {@code @params(String error)},
+     * 控制器也不必把 error / old 一个个 {@code .with(...)} 传进去
+     * (那正是 {@code install:auth} 生成的代码此前在做的事)。
+     *
+     * <p>少一个中间件也就少一处「忘了注册 web 组时 @error 静默为空」
+     * 的失败形态。
+     */
+    @Bean
+    @ConditionalOnMissingBean(ViewRequestState.Source.class)
+    public ViewRequestState.Source jaravelViewRequestState() {
+        var source = new SessionViewRequestState();
+        ViewRequestState.use(source);
+        return source;
+    }
+
+    /**
+     * 从当前请求的会话里读 CSRF 令牌、校验错误与旧输入。
+     *
+     * <p>错误的形状是校验失败时闪存进去的那个 map
+     * (见 {@code JaravelExceptionHandler.renderValidationFailure}):
+     * {@code Map<String, List<String>>}。这里**两种形状都认** ——
+     * 应用自己 {@code .with("errors", ...)} 时传一个
+     * {@code Map<String, String>} 是很自然的写法,而为此让 @error
+     * 静默什么都不显示是最糟的结果。
+     */
+    static final class SessionViewRequestState implements ViewRequestState.Source {
+
+        @Override
+        public String csrfToken() {
+            return io.jaravel.session.Session.tryCurrent()
+                    .map(io.jaravel.session.SessionData::token)
+                    .orElseThrow(() -> new IllegalStateException("""
+                            @csrf 需要一个会话,而这个请求没有。
+                              原因通常是路由不在 web 中间件组里 ——
+                              会话由 StartSession 建立,而它在 web 组里。
+                              API 路由不需要 CSRF(它用令牌认证),那里不该写 @csrf。"""));
+        }
+
+        @Override
+        public java.util.List<String> errors(String field) {
+            Object bag = io.jaravel.session.Session.tryCurrent()
+                    .flatMap(s -> s.get("errors", Object.class))
+                    .orElse(null);
+            if (!(bag instanceof java.util.Map<?, ?> map)) return java.util.List.of();
+
+            Object messages = map.get(field);
+            if (messages == null) return java.util.List.of();
+            if (messages instanceof java.util.Collection<?> many) {
+                return many.stream().map(String::valueOf).toList();
+            }
+            return java.util.List.of(String.valueOf(messages));
+        }
+
+        @Override
+        public java.util.Optional<Object> old(String field) {
+            return io.jaravel.session.Session.tryCurrent()
+                    .flatMap(session -> session.oldInput(field));
+        }
+    }
 
     @Bean
     @ConditionalOnMissingBean

@@ -21,6 +21,17 @@
   Publishing)、`RELEASE.md`、`SECURITY.md`、`KNOWN-ISSUES.md`。
 - **视图引擎修复**:从 fat jar 运行时即使当前目录有 `views/` 也用预编译
   引擎,避免 `java -jar` 从项目根目录启动时报「必须预编译」。
+- **`@csrf` / `@error` / `@old` 模板指令**(docs/04 §1.8)——
+  `@csrf` 输出整个隐藏 input(手写它的人会把 `name` 写错,症状是提交后
+  419);`@error('email') {{ message }} @enderror` 块内有局部变量
+  `message`,字段名只写一次,嵌套会在转写期报错而不是让 javac 抱怨
+  生成码里的变量重名;`@old('title', post.title)` 回填用户刚填的值。
+  数据都在会话里,所以视图那边留了 `ViewRequestState.Source` SPI,
+  starter 装 `SessionViewRequestState` —— `jaravel-view` 不依赖
+  `jaravel-session`(ArchUnit 钉着这条边界)。**没有 ShareErrors 中间件**,
+  指令自己读会话,理由见 docs/04 §1.8。
+  `install:auth` 生成的五个模板改用指令:`@params` 从四五个参数降到一个,
+  控制器不再需要 `error()` / `old()` 两个辅助方法。
 - **`UploadedFile.fake()`**(docs/14 §4.4)—— `image(name[, w, h])` 用
   `ImageIO` 编一张**真图片**,`create(name, kb)` 按扩展名写对应魔数再填充,
   `withContent(...)` 用来构造坏输入。内容是真的这件事是刻意的:框架的
@@ -77,6 +88,25 @@
 
 ### Fixed
 
+- **跑完之后才炸的任务不再被记成失败**:worker 的出队(`DELETE jobs`)
+  可能撞上存储层的瞬时冲突(SQLite 共享缓存的 `SQLITE_LOCKED_SHAREDCACHE`、
+  MySQL 死锁检测随机挑牺牲者),而那个异常此前会掉进任务失败分支 ——
+  一个**已经跑完、副作用已经发生**的任务于是:`tries=1` 时直接进
+  `failed_jobs`(批次因此永远不触发 `then`),`tries>1` 时被放回队列、
+  副作用再发生一次。现在出队带有界重试,并且「执行已成功」这个事实
+  被记下来:之后的记账失败只吵不改判。这是 CI 上那条批处理偶发失败的
+  根因,由上一个提交加的现场诊断定位到(`failed_jobs` 的根因那一行)。
+- **校验失败后的旧输入终于真的回填了**:异常处理器把它闪存在 `"old"` 键下,
+  而 `Session.oldInput(key)` 读的是 `_old_input`(`SessionData.flashInput`
+  写的那个)—— 两边从来没对上,所以「校验失败回跳后表单全空」一直是
+  现状,而错误消息是正确的,这让它看起来像设计如此。现在走
+  `Redirect.withInput()`,顺带删掉了处理器里那份与
+  `SessionLifecycle.absorbFlash` 重复的密码排除清单(两份清单里漏掉一个
+  字段的那一份就是泄露路径)。是 `@old` 的端到端测试把它逼出来的。
+- **`examples/blog` 的页面路由放进 `web` 组**:此前那一组是裸的,
+  于是控制器里的 `Redirect.with("status", "已发布")` 静默失效(闪存需要
+  会话),表单 POST 也完全没有 CSRF 防护 —— 一个会被照抄的示例不该这样。
+  `/api` 那组刻意留在外面。
 - **3xx 的 `HttpException` 不再渲染错误页**:未登录访问受保护页面时,
   `Authenticate` 用 `HttpException(302, Location)` 表达重定向,而异常处理器
   此前把它当错误渲染 —— 开发模式下那个 302 带回一张 13KB 的开发错误页

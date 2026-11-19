@@ -44,9 +44,6 @@ public class AuthController {
 
     public View loginPage() {
         return View.of("auth.login")
-                .with("csrf", Session.token())
-                .with("email", old("email"))
-                .with("error", error("email"))
                 .with("status", status());
     }
 
@@ -76,10 +73,6 @@ public class AuthController {
 
     public View registerPage() {
         return View.of("auth.register")
-                .with("csrf", Session.token())
-                .with("name", old("name"))
-                .with("email", old("email"))
-                .with("error", error("email"))
                 .with("status", status());
     }
 
@@ -98,9 +91,6 @@ public class AuthController {
 
     public View forgotPage() {
         return View.of("auth.forgot")
-                .with("csrf", Session.token())
-                .with("email", old("email"))
-                .with("error", error("email"))
                 .with("status", status());
     }
 
@@ -130,10 +120,8 @@ public class AuthController {
 
     public View resetPage(Request request) {
         return View.of("auth.reset")
-                .with("csrf", Session.token())
                 .with("token", request.query("token").orElse(""))
                 .with("email", request.query("email").orElse(""))
-                .with("error", error("token"))
                 .with("status", status());
     }
 
@@ -164,7 +152,6 @@ public class AuthController {
     public View dashboard() {
         User me = Auth.userOrFail(User.class);
         return View.of("dashboard")
-                .with("csrf", Session.token())
                 .with("name", me.name)
                 .with("email", me.email)
                 .with("status", status());
@@ -172,17 +159,17 @@ public class AuthController {
 
     // ================= 工具 =================
 
-    private static String error(String field) {
-        return Session.tryCurrent()
-                .flatMap(s -> s.get("errors", Map.class))
-                .map(m -> m.get(field))
-                .map(Object::toString)
-                .orElse("");
-    }
-
-    private static String old(String field) {
-        return Session.oldInput(field).map(Object::toString).orElse("");
-    }
+    /*
+     * ★ 这里没有 error() / old() / csrf 的辅助方法 —— 模板里的
+     * @error('email') / @old('email') / @csrf 自己去读会话。
+     *
+     * 早一版的生成码把它们一个个 .with(...) 传进模板,于是每个页面的
+     * @params 都要多声明三四个参数,而「加了一个字段却忘了传它的 error」
+     * 的结果是校验消息静默不显示。
+     *
+     * status 留着:它是本应用自己闪存的提示语("已登出"、"注册成功"),
+     * 不是框架的校验错误,没有对应的指令。
+     */
 
     private static String status() {
         return Session.tryCurrent()

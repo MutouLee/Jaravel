@@ -289,6 +289,11 @@ public final class QueueWorker {
 
         var heartbeat = startHeartbeat(envelope);
         var decision = new MiddlewareDecision(job, envelope);
+
+        // 任务体是否已经跑完 —— 决定下面的 catch 走哪条路。
+        // 不能用「有没有异常」来判断:记账阶段的异常同样会冒上来,
+        // 而那时任务已经成功了
+        boolean executed = false;
         try {
             if (job instanceof UniqueJob unique && unique.uniqueUntilProcessing()
                     && queues.hasUniqueLocks()) {
@@ -315,7 +320,20 @@ public final class QueueWorker {
                 return;
             }
 
-            store.delete(envelope);
+            // ★ 执行已经成功 —— 从这里往下的失败**不是任务失败**。
+            //
+            // 出队(DELETE jobs)可能撞上存储层的瞬时冲突:SQLite 共享缓存的
+            // SQLITE_LOCKED_SHAREDCACHE、MySQL 的死锁检测随机挑牺牲者。
+            // 此前这些异常会掉进下面的 catch,于是一个**已经跑完、副作用
+            // 已经发生**的任务被记成失败:
+            //   - tries=1 的任务直接进 failed_jobs,批次因此永远不触发 then;
+            //   - tries>1 的任务被放回队列,于是副作用再发生一次。
+            // 两者都比「出队慢了几十毫秒」严重得多。
+            //
+            // 所以先有界重试,再把「执行成功」这个事实记下来(executed)。
+            withRetry("任务 " + envelope.displayName() + " 的出队",
+                    () -> store.delete(envelope));
+            executed = true;
             succeeded.incrementAndGet();
             listeners.forEach(l -> l.onSuccess(envelope));
             io.jaravel.events.Event.tryDispatchIfListening(
@@ -335,6 +353,18 @@ public final class QueueWorker {
                 // 既不删也不放回 —— 它已经被别人接手。
                 // 走重试路径会把它又放回队列,产生重复执行
                 reportAbandoned(envelope);
+                return;
+            }
+            if (executed) {
+                // 任务跑完之后才炸的 —— 链推进、批次计数这些记账。
+                // 不能记成任务失败(它成功了,副作用已经发生),
+                // 但必须吵:链会断在这里、批次可能永远完不了。
+                System.err.printf("""
+                        [jaravel] 任务 %s **已经执行成功**,但之后的记账失败了:%s
+                                  这不会把它记成失败(副作用已经发生),但:
+                                    - 它所在的链不会继续;
+                                    - 它所在的批次的计数可能对不上,then / finally 可能不触发。
+                        %n""", envelope.displayName(), cause);
                 return;
             }
             handleFailure(envelope, job, cause);

@@ -1,6 +1,7 @@
 package io.jaravel.view;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -102,5 +103,85 @@ public final class Jb {
                 .replace("\\", "\\\\").replace("\"", "\\\"")
                 .replace("<", "\\u003C").replace(">", "\\u003E")
                 .replace("&", "\\u0026").replace("\n", "\\n") + "\"";
+    }
+
+    // ================= 框架指令的落点(docs/04 §1.8) =================
+
+    /**
+     * {@code @csrf} —— 一个带当前令牌的隐藏 input。
+     *
+     * <p>输出的是**整个标签**而不只是令牌值,因为那是这个指令存在的
+     * 全部理由:手写 {@code <input type="hidden" name="_token" value="{{ csrf }}">}
+     * 的人会漏掉它(表单一提交就 419),或者把 name 写成 {@code csrf_token}
+     * (同样 419,而且更难看出来)。
+     *
+     * <p>值在这里转义:令牌是 Base64,正常不含需要转义的字符,
+     * 但一个「正常不会」的假设不该出现在拼 HTML 的代码里。
+     *
+     * <p>没有请求/会话时**报错**而不是输出一个空令牌 ——
+     * 空令牌的后果是表单在 419 上失败,而那个 419 与
+     * 「模板里写了 @csrf」离得很远。
+     */
+    public static String csrfField() {
+        String token = ViewRequestState.current().csrfToken();
+        return "<input type=\"hidden\" name=\"_token\" value=\"" + escapeAttribute(token) + "\">";
+    }
+
+    /** {@code @error(field)} 的条件 */
+    public static boolean hasError(String field) {
+        return !ViewRequestState.current().errors(field).isEmpty();
+    }
+
+    /**
+     * {@code @error(field)} 块里的 {@code message}。
+     *
+     * <p>**第一条**而不是全部拼起来:一个字段上同时挂三条错误时,
+     * 表单旁边显示三行会把布局挤坏,而用户真正要做的只有一件事。
+     * 要全部显示的用 {@link #errors(String)}。
+     */
+    public static String firstError(String field) {
+        List<String> all = ViewRequestState.current().errors(field);
+        return all.isEmpty() ? "" : all.get(0);
+    }
+
+    /** 某个字段的全部错误消息 */
+    public static List<String> errors(String field) {
+        return ViewRequestState.current().errors(field);
+    }
+
+    /** {@code @old(field)} —— 没有旧输入时是空串 */
+    public static String old(String field) {
+        return old(field, "");
+    }
+
+    /**
+     * {@code @old(field, fallback)} —— 没有旧输入时用 fallback。
+     *
+     * <p>这是编辑表单的标准写法:
+     * {@code value="@old('title', post.title)"} —— 校验失败回跳时显示
+     * 用户刚填的,正常进入时显示库里的。
+     */
+    public static String old(String field, Object fallback) {
+        // ★ 返回 String 而不是 Object:jte 的 ${} 不接 Object
+        // (它按类型选 writeUserContent 的重载),而 @old 的值来自
+        // 会话里的闪存数据 —— 那是一个 Map<String, Object>。
+        // 返回 Object 的话每个 @old 都会以一屏「方法不适用」的候选列表
+        // 编译失败,而那段错误与模板里那一行看不出关系。
+        Object value = ViewRequestState.current().old(field).orElse(fallback);
+        return value == null ? "" : String.valueOf(value);
+    }
+
+    /**
+     * HTML 属性值的转义。
+     *
+     * <p>只给 {@link #csrfField()} 用 —— 模板里普通的 {@code {{ }}}
+     * 由 jte 的上下文感知转义负责,这里是我们自己拼标签的那一处。
+     */
+    private static String escapeAttribute(String value) {
+        if (value == null) return "";
+        return value.replace("&", "&amp;")
+                    .replace("\"", "&quot;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;");
     }
 }

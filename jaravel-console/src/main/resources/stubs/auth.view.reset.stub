@@ -1,4 +1,4 @@
-@params(String csrf, String token, String email, String error, String status)
+@params(String token, String email, String status)
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -20,12 +20,12 @@
   @if (status != null && !status.isBlank())
   <p class="ok">\{{ status }}</p>
   @endif
-  @if (error != null && !error.isBlank())
-  <p class="error">\{{ error }}</p>
-  @endif
+  @error('token') <p class="error">\{{ message }}</p> @enderror
+  @error('email') <p class="error">\{{ message }}</p> @enderror
+  @error('password') <p class="error">\{{ message }}</p> @enderror
 
   <form method="post" action="/reset-password">
-    <input type="hidden" name="_token" value="\{{ csrf }}">
+    @csrf
     <input type="hidden" name="token" value="\{{ token }}">
     <label for="email">邮箱</label>
     <input id="email" type="email" name="email" value="\{{ email }}" required>

@@ -169,24 +169,23 @@ public class JaravelExceptionHandler {
         // 一个本该展示「邮箱格式不对」的页面变成了错误页。
         // 只有进程内的 memory/caffeine 驱动碰巧能存下它,
         // 于是这个问题在开发机上看不见,换驱动才爆。
-        var redirect = io.jaravel.http.Redirect.back(request, "/")
+        //
+        // ★ 旧输入走 withInput() 而不是 with("old", ...)。
+        //
+        // 后者**从来没工作过**:Session.oldInput(key) 读的是 _old_input
+        // (由 SessionData.flashInput 写),而 "old" 这个键没有任何人读。
+        // 症状是「校验失败回跳后表单全空了」—— 用户要重填一遍,
+        // 而页面上的错误消息是正确的,所以这个 bug 看起来像「设计如此」。
+        // 是 @old 指令的端到端测试把它逼出来的(examples/blog 的
+        // FormDirectivesTest)。
+        //
+        // withInput() 的过滤(排除 password* 与 _token)在
+        // SessionLifecycle.absorbFlash 里,与这里原本那份重复的
+        // formInput 逐字一致 —— 少一份重复的密码排除清单也是收益:
+        // 两份清单里漏掉一个字段的那一份就是泄露路径。
+        return io.jaravel.http.Redirect.back(request, "/")
                 .with("errors", e.errors().messages())
-                .with("old", formInput(request));
-        return redirect;
-    }
-
-    /**
-     * 回填用的旧输入。
-     *
-     * <p>**排除密码类字段**:它们会被写进会话存储(可能是 Redis、数据库、
-     * 甚至 cookie),而「校验失败后把明文密码存进会话」是一条真实的泄露路径。
-     *
-     * <p>同时排除 {@code _token} —— 回填一个过期的 CSRF 令牌没有意义。
-     */
-    private static Map<String, Object> formInput(Request request) {
-        var input = new LinkedHashMap<String, Object>(request.all());
-        input.keySet().removeIf(key -> key.startsWith("password") || key.equals("_token"));
-        return input;
+                .withInput();
     }
 
     protected Response renderJson(Request request, Throwable t, int status) {

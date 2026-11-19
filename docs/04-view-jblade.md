@@ -471,6 +471,35 @@ public class PostCard extends Component {
 @fragment('row') ... @endfragment   {{-- 可单独渲染的片段,配合 htmx/turbo --}}
 ```
 
+#### 实现状态
+
+| 指令 | 状态 |
+|---|---|
+| `@csrf` | ✅ 输出整个隐藏 input;没有会话时**报错**而不是输出空令牌 |
+| `@error(field)` / `@enderror` | ✅ 块内有局部变量 `message`(第一条消息);**不允许嵌套** |
+| `@old(field[, 默认值])` | ✅ 读会话里闪存的 `_old_input`,输出走转义 |
+| `@json(data)` | ✅ |
+| 其余(`@method` / `@auth` / `@can` / `@env` / `@lang` / `@vite` / `@inject` / `@once` / `@fragment`) | ⏳ 未实现,见 [KNOWN-ISSUES](../KNOWN-ISSUES.md) |
+
+这三个指令的数据都在**会话**里(令牌、上一次请求校验失败时闪存的
+errors 与 old)。而 `jaravel-view` 不能依赖 `jaravel-session` ——
+一个只渲染邮件模板的应用不该为此背上会话栈,ArchUnit 的
+`viewIsIndependentOfWeb` 也钉着这条边界。所以视图这边留一个 SPI
+(`ViewRequestState.Source`),starter 装一个每次调用都读当时请求作用域的
+实现(`SessionViewRequestState`)。
+
+#### ★ 为什么没有 ShareErrors 中间件
+
+Laravel 有一个 `ShareErrorsFromSession`,把 `$errors` 塞进每个视图的数据里。
+这里不需要:指令自己去读会话。于是模板不必声明
+`@params(String error, String old, String csrf)`,控制器也不必把它们
+一个个 `.with(...)` 传进去 —— 那正是 `install:auth` 生成的代码
+此前在做的事,而「加了一个字段却忘了传它的 error」的结果是
+校验消息静默不显示。
+
+少一个中间件也就少一处「忘了把路由放进 web 组时 `@error` 静默为空」
+的失败形态 —— 不过 `@csrf` 仍然需要会话,那一处会**报错**并说清原因。
+
 ### 1.9 自定义指令
 
 ```java

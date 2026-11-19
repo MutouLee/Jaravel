@@ -184,4 +184,45 @@ public final class Jb {
                     .replace("<", "&lt;")
                     .replace(">", "&gt;");
     }
+
+    // ---------- 条件指令(docs/04 §1.8) ----------
+
+    /** {@code @auth} / {@code @auth('api')} */
+    public static boolean isAuth(String guard) {
+        return ViewRequestState.current().authenticated(guard);
+    }
+
+    /** {@code @guest} / {@code @guest('api')} */
+    public static boolean isGuest(String guard) {
+        return !isAuth(guard);
+    }
+
+    /** {@code @can('update', post)} */
+    public static boolean allows(String ability, Object... arguments) {
+        return ViewRequestState.current().allows(ability, arguments);
+    }
+
+    /** {@code @cannot('delete', post)} */
+    public static boolean denies(String ability, Object... arguments) {
+        return !allows(ability, arguments);
+    }
+
+    /**
+     * {@code @env('local')} / {@code @env('local', 'staging')}。
+     *
+     * <p>读 {@code Application.environment()} —— 与 {@code app.env} 配置
+     * 同一个值,所以模板里的判断与 starter 的判断不会分叉。
+     */
+    public static boolean isEnv(String... names) {
+        String current = io.jaravel.core.Application.environment();
+        for (String name : names) {
+            if (name != null && name.equals(current)) return true;
+        }
+        return false;
+    }
+
+    /** {@code @production} —— 等价于 {@code @env('production')} */
+    public static boolean isProduction() {
+        return isEnv("production");
+    }
 }

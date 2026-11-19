@@ -547,6 +547,24 @@ public final class JbladeTranspiler {
             case "enderror"     -> { close("error", "enderror", line); errorDepth--; yield "@endif"; }
             case "old"          -> "${io.jaravel.view.Jb.old(" + oldArgs(args, line) + ")}";
 
+            // ---- 条件指令 ----
+            case "auth"         -> { open("auth", line);   yield "@if(io.jaravel.view.Jb.isAuth(" + guardArg(args, "auth", line) + "))"; }
+            case "endauth"      -> { close("auth", "endauth", line);   yield "@endif"; }
+            case "guest"        -> { open("guest", line);  yield "@if(io.jaravel.view.Jb.isGuest(" + guardArg(args, "guest", line) + "))"; }
+            case "endguest"     -> { close("guest", "endguest", line); yield "@endif"; }
+
+            case "can"          -> { open("can", line);    yield "@if(" + abilityCall("allows", args, "can", line) + ")"; }
+            case "elsecan"      -> "@elseif(" + abilityCall("allows", args, "elsecan", line) + ")";
+            case "elsecannot"   -> "@elseif(" + abilityCall("denies", args, "elsecannot", line) + ")";
+            case "endcan"       -> { close("can", "endcan", line);     yield "@endif"; }
+            case "cannot"       -> { open("cannot", line); yield "@if(" + abilityCall("denies", args, "cannot", line) + ")"; }
+            case "endcannot"    -> { close("cannot", "endcannot", line); yield "@endif"; }
+
+            case "env"          -> { open("env", line);    yield "@if(io.jaravel.view.Jb.isEnv(" + envArgs(args, line) + "))"; }
+            case "endenv"       -> { close("env", "endenv", line);     yield "@endif"; }
+            case "production"   -> { open("production", line); yield "@if(io.jaravel.view.Jb.isProduction())"; }
+            case "endproduction"-> { close("production", "endproduction", line); yield "@endif"; }
+
             // ---- 明确不支持 ----
             case "php", "endphp" -> throw new JbladeException(templateName, line,
                     "@php 不被支持。模板里写 Java 代码块会破坏关注点分离。"
@@ -1385,6 +1403,55 @@ public final class JbladeTranspiler {
     // ================= 块结构校验 =================
 
     // ================= 框架指令 =================
+
+    /**
+     * {@code @auth} 的 guard 名 —— 不写就是默认 guard({@code null})。
+     *
+     * <p>{@code @auth('api')} 的用途:同一个页面上「会话登录的人」与
+     * 「带令牌的人」要看到不同的东西。不带参数覆盖绝大多数情况。
+     */
+    private String guardArg(String args, String directive, int line) {
+        if (args == null || args.isBlank()) return "null";
+        List<String> parts = splitArgs(args);
+        if (parts.size() != 1) {
+            throw new JbladeException(templateName, line,
+                    "@" + directive + " 最多一个 guard 名,收到 " + parts.size() + " 个"
+                  + "\n  写法:@" + directive + " 或 @" + directive + "('api')");
+        }
+        return normalizeString(parts.get(0));
+    }
+
+    /**
+     * {@code @can('update', post)} → {@code Jb.allows("update", post)}。
+     *
+     * <p>第一个参数是能力名(字符串),其余是目标表达式 ——
+     * 通常一个模型实例,也可能没有(「能不能新建」那类操作)。
+     */
+    private String abilityCall(String method, String args, String directive, int line) {
+        List<String> parts = splitArgs(args);
+        if (parts.isEmpty()) {
+            throw new JbladeException(templateName, line,
+                    "@" + directive + " 需要一个能力名,如 @" + directive + "('update', post)");
+        }
+        var call = new StringBuilder("io.jaravel.view.Jb.").append(method)
+                .append("(").append(normalizeString(parts.get(0)));
+        for (int i = 1; i < parts.size(); i++) {
+            call.append(", ").append(rewriteExpression(parts.get(i)));
+        }
+        return call.append(")").toString();
+    }
+
+    /** {@code @env('local')} / {@code @env('local', 'staging')} */
+    private String envArgs(String args, int line) {
+        List<String> parts = splitArgs(args);
+        if (parts.isEmpty()) {
+            throw new JbladeException(templateName, line,
+                    "@env 需要至少一个环境名,如 @env('local') 或 @env('local', 'staging')");
+        }
+        return parts.stream().map(JbladeTranspiler::normalizeString)
+                .collect(java.util.stream.Collectors.joining(", "));
+    }
+
 
     /**
      * {@code @csrf} → 一个带当前令牌的隐藏 input。

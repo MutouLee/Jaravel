@@ -36,6 +36,22 @@ public final class ViewRequestState {
 
         /** 某个字段的旧输入 */
         Optional<Object> old(String field);
+
+        /**
+         * 这个 guard 上有登录用户吗。{@code null} = 默认 guard。
+         *
+         * <p>{@code @auth} / {@code @guest} 的落点。
+         */
+        boolean authenticated(String guard);
+
+        /**
+         * 当前用户能做这件事吗 —— {@code @can} / {@code @cannot} 的落点。
+         *
+         * @param ability   能力名({@code "update"})
+         * @param arguments 目标,通常是一个模型实例;也可以没有
+         *                  (「能不能新建」那类操作还没有实例)
+         */
+        boolean allows(String ability, Object... arguments);
     }
 
     /**
@@ -66,6 +82,30 @@ public final class ViewRequestState {
         @Override
         public Optional<Object> old(String field) {
             return Optional.empty();
+        }
+
+        /**
+         * 没有请求时「没有登录用户」。
+         *
+         * <p>这是对的而不是将就:一封从队列任务里渲染的邮件模板,
+         * 它的 {@code @auth} 块本来就不该出现 —— 那里没有「当前用户」
+         * 这个概念。报错会让一个无关的邮件渲染失败。
+         */
+        @Override
+        public boolean authenticated(String guard) {
+            return false;
+        }
+
+        /**
+         * 没有请求时**拒绝**一切授权判断。
+         *
+         * <p>与 {@link #authenticated} 同理,但方向更重要:
+         * 授权的默认值只能是拒绝。一个「没有上下文就放过」的 @can
+         * 会在邮件模板里把管理员按钮渲染给所有人。
+         */
+        @Override
+        public boolean allows(String ability, Object... arguments) {
+            return false;
         }
     };
 

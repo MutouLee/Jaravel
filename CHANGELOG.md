@@ -21,6 +21,16 @@
   Publishing)、`RELEASE.md`、`SECURITY.md`、`KNOWN-ISSUES.md`。
 - **视图引擎修复**:从 fat jar 运行时即使当前目录有 `views/` 也用预编译
   引擎,避免 `java -jar` 从项目根目录启动时报「必须预编译」。
+- **条件指令 `@auth` / `@guest` / `@can` / `@cannot` / `@env` / `@production`**
+  (docs/04 §1.8)—— `@auth('api')` 可指定 guard;`@can('update', post)` 走
+  `Gate`、**按对象判**(与 `middleware("can:update,note")` 和
+  `Gate.authorize(...)` 同一条路径、同一个 Policy),还有 `@elsecan` /
+  `@elsecannot`。没有请求时 `@auth` 为 false、`@can` 一律拒绝;
+  取不到 guard/Gate 时也不抛异常(布局里的 `@auth` 会被错误页共用,
+  在那里再抛一次会得到无限递归的错误页)—— 与 `@csrf` 刻意相反,
+  后者报错是因为空令牌的后果是 419。
+  端到端验收在 `examples/auth` 的新页面 `GET /notes/page`:它列出所有人的
+  笔记,而「编辑」只出现在自己的那几条上(真 `NotePolicy`)。
 - **`@csrf` / `@error` / `@old` 模板指令**(docs/04 §1.8)——
   `@csrf` 输出整个隐藏 input(手写它的人会把 `name` 写错,症状是提交后
   419);`@error('email') {{ message }} @enderror` 块内有局部变量

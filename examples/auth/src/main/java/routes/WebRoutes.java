@@ -27,6 +27,11 @@ public class WebRoutes implements RouteDefinition {
         // GET 是安全方法,VerifyCsrfToken 不会校验它
         r.get("/", DashboardController::home).middleware("web").name("home");
 
+        // 条件指令的演示页。只挂 web(要会话,不要 auth)——
+        // 它要同时能给游客与登录用户看,那正是 @auth / @guest 的用处
+        r.get("/notes/page", app.http.controllers.NoteController::page)
+         .middleware("web").name("notes.page");
+
         // ---------- 游客专属 ----------
         // guest 让已登录的人访问登录页时直接跳走,而不是看到一个
         // 「登录」表单然后困惑于「我不是已经登录了吗」

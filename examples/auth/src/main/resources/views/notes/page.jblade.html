@@ -1,0 +1,65 @@
+@params(java.util.List<app.models.Note> notes)
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>笔记</title>
+</head>
+<body>
+  {{-- 这个页面存在的理由是**演示并验收**条件指令(docs/04 §1.8):
+       @auth / @guest 走 Auth,@can 走 Gate(与 NotePolicy 是同一条路径),
+       @env 走 Application.environment()。
+       示例的其余部分是 JSON 接口,没有模板可以放这些东西。 --}}
+
+  @auth
+    <p id="who">已登录</p>
+    <form method="post" action="/logout">
+      @csrf
+      <button type="submit">登出</button>
+    </form>
+  @endauth
+
+  @guest
+    <p id="who">游客</p>
+  @endguest
+
+  {{-- create 没有实例可判,所以传**类型** —— Gate 靠它找到 NotePolicy。
+       不传的话 Gate 无从分派,会按「权限未定义」拒绝。 --}}
+  @can('create', app.models.Note.class)
+    <p id="can-create">可以新建笔记</p>
+  @endcan
+
+  @cannot('create', app.models.Note.class)
+    {{-- create 要求邮箱已验证,见 NotePolicy --}}
+    <p id="cannot-create">先验证邮箱才能新建</p>
+  @endcannot
+
+  <ul>
+  @foreach(notes as note)
+    <li>
+      <span class="title">{{ note.title }}</span>
+
+      {{-- ★ 按**对象**判:只有自己的笔记才出现编辑/删除。
+           只看能力名的写法会把别人的笔记也放出来。 --}}
+      @can('update', note)
+        <a class="edit" href="/notes/{{ note.id }}/edit">编辑</a>
+      @elsecan('view', note)
+        <span class="readonly">只读</span>
+      @endcan
+
+      @cannot('delete', note)
+        <span class="locked">不能删</span>
+      @endcannot
+    </li>
+  @endforeach
+  </ul>
+
+  @env('local', 'testing')
+    <p id="env-hint">开发环境:这段不会出现在生产页面上</p>
+  @endenv
+
+  @production
+    <p id="prod-hint">生产环境</p>
+  @endproduction
+</body>
+</html>

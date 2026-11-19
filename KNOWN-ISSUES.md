@@ -26,7 +26,7 @@
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| `@method` / `@auth` / `@can` / `@env` / `@lang` / `@vite` / `@inject` / `@once` / `@fragment` | 未实现 | docs/04 §1.8 的其余指令;`@csrf` / `@error` / `@old` / `@json` 已实现 |
+| `@method` / `@lang` / `@choice` / `@vite` / `@inject` / `@once` / `@fragment` | 未实现 | docs/04 §1.8 的其余指令;`@csrf` / `@error` / `@old` / `@json` / `@auth` / `@guest` / `@can` / `@cannot` / `@env` / `@production` 已实现 |
 | `@aware` | 未实现 | |
 | 具名 slot / 属性袋 | 未实现 | 匿名组件与类组件已落地 |
 

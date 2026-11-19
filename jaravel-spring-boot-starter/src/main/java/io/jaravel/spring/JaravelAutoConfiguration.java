@@ -301,6 +301,48 @@ public class JaravelAutoConfiguration {
             return io.jaravel.session.Session.tryCurrent()
                     .flatMap(session -> session.oldInput(field));
         }
+
+        /**
+         * {@code @auth} / {@code @guest}。
+         *
+         * <p>**取不到就是「没登录」**:没有请求作用域(邮件模板)、
+         * 没装 auth 模块、guard 名写错 —— 三种情况下渲染的都是
+         * {@code @guest} 那一支。
+         *
+         * <p>为什么不报错:一个布局模板里的 {@code @auth} 块会被所有页面
+         * 共用,包括错误页。在渲染 500 错误页时因为「取不到 guard」
+         * 再抛一个异常,得到的是一个无限递归的错误页 ——
+         * 那比少显示一个「退出登录」链接糟糕得多。
+         */
+        @Override
+        public boolean authenticated(String guard) {
+            try {
+                return guard == null
+                        ? io.jaravel.auth.Auth.check()
+                        : io.jaravel.auth.Auth.guard(guard).check();
+            } catch (RuntimeException e) {
+                return false;
+            }
+        }
+
+        /**
+         * {@code @can} / {@code @cannot} —— 走 {@code Gate},与
+         * {@code middleware("can:update,note")} 以及控制器里的
+         * {@code Gate.authorize(...)} 是同一条路径(同一个 Policy)。
+         *
+         * <p>**取不到就是拒绝**:授权的默认值只能是拒绝。
+         * 这里同样不抛异常,理由与 {@link #authenticated} 相同 ——
+         * 但方向更重要:一个在异常路径上「放过」的 @can 会把
+         * 管理员按钮渲染给所有人。
+         */
+        @Override
+        public boolean allows(String ability, Object... arguments) {
+            try {
+                return io.jaravel.auth.access.Gate.allows(ability, arguments);
+            } catch (RuntimeException e) {
+                return false;
+            }
+        }
     }
 
     @Bean

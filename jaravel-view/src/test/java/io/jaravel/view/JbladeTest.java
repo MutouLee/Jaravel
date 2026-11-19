@@ -1869,17 +1869,7 @@ class JbladeTest {
         private ViewRequestState.Source source(String token,
                                                Map<String, List<String>> errors,
                                                Map<String, Object> old) {
-            return new ViewRequestState.Source() {
-                @Override public String csrfToken() { return token; }
-
-                @Override public List<String> errors(String field) {
-                    return errors.getOrDefault(field, List.of());
-                }
-
-                @Override public java.util.Optional<Object> old(String field) {
-                    return java.util.Optional.ofNullable(old.get(field));
-                }
-            };
+            return new FakeSource(token, errors, old, java.util.Set.of(), java.util.Set.of());
         }
 
         @org.junit.jupiter.api.AfterEach
@@ -2025,6 +2015,205 @@ class JbladeTest {
                     "@old('a', b, c)\n", "t"))
                     .isInstanceOf(JbladeException.class)
                     .hasMessageContaining("最多两个参数");
+        }
+    }
+
+    /**
+     * 可配置的 {@link ViewRequestState.Source} 假实现。
+     *
+     * <p>这些测试要验证的是**转写与渲染**,不是 starter 怎么从会话里取值 ——
+     * 那一层由 examples 里的端到端测试覆盖(真会话、真 Gate)。
+     *
+     * @param guards    已登录的 guard 名;默认 guard 用 {@code "default"} 表示
+     * @param abilities 允许的「能力名:目标 toString」或单独的能力名
+     */
+    record FakeSource(String token,
+                      Map<String, List<String>> errors,
+                      Map<String, Object> old,
+                      java.util.Set<String> guards,
+                      java.util.Set<String> abilities) implements ViewRequestState.Source {
+
+        @Override public String csrfToken() {
+            return token;
+        }
+
+        @Override public List<String> errors(String field) {
+            return errors.getOrDefault(field, List.of());
+        }
+
+        @Override public java.util.Optional<Object> old(String field) {
+            return java.util.Optional.ofNullable(old.get(field));
+        }
+
+        @Override public boolean authenticated(String guard) {
+            return guards.contains(guard == null ? "default" : guard);
+        }
+
+        @Override public boolean allows(String ability, Object... arguments) {
+            if (abilities.contains(ability)) return true;
+            for (Object argument : arguments) {
+                if (abilities.contains(ability + ":" + argument)) return true;
+            }
+            return false;
+        }
+    }
+
+    @Nested
+    @DisplayName("条件指令:@auth / @guest / @can / @env")
+    class ConditionalDirectives {
+
+        @org.junit.jupiter.api.AfterEach
+        void clearSource() {
+            ViewRequestState.reset();
+            io.jaravel.core.Application.setEnvironment("production");
+        }
+
+        private void loggedInOn(String... guards) {
+            ViewRequestState.use(new FakeSource("t", Map.of(), Map.of(),
+                    java.util.Set.of(guards), java.util.Set.of()));
+        }
+
+        private void allowed(String... abilities) {
+            ViewRequestState.use(new FakeSource("t", Map.of(), Map.of(),
+                    java.util.Set.of("default"), java.util.Set.of(abilities)));
+        }
+
+        @Test
+        @DisplayName("★ @auth / @guest 是互斥的两支")
+        void authAndGuestAreExclusive(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of("t", """
+                @auth <p>已登录</p> @endauth
+                @guest <p>请登录</p> @endguest
+                """));
+
+            loggedInOn("default");
+            assertThat(e.render("t", Map.of())).contains("已登录").doesNotContain("请登录");
+
+            loggedInOn();
+            assertThat(e.render("t", Map.of())).contains("请登录").doesNotContain("已登录");
+        }
+
+        @Test
+        @DisplayName("@auth('api') 只看那个 guard")
+        void authTakesAGuardName(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of("t", """
+                @auth('api') <p>令牌用户</p> @endauth
+                @auth <p>会话用户</p> @endauth
+                """));
+
+            loggedInOn("api");
+
+            String out = e.render("t", Map.of());
+            assertThat(out).contains("令牌用户").doesNotContain("会话用户");
+        }
+
+        @Test
+        @DisplayName("★ @can 把目标传给授权判断 —— 不是只看能力名")
+        void canPassesTheTarget(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of("t", """
+                @params(String mine, String other)
+                @can('update', mine) <p>可改我的</p> @endcan
+                @can('update', other) <p>可改别人的</p> @endcan
+                """));
+
+            allowed("update:my-note");
+
+            String out = e.render("t", Map.of("mine", "my-note", "other", "other-note"));
+            assertThat(out).contains("可改我的");
+            assertThat(out)
+                    .as("授权是按对象判的 —— 只看能力名会把别人的东西也放出去")
+                    .doesNotContain("可改别人的");
+        }
+
+        @Test
+        @DisplayName("@can 不带目标:用于「能不能新建」那类操作")
+        void canWithoutTarget(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of("t", "@can('create') <p>可新建</p> @endcan\n"));
+
+            allowed("create");
+
+            assertThat(e.render("t", Map.of())).contains("可新建");
+        }
+
+        @Test
+        @DisplayName("@elsecan / @cannot")
+        void elsecanAndCannot(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of("t", """
+                @can('update') <p>改</p> @elsecan('view') <p>看</p> @endcan
+                @cannot('delete') <p>不能删</p> @endcannot
+                """));
+
+            allowed("view");
+
+            String out = e.render("t", Map.of());
+            assertThat(out).contains("看").doesNotContain("<p>改</p>");
+            assertThat(out).contains("不能删");
+        }
+
+        @Test
+        @DisplayName("★ 没有装数据源时授权**拒绝** —— 默认值只能是拒绝")
+        void withoutSourceEverythingIsDenied(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of("t", """
+                @auth <p>已登录</p> @endauth
+                @can('update') <p>可改</p> @endcan
+                @guest <p>游客</p> @endguest
+                """));
+
+            String out = e.render("t", Map.of());
+
+            assertThat(out)
+                    .as("一个「没有上下文就放过」的 @can 会把管理员按钮渲染给所有人")
+                    .doesNotContain("可改")
+                    .doesNotContain("已登录");
+            assertThat(out).contains("游客");
+        }
+
+        @Test
+        @DisplayName("@env / @production 读 Application.environment()")
+        void envDirectives(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of("t", """
+                @env('local') <p>本地</p> @endenv
+                @env('local', 'staging') <p>非生产</p> @endenv
+                @production <p>生产</p> @endproduction
+                """));
+
+            io.jaravel.core.Application.setEnvironment("staging");
+            String staging = e.render("t", Map.of());
+            // 断言整段标签而不是「生产」两个字 —— 后者是「非生产」的子串
+            assertThat(staging).contains("<p>非生产</p>")
+                               .doesNotContain("<p>本地</p>")
+                               .doesNotContain("<p>生产</p>");
+
+            io.jaravel.core.Application.setEnvironment("production");
+            String production = e.render("t", Map.of());
+            assertThat(production).contains("<p>生产</p>")
+                                  .doesNotContain("<p>非生产</p>");
+        }
+
+        @Test
+        @DisplayName("参数写错时在转写期报错")
+        void argumentErrors() {
+            assertThatThrownBy(() -> JbladeTranspiler.transpile("@auth('a', 'b')\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("最多一个 guard 名");
+            assertThatThrownBy(() -> JbladeTranspiler.transpile("@can()\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("@can 需要一个能力名");
+            assertThatThrownBy(() -> JbladeTranspiler.transpile("@env()\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("@env 需要至少一个环境名");
+        }
+
+        @Test
+        @DisplayName("块没闭合时报错指出是哪一个")
+        void unclosedBlocks() {
+            assertThatThrownBy(() -> JbladeTranspiler.transpile("@auth <p>x</p>\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("auth");
+            assertThatThrownBy(() -> JbladeTranspiler.transpile(
+                    "@can('update') <p>x</p> @endauth\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("@endauth");
         }
     }
 }

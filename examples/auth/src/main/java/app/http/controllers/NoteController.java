@@ -21,6 +21,22 @@ import io.jaravel.validation.Validator;
 @Component
 public class NoteController {
 
+    /**
+     * GET /notes/page —— 条件指令的演示页(docs/04 §1.8)。
+     *
+     * <p>**不挂 auth**:页面本身对游客开放,因为要演示的恰好是
+     * {@code @auth} / {@code @guest} 两支。
+     *
+     * <p>刻意列出**所有人**的笔记:看点在于模板里的
+     * {@code @can('update', note)} 会让「编辑」只出现在自己的那几条上。
+     * 接口那边({@link #index})仍然只返回自己的 —— 授权与「查什么」
+     * 是两件事,页面上少显示一个按钮不等于接口安全。
+     */
+    public Object page() {
+        return io.jaravel.http.View.of("notes.page")
+                .with("notes", Note.query().orderByKeyDesc().get().toList());
+    }
+
     /** GET /api/notes —— 只返回自己的 */
     public Object index() {
         User me = Auth.userOrFail(User.class);

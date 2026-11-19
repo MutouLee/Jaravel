@@ -479,7 +479,24 @@ public class PostCard extends Component {
 | `@error(field)` / `@enderror` | ✅ 块内有局部变量 `message`(第一条消息);**不允许嵌套** |
 | `@old(field[, 默认值])` | ✅ 读会话里闪存的 `_old_input`,输出走转义 |
 | `@json(data)` | ✅ |
-| 其余(`@method` / `@auth` / `@can` / `@env` / `@lang` / `@vite` / `@inject` / `@once` / `@fragment`) | ⏳ 未实现,见 [KNOWN-ISSUES](../KNOWN-ISSUES.md) |
+| `@auth` / `@endauth`、`@guest` / `@endguest` | ✅ 可带 guard 名(`@auth('api')`) |
+| `@can` / `@elsecan` / `@elsecannot` / `@endcan`、`@cannot` / `@endcannot` | ✅ 走 `Gate`,**按对象判**(`@can('update', post)`) |
+| `@env('local'[, 'staging'])` / `@endenv`、`@production` / `@endproduction` | ✅ 读 `Application.environment()` |
+| 其余(`@method` / `@lang` / `@choice` / `@vite` / `@inject` / `@once` / `@fragment`) | ⏳ 未实现,见 [KNOWN-ISSUES](../KNOWN-ISSUES.md) |
+
+条件指令的三条边界:
+
+- **没有请求时 `@auth` 是 false、`@can` 是拒绝**。邮件模板、CLI 渲染里
+  没有「当前用户」这个概念,而授权的默认值只能是拒绝 ——
+  一个「没有上下文就放过」的 `@can` 会在邮件里把管理员按钮渲染给所有人。
+- **取不到 guard / Gate 时也不抛异常**,同样按「未登录 / 拒绝」渲染。
+  理由具体:布局模板里的 `@auth` 块被所有页面共用,包括错误页 ——
+  在渲染 500 错误页时因为取不到 guard 再抛一次异常,得到的是一个
+  无限递归的错误页,那比少显示一个「退出登录」链接糟糕得多。
+  (`@csrf` 相反:它**会**报错,因为一个空令牌的后果是表单 419。)
+- **`@can('create')` 这种没有实例的能力要传类型**:
+  `@can('create', app.models.Note.class)` —— Gate 靠参数找 Policy,
+  不传的话它无从分派,会按「权限未定义」拒绝。
 
 这三个指令的数据都在**会话**里(令牌、上一次请求校验失败时闪存的
 errors 与 old)。而 `jaravel-view` 不能依赖 `jaravel-session` ——

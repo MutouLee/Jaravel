@@ -8,6 +8,16 @@
 - Maven **3.9+**
 - 一个空目录(不要放在已有 Maven 工程的子目录里)
 
+!!! tip "首次构建会下载约 400MB 依赖"
+    Maven 本地仓库是空的时候,下面每一步里真正花时间的是**下载**,
+    不是编译:实测依赖已缓存时整条路(clone → 构建框架 → 跑示例 →
+    `new` → `install:auth` → `migrate` → `test` → `package`)的机器时间
+    **约 2.5 分钟**;而在 150KB/s 的链路上,同样这条路里光「构建框架」
+    一步就是 **46 分钟**,并且可能因为 TLS 被掐断而中途失败。
+    网络不好时先换一个 Maven 镜像(`~/.m2/settings.xml`)再开始。
+    计时与复现脚本见
+    [`verification/v10-quickstart-cold`](https://github.com/MutouLee/Jaravel/tree/main/verification/v10-quickstart-cold)。
+
 先安装 `jaravel` CLI(见 [安装](installation.md)):
 
 ```bash

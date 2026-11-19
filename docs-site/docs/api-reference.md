@@ -2,6 +2,14 @@
 
 公开 API 的权威参考是 **Javadoc**;这里是入口与模块索引。
 
+!!! info "覆盖口径"
+    「文档覆盖所有公开 API」在这里的判定是两件可机械核对的事:
+    **(1)** 每个公开类型(不含 `internal` / `impl` 包)都有 Javadoc;
+    **(2)** 每个有公开 API 的模块都出现在下面的模块索引里,且索引点的
+    类型名真的存在。核对脚本是
+    [`docs-site/tools/api_coverage.py`](https://github.com/MutouLee/Jaravel/blob/main/docs-site/tools/api_coverage.py),
+    CI 的 docs 任务以 `--strict` 跑它。
+
 ## 生成 Javadoc
 
 ```bash
@@ -21,15 +29,23 @@ mvn -pl jaravel-eloquent javadoc:javadoc
 | 模块 | 关键类型 |
 |---|---|
 | `jaravel-core` | `Container`、`Facade`、`ConfigRepository`、`ExecutionScope` |
+| `jaravel-support` | `Coll`、`Str`、`Arr`、`DateX`、`Paginated`、`Cast` |
 | `jaravel-routing` | `Router`、`Route`、`RouteDefinition`、`Middleware` |
 | `jaravel-http` | `Request`、`Response`、`View`、`Redirect`、`RequestScope` |
+| `jaravel-http-client` | `Http`、`PendingHttpRequest`、`HttpResponse`、`HttpTransport` |
 | `jaravel-view` | `JbladeEngine`、`ViewEngine` |
 | `jaravel-database` | `Connection`、`QueryBuilder`、`Grammar`、`Schema` |
+| `jaravel-migration` | `Migration`、`Migrator`、`Blueprint`、`Schema`、`Seeder`、`Factory` |
 | `jaravel-eloquent` | `Model`、`Query`、`@Model` / `@HasMany` / `@GlobalScope` |
 | `jaravel-validation` | `Validator`、`FormRequest`、`ErrorBag` |
 | `jaravel-auth` | `Auth`、`Guard`、`Gate`、`Hash`、`Password` |
-| `jaravel-queue` | `Queue`、`ShouldQueue`、`QueueStore`、`Worker` |
+| `jaravel-permissions` | `Permissions`、`HasPermissions`、`PermissionStore`、`RoleMiddleware` |
+| `jaravel-security-bridge` | `SecurityBridge`、`SpringSecurityGuard`、`JaravelUserDetails` |
+| `jaravel-session` | `Session`、`SessionStore`、`StartSession`、`VerifyCsrfToken` |
+| `jaravel-cache` | `Cache` 门面(`CacheManager`)、`Repository`、`CacheStore`、`Lock`、`RateLimiter` |
+| `jaravel-queue` | `Queue`、`ShouldQueue`、`QueueStore`、`QueueWorker`、`Batch` |
 | `jaravel-events` | `Event`、`@Listener` |
+| `jaravel-broadcasting` | `Broadcast`、`ShouldBroadcast`、`BroadcastChannel`、`BroadcastHub` |
 | `jaravel-scheduler` | `Schedule` |
 | `jaravel-mail` | `Mail`、`Mailable` |
 | `jaravel-notifications` | `Notifications`、`Notification`、`Notifiable` |
@@ -37,6 +53,9 @@ mvn -pl jaravel-eloquent javadoc:javadoc
 | `jaravel-api` | `JsonResource`、分页 |
 | `jaravel-testing` | `FeatureTest`、`BrowserTest`、`TestResponse` |
 | `jaravel-console` | `ConsoleCommand`、`@Command`、`Artisan` |
+| `jaravel-cli` | `Jaravel`(`jaravel` 可执行入口;离线命令不启动容器) |
+| `jaravel-devtools` | `FileWatcher`、`ReloadCoordinator`、`ReloadStrategy`、`HotSwapper` |
+| `jaravel-dashboard` | `DashboardService`(`/_jaravel` 开发面板的数据源) |
 
 ## 模块级设计文档
 

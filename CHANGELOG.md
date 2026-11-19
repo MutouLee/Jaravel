@@ -21,11 +21,34 @@
   Publishing)、`RELEASE.md`、`SECURITY.md`、`KNOWN-ISSUES.md`。
 - **视图引擎修复**:从 fat jar 运行时即使当前目录有 `views/` 也用预编译
   引擎,避免 `java -jar` 从项目根目录启动时报「必须预编译」。
+- **`Cache` 静态门面**(`io.jaravel.cache.Cache`)—— docs/09 §1.1 与
+  docs/02 §2.3 一直在写它,但代码里只有 `CacheManager` / `Repository`。
+  starter 启动时绑定,`FeatureTest` 每个测试前重绑到当前上下文。
+- **公开 API 文档覆盖核对**:`docs-site/tools/api_coverage.py`
+  (每个公开类型都有 Javadoc + 每个模块在 `api-reference.md` 的模块索引里
+  + 索引不指向死类型名),以 `--strict` 进 CI 的 docs 任务。
+- **冷环境 quickstart 计时**:`verification/v10-quickstart-cold`
+  —— 干净容器里照文档逐条敲 13 步并计时(含注册/登录/登出/重置的
+  完整流程断言)。
 
 ### Changed
 
 - `JaravelDefaultKernel` 仍为默认;多租户示例展示如何扩展 `aliases()`。
 - 文档站与 README 补充 `jaravel new` / `install:auth` 的 30 分钟路径。
+- `api-reference.md` 的模块索引补齐 11 个此前缺席的模块,并修掉
+  `jaravel-queue` 那个指向已改名类型的 `Worker`(实际是 `QueueWorker`)。
+- quickstart 加一条「首次构建会下载数百 MB 依赖」——实测机器时间只有
+  2.5 分钟,30 分钟预算在慢网络下是被下载吃掉的。
+- docs/09 的 `Cache.get(key, TypeRef<...>)` 与 `Cache.rememberLocked`
+  就地标注「尚未实现」并登记进 KNOWN-ISSUES(此前读起来像已有的 API)。
+
+### Fixed
+
+- **3xx 的 `HttpException` 不再渲染错误页**:未登录访问受保护页面时,
+  `Authenticate` 用 `HttpException(302, Location)` 表达重定向,而异常处理器
+  此前把它当错误渲染 —— 开发模式下那个 302 带回一张 13KB 的开发错误页
+  (标题「HttpException」),生产模式下带回一张错误页。现在 3xx 走
+  `Redirect.to(location, status)`,body 为空。
 
 ### Security
 

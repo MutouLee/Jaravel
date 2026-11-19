@@ -17,6 +17,8 @@ build/
 
 # 验证工程的中间产物
 verification/**/out/
+verification/**/out-seeded/
+verification/**/driver*.log
 verification/**/negout/
 verification/**/build/
 verification/**/target/

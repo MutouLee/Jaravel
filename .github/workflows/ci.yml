@@ -129,6 +129,11 @@ jobs:
           cache-dependency-path: docs-site/requirements.txt
       - run: pip install -r requirements.txt
       - run: mkdocs build --strict
+      # 公开 API 的文档覆盖(v1.0 验收第 2 条):每个公开类型都有 Javadoc,
+      # 每个有公开 API 的模块都在 api-reference.md 的模块索引里,
+      # 且索引里没有改名后留下的死类型名。
+      - name: api coverage (--strict)
+        run: python tools/api_coverage.py --strict
 
   dependency-convergence:
     name: dependency convergence

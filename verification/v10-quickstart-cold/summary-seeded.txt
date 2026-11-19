@@ -1,0 +1,27 @@
+# 冷环境 quickstart 计时
+
+repo: https://github.com/MutouLee/Jaravel.git
+java: openjdk version "21.0.12.1" 2026-08-18 LTS
+maven: Apache Maven 3.9.16 (2bdd9fddda4b155ebf8000e807eb73fd829a51d5)
+cpus: 20  mem: 15.5GB
+
+步骤                    秒 退出码
+01-clone                    9     0
+02-install-framework       43     0
+03-run-example              9     0
+04-install-cli             42     0
+05-new                      1     0
+06-run-new                  9     0
+07-install-auth             0     0
+08-auth-flow               14     0
+09-make-model               0     0
+10-migrate                  7     0
+11-test                     7     0
+12-package                  3     0
+13-run-jar                  6     0
+
+从源码(今天的现实,Central 未发布):150s
+仅用户步骤(发布后的路径):47s
+
+失败步骤:
+整体:全绿

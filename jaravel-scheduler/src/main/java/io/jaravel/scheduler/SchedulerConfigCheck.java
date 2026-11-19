@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
+import io.jaravel.support.Clock;
+
 /**
  * 启动时的配置校验(docs/10 §3.4 明确要求的一条)。
  *
@@ -151,7 +153,7 @@ public final class SchedulerConfigCheck {
         for (ScheduledTask task : tasks) {
             if (!task.preventsOverlap()) continue;
 
-            var next = task.nextRun(java.time.ZonedDateTime.now());
+            var next = task.nextRun(Clock.zoned());
             if (next.isEmpty()) continue;
 
             var then = task.nextRun(next.get());

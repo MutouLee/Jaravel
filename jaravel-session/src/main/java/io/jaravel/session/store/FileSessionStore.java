@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import io.jaravel.session.SessionStore;
+import io.jaravel.support.Clock;
 
 /**
  * 落盘的会话存储。
@@ -132,7 +133,7 @@ public class FileSessionStore implements SessionStore {
     private void writeLocked(String id, Map<String, Object> data, Duration lifetime) {
         Path file = fileFor(id);
         long expiresAt = lifetime == null ? 0
-                : System.currentTimeMillis() + lifetime.toMillis();
+                : Clock.millis() + lifetime.toMillis();
 
         Path temp = null;
         try {
@@ -257,7 +258,7 @@ public class FileSessionStore implements SessionStore {
     private record Payload(Map<String, Object> data, long expiresAtMillis) {
 
         boolean isExpired() {
-            return expiresAtMillis > 0 && System.currentTimeMillis() >= expiresAtMillis;
+            return expiresAtMillis > 0 && Clock.millis() >= expiresAtMillis;
         }
 
         static String render(Map<String, Object> data, long expiresAt) {

@@ -6,6 +6,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 import io.jaravel.cache.CacheStore;
+import io.jaravel.support.Clock;
 
 /**
  * 进程内 HashMap,带过期判定。测试与 {@code array} 驱动用它。
@@ -114,11 +115,11 @@ public class ArrayStore implements CacheStore {
     }
 
     private static long expiryOf(Duration ttl) {
-        return ttl == null ? 0 : System.currentTimeMillis() + ttl.toMillis();
+        return ttl == null ? 0 : Clock.millis() + ttl.toMillis();
     }
 
     private static long now() {
-        return System.currentTimeMillis();
+        return Clock.millis();
     }
 
     /** 诊断用:当前条目数(含尚未惰性清理的过期条目) */

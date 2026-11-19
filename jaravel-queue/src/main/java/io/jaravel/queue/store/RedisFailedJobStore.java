@@ -12,6 +12,7 @@ import io.jaravel.cache.store.RedisStore;
 import io.jaravel.queue.FailedJobStore;
 import io.jaravel.queue.JobSerializer;
 import io.jaravel.queue.QueuedJob;
+import io.jaravel.support.Clock;
 import io.lettuce.core.ScriptOutputType;
 import io.lettuce.core.api.sync.RedisCommands;
 
@@ -75,7 +76,7 @@ public class RedisFailedJobStore implements FailedJobStore, AutoCloseable {
 
     @Override
     public long record(QueuedJob job, String connectionName, Throwable cause) {
-        long failedAt = System.currentTimeMillis();
+        long failedAt = Clock.millis();
 
         Long id = (Long) commands().eval(RECORD, ScriptOutputType.INTEGER,
                 new String[]{uuids(), order(), counter()},
@@ -160,7 +161,7 @@ public class RedisFailedJobStore implements FailedJobStore, AutoCloseable {
 
     @Override
     public int prune(Duration olderThan) {
-        long cutoff = Instant.now().minus(olderThan).toEpochMilli();
+        long cutoff = Clock.now().minus(olderThan).toEpochMilli();
         List<String> ids = commands().zrangebyscore(order(), "-inf", String.valueOf(cutoff));
 
         int removed = 0;

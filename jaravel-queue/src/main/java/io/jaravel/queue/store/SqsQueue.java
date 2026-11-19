@@ -29,6 +29,7 @@ import software.amazon.awssdk.services.sqs.model.SqsException;
 import io.jaravel.queue.JobSerializer;
 import io.jaravel.queue.QueueStore;
 import io.jaravel.queue.QueuedJob;
+import io.jaravel.support.Clock;
 
 /**
  * SQS 队列驱动(docs/10 §1.5)。AWS SDK v2,同步客户端。
@@ -147,7 +148,7 @@ public class SqsQueue implements QueueStore, AutoCloseable {
 
     @Override
     public String push(QueuedJob job) {
-        long now = System.currentTimeMillis();
+        long now = Clock.millis();
         long availableAt = job.availableAt() == null ? now : job.availableAt().toEpochMilli();
         send(job.queue(), serializer.encode(job), job.uuid(), delaySeconds(availableAt - now));
         return job.uuid();

@@ -7,6 +7,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 import io.jaravel.session.SessionStore;
+import io.jaravel.support.Clock;
 
 /**
  * 进程内 Map。测试与单实例开发用。
@@ -28,7 +29,7 @@ public class MemoryStore implements SessionStore {
     public Optional<Map<String, Object>> read(String id) {
         Entry entry = sessions.get(id);
         if (entry == null) return Optional.empty();
-        if (entry.expiresAtMillis() > 0 && System.currentTimeMillis() >= entry.expiresAtMillis()) {
+        if (entry.expiresAtMillis() > 0 && Clock.millis() >= entry.expiresAtMillis()) {
             sessions.remove(id, entry);
             return Optional.empty();
         }
@@ -38,7 +39,7 @@ public class MemoryStore implements SessionStore {
 
     @Override
     public void write(String id, Map<String, Object> data, Duration lifetime) {
-        long expiresAt = lifetime == null ? 0 : System.currentTimeMillis() + lifetime.toMillis();
+        long expiresAt = lifetime == null ? 0 : Clock.millis() + lifetime.toMillis();
         sessions.put(id, new Entry(new LinkedHashMap<>(data), expiresAt));
     }
 
@@ -49,7 +50,7 @@ public class MemoryStore implements SessionStore {
 
     @Override
     public int purgeExpired(Duration lifetime) {
-        long now = System.currentTimeMillis();
+        long now = Clock.millis();
         int before = sessions.size();
         sessions.values().removeIf(e -> e.expiresAtMillis() > 0 && now >= e.expiresAtMillis());
         return before - sessions.size();

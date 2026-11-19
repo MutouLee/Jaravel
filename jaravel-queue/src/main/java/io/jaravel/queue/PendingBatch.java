@@ -5,6 +5,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import io.jaravel.support.Clock;
+
 /**
  * 一个待投递的批次(docs/10 §1.2)。并行执行 + 汇总回调。
  *
@@ -136,7 +138,7 @@ public final class PendingBatch {
                 ? queues.connection()
                 : queues.connection(connectionName);
 
-        Instant now = Instant.now();
+        Instant now = Clock.now();
         String id = UUID.randomUUID().toString();
 
         // fake:记下批次并返回一个「刚投递」的快照(docs/14 §4)。

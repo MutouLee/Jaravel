@@ -5,6 +5,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
+import io.jaravel.support.Clock;
+
 /**
  * 一条待投递的任务链(docs/10 §1.2)。前一个成功后才执行下一个。
  *
@@ -126,7 +128,7 @@ public final class PendingChain {
             return java.util.UUID.randomUUID().toString();
         }
 
-        Instant now = Instant.now();
+        Instant now = Clock.now();
 
         List<QueuedJob> envelopes = new ArrayList<>(jobs.size());
         for (ShouldQueue job : jobs) {

@@ -9,6 +9,7 @@ import io.jaravel.database.Connection;
 import io.jaravel.queue.JobSerializer;
 import io.jaravel.queue.QueueStore;
 import io.jaravel.queue.QueuedJob;
+import io.jaravel.support.Clock;
 
 /**
  * 数据库驱动 —— 零额外依赖的默认驱动(docs/10 §1.5)。
@@ -101,7 +102,7 @@ public class DatabaseQueue implements QueueStore {
 
     @Override
     public Optional<QueuedJob> pop(String queue, Duration retryAfter) {
-        Instant now = Instant.now();
+        Instant now = Clock.now();
         Instant staleBefore = now.minus(retryAfter);
 
         for (int attempt = 0; attempt < MAX_CONTENTION_RETRIES; attempt++) {
@@ -209,7 +210,7 @@ public class DatabaseQueue implements QueueStore {
     public void release(QueuedJob job, Duration delay) {
         var values = new LinkedHashMap<String, Object>();
         values.put("reserved_at", null);
-        values.put("available_at", Instant.now().plus(
+        values.put("available_at", Clock.now().plus(
                 delay == null ? Duration.ZERO : delay));
         // ★ payload 必须一起重写。
         //
@@ -245,7 +246,7 @@ public class DatabaseQueue implements QueueStore {
         row.put("payload", serializer.encode(job));
         row.put("attempts", job.attempts());
         row.put("reserved_at", null);
-        row.put("available_at", Instant.now().plus(delay == null ? Duration.ZERO : delay));
+        row.put("available_at", Clock.now().plus(delay == null ? Duration.ZERO : delay));
         row.put("created_at", job.pushedAt());
         return row;
     }
@@ -265,7 +266,7 @@ public class DatabaseQueue implements QueueStore {
     @Override
     public boolean touch(QueuedJob job, Duration retryAfter) {
         var values = new LinkedHashMap<String, Object>();
-        values.put("reserved_at", Instant.now());
+        values.put("reserved_at", Clock.now());
 
         return connection.table(table)
                 .where("uuid", job.uuid())

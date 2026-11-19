@@ -10,6 +10,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 import io.jaravel.scheduler.events.ScheduleEvents;
+import io.jaravel.support.Clock;
 
 /**
  * 应用内置的调度器(docs/10 §3.3)。
@@ -127,7 +128,7 @@ public final class Scheduler {
                 if (stopping.get()) break;
 
                 try {
-                    runDue(ZonedDateTime.now());
+                    runDue(Clock.zoned());
                 } catch (RuntimeException e) {
                     // 一个任务的问题不该停掉调度器 —— 停了的话**所有**任务
                     // 都不再运行,而那比单个任务失败严重得多
@@ -149,7 +150,7 @@ public final class Scheduler {
      * 那种丢失是不可见的 —— 没有日志、没有异常。
      */
     private void sleepUntilNextMinute() {
-        var now = ZonedDateTime.now();
+        var now = Clock.zoned();
         var nextMinute = now.withSecond(0).withNano(0).plusMinutes(1);
         long millis = Duration.between(now, nextMinute).toMillis() + 50;
 
@@ -458,7 +459,7 @@ public final class Scheduler {
         for (ScheduledTask task : schedule.tasks()) {
             if (task.action().name().equals(nameOrDescription)
                     || task.label().equals(nameOrDescription)) {
-                execute(task, ZonedDateTime.now());
+                execute(task, Clock.zoned());
                 return java.util.Optional.of(task);
             }
         }

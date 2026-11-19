@@ -365,6 +365,55 @@ class AuthFeatureTest extends FeatureTest {
         }
 
         @Test
+        @DisplayName("★ 过了 expire 之后令牌失效 —— 用 Clock.travel 测,不睡一小时")
+        void tokenExpiresAfterConfiguredWindow() {
+            // config/auth.yml 的 passwords.expire 是 PT1H。
+            // 没有 Clock 的话,测这条规则只有两个办法:睡一小时,
+            // 或者把 expire 配成 1 毫秒然后 sleep(2) —— 后者测的是
+            // 「1 毫秒会不会过期」,不是那条业务规则(docs/14 §4.2)。
+            createUser("a@example.com", "old-password");
+
+            String token = (String) post("/forgot-password",
+                    Map.of("email", "a@example.com"))
+                    .session().orElseThrow().get("reset_token").orElseThrow();
+
+            io.jaravel.support.Clock.travel(java.time.Duration.ofMinutes(61));
+
+            post("/reset-password", Map.of(
+                    "email", "a@example.com",
+                    "token", token,
+                    "password", "brand-new-password",
+                    "password_confirmation", "brand-new-password"))
+                    .assertSessionHasErrors("token");
+
+            // 过期令牌不该改掉密码:新密码登不上,旧密码还能登
+            post("/login", Map.of("email", "a@example.com",
+                                  "password", "brand-new-password"))
+                    .assertRedirect("/login");
+            post("/login", Map.of("email", "a@example.com", "password", "old-password"))
+                    .assertRedirect("/dashboard");
+        }
+
+        @Test
+        @DisplayName("时间没过完时仍然有效 —— 把上一条的「总是失效」排除掉")
+        void tokenStillValidWithinWindow() {
+            createUser("a@example.com", "old-password");
+
+            String token = (String) post("/forgot-password",
+                    Map.of("email", "a@example.com"))
+                    .session().orElseThrow().get("reset_token").orElseThrow();
+
+            io.jaravel.support.Clock.travel(java.time.Duration.ofMinutes(59));
+
+            post("/reset-password", Map.of(
+                    "email", "a@example.com",
+                    "token", token,
+                    "password", "brand-new-password",
+                    "password_confirmation", "brand-new-password"))
+                    .assertRedirect("/login");
+        }
+
+        @Test
         @DisplayName("★ 令牌哈希存库")
         void tokenIsHashed() {
             createUser("a@example.com", "x");

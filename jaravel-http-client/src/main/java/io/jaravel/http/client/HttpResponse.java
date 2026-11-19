@@ -7,6 +7,8 @@ import java.util.Optional;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import io.jaravel.support.Clock;
+
 /**
  * 一次 HTTP 调用的响应(docs/14 §4.3)。
  *
@@ -231,7 +233,7 @@ public record HttpResponse(int status, String body, Map<String, List<String>> he
         try {
             var when = java.time.ZonedDateTime.parse(raw,
                     java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME);
-            var delay = java.time.Duration.between(java.time.ZonedDateTime.now(), when);
+            var delay = java.time.Duration.between(Clock.zoned(), when);
             return delay.isNegative() ? Optional.empty() : Optional.of(delay);
         } catch (RuntimeException unparseable) {
             return Optional.empty();

@@ -13,6 +13,7 @@ import io.jaravel.database.Row;
 import io.jaravel.queue.FailedJobStore;
 import io.jaravel.queue.JobSerializer;
 import io.jaravel.queue.QueuedJob;
+import io.jaravel.support.Clock;
 
 /**
  * {@code failed_jobs} 表。
@@ -65,7 +66,7 @@ public class DatabaseFailedJobStore implements FailedJobStore {
         row.put("display_name", job.displayName());
         row.put("payload", new JobSerializer().encode(job));
         row.put("exception", stackTraceOf(cause));
-        row.put("failed_at", Instant.now());
+        row.put("failed_at", Clock.now());
 
         // 已有同 uuid 的记录 → 覆盖。见类注释里「为什么要覆盖」
         var existing = connection.table(table).where("uuid", job.uuid()).get().first();
@@ -110,7 +111,7 @@ public class DatabaseFailedJobStore implements FailedJobStore {
     @Override
     public int prune(Duration olderThan) {
         return connection.table(table)
-                .where("failed_at", "<", Instant.now().minus(olderThan))
+                .where("failed_at", "<", Clock.now().minus(olderThan))
                 .delete();
     }
 

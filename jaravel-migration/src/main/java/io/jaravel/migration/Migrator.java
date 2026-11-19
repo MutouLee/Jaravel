@@ -13,6 +13,7 @@ import java.util.regex.Pattern;
 
 import io.jaravel.database.Connection;
 import io.jaravel.migration.schema.Schema;
+import io.jaravel.support.Clock;
 
 /**
  * 迁移执行器。
@@ -311,7 +312,7 @@ public final class Migrator {
         connection.update("insert into " + wrap(table)
                         + " (" + wrap("migration") + ", " + wrap("batch") + ", "
                         + wrap("ran_at") + ", " + wrap("checksum") + ") values (?, ?, ?, ?)",
-                java.util.Arrays.asList(name, batch, Instant.now(), checksum));
+                java.util.Arrays.asList(name, batch, Clock.now(), checksum));
     }
 
     // ================= 工具 =================

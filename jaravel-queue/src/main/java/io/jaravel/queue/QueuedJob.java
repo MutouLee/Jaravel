@@ -5,6 +5,8 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
+import io.jaravel.support.Clock;
+
 /**
  * 队列里的一条记录 —— 任务的 JSON 信封(docs/10 §1.6)。
  *
@@ -133,7 +135,7 @@ public record QueuedJob(
     public static QueuedJob forTest(String uuid, Class<?> jobType,
                                     Map<String, Object> data, String queue,
                                     int attempts, int tries) {
-        Instant now = Instant.now();
+        Instant now = Clock.now();
         return new QueuedJob(uuid, jobType.getName(), data, queue, attempts,
                 now, now, tries, Duration.ofMinutes(1), null,
                 Integer.MAX_VALUE, jobType.getSimpleName(), 0, null,
@@ -144,7 +146,7 @@ public record QueuedJob(
     public static QueuedJob forTest(String uuid, String jobClass,
                                     Map<String, Object> data, String queue,
                                     int attempts, int tries) {
-        Instant now = Instant.now();
+        Instant now = Clock.now();
         return new QueuedJob(uuid, jobClass, data, queue, attempts,
                 now, now, tries, Duration.ofMinutes(1), null,
                 Integer.MAX_VALUE, "test", 0, null, java.util.List.of(), null, Map.of());

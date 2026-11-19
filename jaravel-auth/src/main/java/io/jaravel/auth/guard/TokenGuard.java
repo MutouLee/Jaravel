@@ -13,6 +13,7 @@ import io.jaravel.auth.Authenticatable;
 import io.jaravel.auth.Guard;
 import io.jaravel.auth.UserProvider;
 import io.jaravel.database.Connection;
+import io.jaravel.support.Clock;
 
 /**
  * API Token 认证:{@code Authorization: Bearer <token>}。
@@ -137,7 +138,7 @@ public class TokenGuard implements Guard {
         values.put("name", tokenName);
         values.put("user_id", user.getAuthIdentifier());
         values.put("token_hash", sha256(plain));
-        values.put("created_at", Instant.now());
+        values.put("created_at", Clock.now());
         values.put("expires_at", expiresAt);
 
         long id = connection.table(table).insertGetId(values)
@@ -165,7 +166,7 @@ public class TokenGuard implements Guard {
     public int purgeExpired() {
         return connection.table(table)
                 .whereNotNull("expires_at")
-                .where("expires_at", io.jaravel.database.query.QueryState.Op.LTE, Instant.now())
+                .where("expires_at", io.jaravel.database.query.QueryState.Op.LTE, Clock.now())
                 .delete();
     }
 
@@ -203,7 +204,7 @@ public class TokenGuard implements Guard {
         Object expiresAt = row.get().get("expires_at");
         if (expiresAt != null) {
             Instant expiry = io.jaravel.support.Cast.to(expiresAt, Instant.class);
-            if (Instant.now().isAfter(expiry)) return Optional.empty();
+            if (Clock.now().isAfter(expiry)) return Optional.empty();
         }
 
         return Optional.of(new TokenRecord(id, row.get().get("user_id")));
@@ -218,7 +219,7 @@ public class TokenGuard implements Guard {
     private void touchLastUsed(long tokenId) {
         try {
             connection.table(table).where("id", tokenId)
-                    .update(Map.of("last_used_at", Instant.now()));
+                    .update(Map.of("last_used_at", Clock.now()));
         } catch (RuntimeException e) {
             // 列不存在或库只读 —— 认证已经成功,不该因为审计写失败而拒绝请求
         }

@@ -10,8 +10,8 @@ import java.util.function.Consumer;
 
 import io.jaravel.database.Row;
 import io.jaravel.database.query.QueryBuilder;
-import io.jaravel.database.query.QueryState;
 import io.jaravel.database.query.QueryState.Op;
+import io.jaravel.database.query.QueryState;
 import io.jaravel.eloquent.Eloquent;
 import io.jaravel.eloquent.Model;
 import io.jaravel.eloquent.ModelNotFoundException;
@@ -19,6 +19,7 @@ import io.jaravel.eloquent.meta.Col;
 import io.jaravel.eloquent.meta.ModelMeta;
 import io.jaravel.eloquent.meta.RelPath;
 import io.jaravel.eloquent.relations.RelationLoader;
+import io.jaravel.support.Clock;
 import io.jaravel.support.Coll;
 import io.jaravel.support.Cursor;
 import io.jaravel.support.Cursored;
@@ -689,7 +690,7 @@ public class Query<M extends Model<M>> {
         Map<String, Object> byName = new LinkedHashMap<>();
         values.forEach((col, v) -> byName.put(col.name(), v));
         if (meta.timestamps()) {
-            meta.column("updated_at").ifPresent(c -> byName.put(c.name(), java.time.Instant.now()));
+            meta.column("updated_at").ifPresent(c -> byName.put(c.name(), Clock.now()));
         }
         return builder.update(byName);
     }
@@ -698,7 +699,7 @@ public class Query<M extends Model<M>> {
     public int delete() {
         prepare();
         if (meta.softDeletes()) {
-            return builder.update(Map.of(meta.softDeleteColumn(), java.time.Instant.now()));
+            return builder.update(Map.of(meta.softDeleteColumn(), Clock.now()));
         }
         return builder.delete();
     }

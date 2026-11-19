@@ -9,7 +9,6 @@
 |---|---|---|
 | `@RefreshDatabase` 等隔离注解 | 未实现 | 当前只有默认事务回滚与 `@WithoutRollback` |
 | `AppTest`(容器 + 数据库,无 HTTP) | 未实现 | 用 `@SpringBootTest` 或 `FeatureTest` 代替 |
-| `Clock` 时间控制 | 未实现 | 见 docs/14 §4.2 |
 | `UploadedFile.fake()` | 未实现 | 测试里可直接 `new UploadedFile(...)` |
 | 工厂 `Post.factory()` APT / `make:factory` | 未实现 | 现有 `Factory.of(ModelMeta, ...)` 手写 |
 | `Factory.Faker` 的 `datafaker` / locale | 未实现 | 内置最小 Faker |

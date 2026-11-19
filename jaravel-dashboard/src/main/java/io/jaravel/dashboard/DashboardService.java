@@ -15,6 +15,7 @@ import io.jaravel.queue.FailedJobStore;
 import io.jaravel.queue.QueueManager;
 import io.jaravel.queue.QueueStore;
 import io.jaravel.queue.QueuedJob;
+import io.jaravel.support.Clock;
 
 /**
  * 队列监控面板的数据聚合(docs/10 §1.8)。
@@ -146,7 +147,7 @@ public final class DashboardService {
             }
         }
 
-        return new Overview(Instant.now(), List.copyOf(stats), all.size(),
+        return new Overview(Clock.now(), List.copyOf(stats), all.size(),
                 failedViews, recentBatches, workerStat, List.copyOf(warnings));
     }
 

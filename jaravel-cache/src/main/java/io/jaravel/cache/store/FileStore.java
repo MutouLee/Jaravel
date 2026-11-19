@@ -13,6 +13,7 @@ import java.util.Optional;
 import java.util.stream.Stream;
 
 import io.jaravel.cache.CacheStore;
+import io.jaravel.support.Clock;
 
 /**
  * 文件系统驱动。本地开发用:重启不丢、无需额外服务。
@@ -67,7 +68,7 @@ public class FileStore implements CacheStore {
             }
 
             long expiresAt = Long.parseLong(content.substring(0, newline).trim());
-            if (expiresAt > 0 && System.currentTimeMillis() >= expiresAt) {
+            if (expiresAt > 0 && Clock.millis() >= expiresAt) {
                 Files.deleteIfExists(file);
                 return Optional.empty();
             }
@@ -86,7 +87,7 @@ public class FileStore implements CacheStore {
     @Override
     public synchronized void put(String key, Object value, Duration ttl) {
         Path file = pathFor(key);
-        long expiresAt = ttl == null ? 0 : System.currentTimeMillis() + ttl.toMillis();
+        long expiresAt = ttl == null ? 0 : Clock.millis() + ttl.toMillis();
         String content = expiresAt + "\n" + JsonBridge.write(value);
 
         try {
@@ -126,7 +127,7 @@ public class FileStore implements CacheStore {
 
             long expiresAt = Long.parseLong(content.substring(0, newline).trim());
             if (expiresAt == 0) return Optional.of(Duration.ZERO);
-            long remaining = expiresAt - System.currentTimeMillis();
+            long remaining = expiresAt - Clock.millis();
             return remaining > 0
                     ? Optional.of(Duration.ofMillis(remaining))
                     : Optional.empty();
@@ -173,7 +174,7 @@ public class FileStore implements CacheStore {
         if (get(key).isPresent()) return false;
 
         Path file = pathFor(key);
-        long expiresAt = ttl == null ? 0 : System.currentTimeMillis() + ttl.toMillis();
+        long expiresAt = ttl == null ? 0 : Clock.millis() + ttl.toMillis();
         String content = expiresAt + "\n" + JsonBridge.write(value);
 
         try {
@@ -243,7 +244,7 @@ public class FileStore implements CacheStore {
                     .findFirst().orElse("0");
             long expiresAt = Long.parseLong(firstLine.trim());
             if (expiresAt <= 0) return null;
-            long remaining = expiresAt - System.currentTimeMillis();
+            long remaining = expiresAt - Clock.millis();
             return remaining > 0 ? Duration.ofMillis(remaining) : Duration.ofMillis(1);
         } catch (IOException | NumberFormatException e) {
             return null;

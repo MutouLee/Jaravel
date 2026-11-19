@@ -36,6 +36,19 @@
     <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-security-bridge</artifactId></dependency>
     <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-testing</artifactId></dependency>
     <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-spring-boot-starter</artifactId></dependency>
+    <!--
+      时间源规则(no_direct_clock_reads)要覆盖的其余模块。
+      它们此前不在这个 classpath 上,于是 ArchUnit 根本没有导入它们的字节码 ——
+      规则对它们是静默通过的,而「静默通过」比没有规则更糟。
+    -->
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-events</artifactId></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-scheduler</artifactId></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-mail</artifactId></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-notifications</artifactId></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-storage</artifactId></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-dashboard</artifactId></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-http-client</artifactId></dependency>
+    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-permissions</artifactId></dependency>
 
     <dependency>
       <groupId>com.tngtech.archunit</groupId>

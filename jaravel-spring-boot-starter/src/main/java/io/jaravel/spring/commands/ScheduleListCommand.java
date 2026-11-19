@@ -9,6 +9,7 @@ import java.util.function.Supplier;
 import io.jaravel.console.Command;
 import io.jaravel.console.ConsoleCommand;
 import io.jaravel.scheduler.Scheduler;
+import io.jaravel.support.Clock;
 
 /**
  * {@code jaravel schedule:list}(docs/13 §2.4)。
@@ -32,7 +33,7 @@ public final class ScheduleListCommand extends ConsoleCommand {
 
     @Override
     public int handle() {
-        List<Scheduler.Entry> entries = scheduler.get().list(ZonedDateTime.now());
+        List<Scheduler.Entry> entries = scheduler.get().list(Clock.zoned());
         if (entries.isEmpty()) {
             comment("没有计划任务(在 ScheduleDefinition 里用 s.call(...) 登记)。");
             return 0;

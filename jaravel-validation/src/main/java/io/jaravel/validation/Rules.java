@@ -16,6 +16,8 @@ import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
+import io.jaravel.support.Clock;
+
 /**
  * 全部内置规则的实现。
  *
@@ -815,13 +817,13 @@ final class Rules {
 
     static Instant parseRelative(String expression) {
         String e = expression.trim().toLowerCase();
-        Instant now = Instant.now();
+        Instant now = Clock.now();
 
         switch (e) {
             case "now":       return now;
-            case "today":     return LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant();
-            case "tomorrow":  return LocalDate.now().plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant();
-            case "yesterday": return LocalDate.now().minusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant();
+            case "today":     return Clock.localDate().atStartOfDay(ZoneId.systemDefault()).toInstant();
+            case "tomorrow":  return Clock.localDate().plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant();
+            case "yesterday": return Clock.localDate().minusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant();
             default: break;
         }
 
@@ -834,9 +836,9 @@ final class Rules {
                 case "hour"   -> now.plusSeconds(amount * 3600);
                 case "day"    -> now.plusSeconds(amount * 86_400);
                 case "week"   -> now.plusSeconds(amount * 604_800);
-                case "month"  -> LocalDateTime.now().plusMonths(amount)
+                case "month"  -> Clock.localDateTime().plusMonths(amount)
                                      .atZone(ZoneId.systemDefault()).toInstant();
-                case "year"   -> LocalDateTime.now().plusYears(amount)
+                case "year"   -> Clock.localDateTime().plusYears(amount)
                                      .atZone(ZoneId.systemDefault()).toInstant();
                 default -> null;
             };

@@ -8,6 +8,7 @@ import io.jaravel.console.Command;
 import io.jaravel.console.ConsoleCommand;
 import io.jaravel.scheduler.ScheduledTask;
 import io.jaravel.scheduler.Scheduler;
+import io.jaravel.support.Clock;
 
 /**
  * {@code jaravel schedule:run}(docs/13 §2.4)—— 执行此刻到期的任务。
@@ -29,7 +30,7 @@ public final class ScheduleRunCommand extends ConsoleCommand {
 
     @Override
     public int handle() {
-        List<ScheduledTask> ran = scheduler.get().runDue(ZonedDateTime.now());
+        List<ScheduledTask> ran = scheduler.get().runDue(Clock.zoned());
 
         if (ran.isEmpty()) {
             // 「没有到期的」是正常结果:外部触发模式下这条命令每分钟跑一次,

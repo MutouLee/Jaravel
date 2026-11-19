@@ -7,6 +7,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.jaravel.database.Connection;
+import io.jaravel.support.Clock;
 
 /**
  * 一次待投递的配置。由 {@link Queue#job(ShouldQueue)} 创建,
@@ -198,7 +199,7 @@ public final class PendingDispatch {
         }
 
         var envelope = QueuedJob.of(job, target,
-                queues.serializer().toData(job), Instant.now(), delay);
+                queues.serializer().toData(job), Clock.now(), delay);
         this.uuid = envelope.uuid();
 
         // 唯一性在**投递时**判定。执行时判定意味着重复任务已经占了

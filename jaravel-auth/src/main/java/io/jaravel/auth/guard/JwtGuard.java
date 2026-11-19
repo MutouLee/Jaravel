@@ -9,6 +9,7 @@ import io.jaravel.auth.Authenticatable;
 import io.jaravel.auth.Guard;
 import io.jaravel.auth.UserProvider;
 import io.jaravel.cache.Repository;
+import io.jaravel.support.Clock;
 
 /**
  * 无状态 JWT 认证。
@@ -200,7 +201,7 @@ public class JwtGuard implements Guard {
     private Duration remainingLifetime(Map<String, Object> claims) {
         Object exp = claims.get("exp");
         if (exp instanceof Number n) {
-            long seconds = n.longValue() - java.time.Instant.now().getEpochSecond();
+            long seconds = n.longValue() - Clock.now().getEpochSecond();
             return seconds > 0 ? Duration.ofSeconds(seconds) : Duration.ofSeconds(1);
         }
         // 没有 exp 的 token 永不过期 —— 黑名单只能也永久保留

@@ -11,6 +11,7 @@ import io.jaravel.http.Middleware;
 import io.jaravel.http.Request;
 import io.jaravel.http.Response;
 import io.jaravel.session.Session;
+import io.jaravel.support.Clock;
 
 /**
  * 二次密码确认:{@code middleware("auth", "password.confirm")}。
@@ -75,7 +76,7 @@ public class ConfirmPassword implements Middleware.Parameterized {
 
         return Session.get(SESSION_KEY, Long.class)
                 .map(Instant::ofEpochSecond)
-                .filter(at -> at.plus(validity).isAfter(Instant.now()))
+                .filter(at -> at.plus(validity).isAfter(Clock.now()))
                 .isPresent();
     }
 
@@ -86,7 +87,7 @@ public class ConfirmPassword implements Middleware.Parameterized {
      * 而那里拿不到中间件实例。
      */
     public static void markConfirmed() {
-        Session.put(SESSION_KEY, Instant.now().getEpochSecond());
+        Session.put(SESSION_KEY, Clock.now().getEpochSecond());
     }
 
     /** 清掉确认状态 —— 改密码后应该调用 */

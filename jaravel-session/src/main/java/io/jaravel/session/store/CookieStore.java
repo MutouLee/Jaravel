@@ -9,6 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import io.jaravel.core.crypt.Encrypter;
 import io.jaravel.session.SessionStore;
+import io.jaravel.support.Clock;
 
 /**
  * 把整个会话加密后存进客户端 cookie —— 服务端零状态。
@@ -79,7 +80,7 @@ public class CookieStore implements SessionStore {
             // 校验过期:cookie 的 Max-Age 由浏览器执行,但攻击者可以保留
             // 一个过期 cookie 继续发。服务端必须自己再判一次。
             Object expiresAt = data.get("_expires_at");
-            if (expiresAt instanceof Number n && System.currentTimeMillis() >= n.longValue()) {
+            if (expiresAt instanceof Number n && Clock.millis() >= n.longValue()) {
                 return Optional.empty();
             }
             return Optional.of(new LinkedHashMap<>(data));
@@ -94,7 +95,7 @@ public class CookieStore implements SessionStore {
         var payload = new LinkedHashMap<>(data);
         payload.put("_expires_at", lifetime == null
                 ? Long.MAX_VALUE
-                : System.currentTimeMillis() + lifetime.toMillis());
+                : Clock.millis() + lifetime.toMillis());
 
         String json;
         try {

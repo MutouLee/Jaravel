@@ -18,6 +18,7 @@ import com.rabbitmq.client.GetResponse;
 import io.jaravel.queue.JobSerializer;
 import io.jaravel.queue.QueueStore;
 import io.jaravel.queue.QueuedJob;
+import io.jaravel.support.Clock;
 
 /**
  * RabbitMQ 队列驱动(docs/10 §1.5)。基于官方 {@code amqp-client}。
@@ -150,7 +151,7 @@ public class RabbitQueue implements QueueStore, AutoCloseable {
             Channel c = ch();
             declare(job.queue(), c);
 
-            long now = System.currentTimeMillis();
+            long now = Clock.millis();
             long availableAt = job.availableAt() == null ? now : job.availableAt().toEpochMilli();
             long delay = Math.max(0, availableAt - now);
 

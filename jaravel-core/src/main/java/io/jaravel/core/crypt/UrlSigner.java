@@ -13,6 +13,8 @@ import java.util.TreeMap;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
+import io.jaravel.support.Clock;
+
 /**
  * 签名 URL:把一个链接做成「不可篡改 + 可过期」的。
  *
@@ -82,7 +84,7 @@ public final class UrlSigner {
         params.remove(SIGNATURE_PARAM);     // 重复签名时先去掉旧签名
         if (ttl != null) {
             params.put(EXPIRES_PARAM,
-                       String.valueOf(Instant.now().plus(ttl).getEpochSecond()));
+                       String.valueOf(Clock.now().plus(ttl).getEpochSecond()));
         }
 
         String signature = compute(parsed.base(), params);
@@ -129,7 +131,7 @@ public final class UrlSigner {
             } catch (NumberFormatException e) {
                 throw new InvalidSignatureException("expires 不是合法的时间戳:" + expires);
             }
-            if (Instant.now().getEpochSecond() > deadline) {
+            if (Clock.now().getEpochSecond() > deadline) {
                 throw new InvalidSignatureException(
                         "链接已过期(" + Instant.ofEpochSecond(deadline) + ")。"
                       + "\n  请重新获取一个新链接。");

@@ -13,6 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import io.jaravel.storage.Filesystem;
 import io.jaravel.storage.PathGuard;
+import io.jaravel.support.Clock;
 
 /**
  * 内存驱动 —— 测试用(docs/11 §3.2)。
@@ -109,7 +110,7 @@ public class MemoryFilesystem implements Filesystem {
 
     @Override
     public void put(String path, byte[] contents) {
-        files.put(key(path), new Entry(contents.clone(), Instant.now(),
+        files.put(key(path), new Entry(contents.clone(), Clock.now(),
                 defaultVisibility));
     }
 
@@ -146,7 +147,7 @@ public class MemoryFilesystem implements Filesystem {
         var entry = files.get(key(from));
         if (entry == null) throw new FileNotFoundException("内存里没有 " + from);
 
-        files.put(key(to), new Entry(entry.content().clone(), Instant.now(),
+        files.put(key(to), new Entry(entry.content().clone(), Clock.now(),
                 entry.visibility()));
     }
 

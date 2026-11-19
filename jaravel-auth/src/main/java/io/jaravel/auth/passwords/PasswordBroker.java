@@ -15,6 +15,7 @@ import io.jaravel.auth.Authenticatable;
 import io.jaravel.auth.UserProvider;
 import io.jaravel.auth.provider.AbstractUserProvider;
 import io.jaravel.database.Connection;
+import io.jaravel.support.Clock;
 
 /**
  * 密码重置。
@@ -198,7 +199,7 @@ public class PasswordBroker {
             connection.table(table).insert(Map.of(
                     "email", identifier,
                     "token", sha256(plainToken),
-                    "created_at", Instant.now()));
+                    "created_at", Clock.now()));
         });
     }
 
@@ -217,18 +218,18 @@ public class PasswordBroker {
     private boolean recentlyRequested(String identifier) {
         var record = find(identifier);
         if (record.isEmpty()) return false;
-        return record.get().createdAt().plus(throttle).isAfter(Instant.now());
+        return record.get().createdAt().plus(throttle).isAfter(Clock.now());
     }
 
     private boolean isExpired(Instant createdAt) {
-        return createdAt == null || createdAt.plus(expiry).isBefore(Instant.now());
+        return createdAt == null || createdAt.plus(expiry).isBefore(Clock.now());
     }
 
     /** 清掉所有过期的 token。定时任务调用。 */
     public int purgeExpired() {
         return connection.table(table)
                 .where("created_at", io.jaravel.database.query.QueryState.Op.LT,
-                       Instant.now().minus(expiry))
+                       Clock.now().minus(expiry))
                 .delete();
     }
 

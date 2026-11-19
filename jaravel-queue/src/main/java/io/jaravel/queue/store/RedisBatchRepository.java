@@ -13,6 +13,7 @@ import io.jaravel.queue.Batch;
 import io.jaravel.queue.BatchRepository;
 import io.jaravel.queue.JobSerializer;
 import io.jaravel.queue.QueuedJob;
+import io.jaravel.support.Clock;
 import io.lettuce.core.ScriptOutputType;
 import io.lettuce.core.api.sync.RedisCommands;
 
@@ -82,7 +83,7 @@ public class RedisBatchRepository implements BatchRepository, AutoCloseable {
             throw new IllegalStateException("批次 id 重复:" + id);
         }
 
-        Instant now = Instant.now();
+        Instant now = Clock.now();
         var fields = new LinkedHashMap<String, String>();
         fields.put("id", id);
         fields.put("name", name == null ? "" : name);
@@ -197,7 +198,7 @@ public class RedisBatchRepository implements BatchRepository, AutoCloseable {
     @Override
     public void cancel(String id) {
         commands().eval(CANCEL, ScriptOutputType.INTEGER,
-                new String[]{key(id)}, String.valueOf(System.currentTimeMillis()));
+                new String[]{key(id)}, String.valueOf(Clock.millis()));
     }
 
     private static final String CANCEL = """
@@ -214,7 +215,7 @@ public class RedisBatchRepository implements BatchRepository, AutoCloseable {
     @Override
     public boolean markFinished(String id) {
         Long updated = (Long) commands().eval(FINISH, ScriptOutputType.INTEGER,
-                new String[]{key(id)}, String.valueOf(System.currentTimeMillis()));
+                new String[]{key(id)}, String.valueOf(Clock.millis()));
         return updated != null && updated == 1L;
     }
 
@@ -234,7 +235,7 @@ public class RedisBatchRepository implements BatchRepository, AutoCloseable {
 
     @Override
     public int prune(Duration olderThan) {
-        long cutoff = Instant.now().minus(olderThan).toEpochMilli();
+        long cutoff = Clock.now().minus(olderThan).toEpochMilli();
         List<String> ids = commands().zrangebyscore(index(), "-inf", String.valueOf(cutoff));
 
         int removed = 0;

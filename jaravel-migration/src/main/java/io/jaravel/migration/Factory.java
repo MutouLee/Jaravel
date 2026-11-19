@@ -8,6 +8,7 @@ import java.util.function.Consumer;
 
 import io.jaravel.eloquent.Model;
 import io.jaravel.eloquent.meta.ModelMeta;
+import io.jaravel.support.Clock;
 
 /**
  * 模型工厂 —— 测试与种子数据的造数据工具。
@@ -271,16 +272,16 @@ public final class Factory<M extends Model<M>> {
         /** 过去 n 天内的随机时刻 */
         public java.time.Instant pastInstant(int withinDays) {
             long seconds = longNumber(0, (long) withinDays * 86_400);
-            return java.time.Instant.now().minusSeconds(seconds);
+            return Clock.now().minusSeconds(seconds);
         }
 
         public java.time.Instant futureInstant(int withinDays) {
             long seconds = longNumber(0, (long) withinDays * 86_400);
-            return java.time.Instant.now().plusSeconds(seconds);
+            return Clock.now().plusSeconds(seconds);
         }
 
         public java.time.LocalDate pastDate(int withinDays) {
-            return java.time.LocalDate.now().minusDays(number(0, withinDays));
+            return Clock.localDate().minusDays(number(0, withinDays));
         }
     }
 }

@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 import io.jaravel.core.context.ExecutionScope;
+import io.jaravel.support.Clock;
 
 /**
  * 队列消费者(docs/10 §1.4)。
@@ -136,8 +137,12 @@ public final class QueueWorker {
             throw new IllegalStateException("这个 worker 已经在跑了");
         }
 
+        // ★ maxTime 用**真实**时间(Clock.realNow),不走可冻结的 Clock。
+        // 冻结时间会让一个本该在 maxTime 后退出的 worker 永远跑下去,
+        // 而测试里 Clock.freeze() 很常见 —— 那个失败形态是挂死,
+        // 不是断言失败。边界见 io.jaravel.support.Clock 的类注释。
         Instant deadline = options.hasTimeLimit()
-                ? Instant.now().plus(options.maxTime())
+                ? Clock.realNow().plus(options.maxTime())
                 : null;
 
         try {
@@ -208,7 +213,7 @@ public final class QueueWorker {
 
     private boolean reachedLimits(Instant deadline) {
         if (options.hasJobLimit() && processed.get() >= options.maxJobs()) return true;
-        return deadline != null && !Instant.now().isBefore(deadline);
+        return deadline != null && !Clock.realNow().isBefore(deadline);
     }
 
     /**
@@ -588,7 +593,8 @@ public final class QueueWorker {
     // ================= 失败处理 =================
 
     private void handleFailure(QueuedJob envelope, ShouldQueue job, Throwable cause) {
-        Instant now = Instant.now();
+        // 领域时间:retryUntil 的判定要能被 Clock.travel 拨过去
+        Instant now = Clock.now();
 
         // 真正抛了异常 —— 这一次要计入 exceptions。被中间件 release 的
         // 那些走 applyDecision,不经过这里,所以不计数。
@@ -640,7 +646,7 @@ public final class QueueWorker {
      * 理由见 {@link PendingChain} 的类注释。
      */
     private void advanceChain(QueuedJob envelope) {
-        envelope.nextInChain(Instant.now()).ifPresent(next -> {
+        envelope.nextInChain(Clock.now()).ifPresent(next -> {
             // 下一环可能指定了别的队列,但**连接**与当前相同 ——
             // 跨连接的链会让「链断在哪」变成一个要查两个存储的问题
             store.push(next);
@@ -921,9 +927,10 @@ public final class QueueWorker {
      * 同时执行,于是产生重复副作用。宁可晚一点处理。
      */
     private void drain() {
-        Instant deadline = Instant.now().plus(options.shutdownGrace());
+        // 同 maxTime:关停宽限量的是「真的过了多久」
+        Instant deadline = Clock.realNow().plus(options.shutdownGrace());
 
-        while (!inFlight.isEmpty() && Instant.now().isBefore(deadline)) {
+        while (!inFlight.isEmpty() && Clock.realNow().isBefore(deadline)) {
             sleepQuietly(Duration.ofMillis(50));
         }
 

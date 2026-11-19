@@ -17,6 +17,7 @@ import io.jaravel.eloquent.query.Query;
 import io.jaravel.eloquent.relations.Rel;
 import io.jaravel.eloquent.relations.RelationLoader;
 import io.jaravel.support.Arr;
+import io.jaravel.support.Clock;
 
 /**
  * Active Record 基类(ADR-010 方案 E')。
@@ -249,9 +250,9 @@ public abstract class Model<M extends Model<M>> {
 
         if (meta.softDeletes()) {
             Query.of(meta).whereKey(keyValue()).rawBuilder()
-                    .update(Map.of(meta.softDeleteColumn(), Instant.now()));
+                    .update(Map.of(meta.softDeleteColumn(), Clock.now()));
             meta.column(meta.softDeleteColumn())
-                .ifPresent(c -> c.fromDatabase(self(), Instant.now()));
+                .ifPresent(c -> c.fromDatabase(self(), Clock.now()));
             markLoaded();
         } else {
             Query.of(meta).whereKey(keyValue()).rawBuilder().delete();
@@ -516,7 +517,7 @@ public abstract class Model<M extends Model<M>> {
     private void touchTimestamps(boolean creating) {
         ModelMeta<M> meta = meta();
         if (!meta.timestamps()) return;
-        Instant now = Instant.now();
+        Instant now = Clock.now();
         if (creating) {
             meta.column("created_at").ifPresent(c -> {
                 if (c.get(self()) == null) c.fromDatabase(self(), now);

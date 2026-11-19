@@ -354,6 +354,47 @@ class ArchitectureBoundaryTest {
         rule.check(jaravelClasses);
     }
 
+    /**
+     * 允许直接读真实挂钟的类 —— 每一条都要有理由。
+     *
+     * <p>这不是「暂时豁免」清单,而是**存活性计时**的清单:它们量的是
+     * 「真的过了多久」,冻结时间会让它们永远等不到截止点。
+     * 一个本该 5 秒后退出的 worker 变成挂死,比断言失败难查得多。
+     */
+    private static final String[] REAL_CLOCK_ALLOWED = {
+            // 时间源本身
+            "io.jaravel.support.Clock",
+            // WebSocket 心跳:客户端多久没说话 → 回收死连接
+            "io.jaravel.spring.broadcast.WsConnection",
+    };
+
+    @Test
+    @DisplayName("★ docs/14 §4.2:框架内部的时间读取一律走 Clock 门面")
+    void noDirectClockReads() {
+        // 这条规则是 Clock 能用的前提。漏一处的后果不是「少测一点」,
+        // 而是**时间旅行对那条路径静默失效** —— 测试里把时间拨了七天,
+        // 某个过期判定没反应,而失败看起来像业务逻辑写错了。
+        //
+        // 只禁挂钟:System.nanoTime() 不在禁列。它是单调时钟,
+        // 用来量「这段代码跑了多久」是正确的,而且不受时间旅行影响
+        // (也不该受)。
+        ArchRule rule = noClasses()
+                .that().resideInAPackage("io.jaravel..")
+                .and().doNotHaveFullyQualifiedName(REAL_CLOCK_ALLOWED[0])
+                .and().doNotHaveFullyQualifiedName(REAL_CLOCK_ALLOWED[1])
+                .should().callMethod(java.time.Instant.class, "now")
+                .orShould().callMethod(java.time.LocalDateTime.class, "now")
+                .orShould().callMethod(java.time.ZonedDateTime.class, "now")
+                .orShould().callMethod(java.time.LocalDate.class, "now")
+                .orShould().callMethod(System.class, "currentTimeMillis")
+                .because("docs/14 §4.2:Clock.freeze / travel 只有在所有领域时间读取"
+                       + "都走 Clock 时才成立。存活性计时用 Clock.realNow(),"
+                       + "并登记进 REAL_CLOCK_ALLOWED —— 逐条写明理由")
+                .allowEmptyShould(true);
+
+        rule.check(jaravelClasses);
+    }
+
     @Test
     @DisplayName("核心模块不得直连具体日志实现(只允许 SLF4J 抽象)")
     void noDirectLoggingImplementation() {

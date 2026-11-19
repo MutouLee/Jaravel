@@ -21,6 +21,16 @@
   Publishing)、`RELEASE.md`、`SECURITY.md`、`KNOWN-ISSUES.md`。
 - **视图引擎修复**:从 fat jar 运行时即使当前目录有 `views/` 也用预编译
   引擎,避免 `java -jar` 从项目根目录启动时报「必须预编译」。
+- **`Clock` 时间源**(`io.jaravel.support.Clock`,docs/14 §4.2)——
+  `freeze` / `travel` / `travelTo` / `withFrozen` / `reset`。框架内 **106 处**
+  领域时间读取(模型时间戳、令牌与签名过期、缓存 TTL、任务可见时刻、
+  调度器下次执行)改走它;存活性计时(worker 的 `maxTime` 与关停宽限、
+  WebSocket 心跳)显式走 `Clock.realNow()` —— 冻结时钟会让一个本该退出的
+  循环挂死。这条边界由 ArchUnit 阻断式强制(`noDirectClockReads`,
+  白名单逐条写明理由),并补齐了 `jaravel-archunit-rules` 的 classpath:
+  不在 classpath 上的模块,规则对它们是静默通过的。
+  端到端证据:`examples/auth` 里「重置令牌 61 分钟后失效 / 59 分钟仍有效」
+  两条测试 —— 此前这类规则只能靠睡一小时或把过期配成 1 毫秒来「测」。
 - **`Queue.fake()`**(docs/14 §4)—— 投递被记录而不入队,断言写在任务
   **实例**上(`queue.assertPushed(SendInvoice.class, j -> j.invoiceId().equals(id))`);
   覆盖 `assertPushed`(三个重载)/ `assertPushedOnQueue` / `assertNotPushed` /

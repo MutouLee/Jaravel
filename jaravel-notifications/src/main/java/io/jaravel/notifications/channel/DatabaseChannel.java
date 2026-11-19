@@ -8,10 +8,11 @@ import java.util.UUID;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.jaravel.database.Connection;
+import io.jaravel.notifications.HasDatabase;
 import io.jaravel.notifications.Notifiable;
 import io.jaravel.notifications.Notification;
-import io.jaravel.notifications.HasDatabase;
 import io.jaravel.notifications.NotificationChannel;
+import io.jaravel.support.Clock;
 
 /**
  * database 渠道 —— 站内通知(docs/11 §2.4)。
@@ -99,7 +100,7 @@ public class DatabaseChannel implements NotificationChannel {
         row.put("notifiable_id", String.valueOf(notifiable.notifiableId()));
         row.put("data", encode(notification, data));
         row.put("read_at", null);
-        row.put("created_at", Instant.now());
+        row.put("created_at", Clock.now());
 
         connection.table(table).insert(row);
     }

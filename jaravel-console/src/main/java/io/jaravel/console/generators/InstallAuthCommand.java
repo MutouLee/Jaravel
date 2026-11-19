@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import io.jaravel.console.Command;
+import io.jaravel.support.Clock;
 
 /**
  * {@code jaravel install:auth}(docs/13 §2.1 / docs/08)。
@@ -28,7 +29,7 @@ public final class InstallAuthCommand extends GeneratorCommand {
         }
 
         String migrationPackage = "database.migrations.m"
-                + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy_MM_dd_HHmmss"));
+                + Clock.localDateTime().format(DateTimeFormatter.ofPattern("yyyy_MM_dd_HHmmss"));
         Map<String, String> values = Map.of("migrationPackage", migrationPackage);
 
         Map<Path, String> files = new LinkedHashMap<>();

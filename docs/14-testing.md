@@ -23,7 +23,7 @@ Laravel 的测试体验是其被低估的优势:一行 `$this->get('/users')->as
 | Testcontainers 自动注入(`@UseDatabase`) | ✅ v0.8(默认关闭,见 §2.2) |
 | 并行测试(`jaravel test --parallel` + 每进程测试库) | ✅ v0.8(见 §6.3) |
 | 模型工厂(§3) | ⏳ 只有 `Factory` 基类;`Post.factory()` 的 APT 生成与 `make:factory` **仍未实现** |
-| Fake(§4) | ⚠️ 部分 —— Mail / Event / Storage / Notifications / Broadcast / Http / **Queue** / **Cache** 已有;`Clock`、`UploadedFile.fake()` 未实现 |
+| Fake(§4) | ⚠️ 部分 —— Mail / Event / Storage / Notifications / Broadcast / Http / Queue / Cache 已有,`Clock` 时间控制已有;`UploadedFile.fake()` 未实现 |
 | `@RefreshDatabase` 等隔离策略注解 | ⏳ 未实现;当前只有默认事务回滚与 `@WithoutRollback` |
 | `AppTest`(容器 + 数据库,无 HTTP,§5) | ⏳ 未实现;当前只有 `JaravelTestApplication` + `FeatureTest` |
 
@@ -429,8 +429,9 @@ Faker 用 `net.datafaker:datafaker`,支持 `locale: zh_CN`。
 > `Notifications.assertSentTo(...)`),不返回示例里的记录器;
 > `Storage.fake(...)` 返回 `FakeDisk`,`Queue.fake()` 返回
 > `QueueFake` —— 示例里 `disk` 与 `queue` 的用法都成立。
-> 仍未实现:`Clock` 时间控制、`UploadedFile.fake()`。
-> `Cache.fake()` 返回 `CacheFake`(记录命中/未命中/写入/删除)。
+> 仍未实现:`UploadedFile.fake()`。
+> `Cache.fake()` 返回 `CacheFake`(记录命中/未命中/写入/删除);
+> `Clock` 见 §4.2。
 > 门面名是 `Notifications`(`Notification` 是通知的基类)。
 > 事件的部分假实现是 `Event.fake(OrderPaid.class)`(只假装指定类型,
 > 其余照常分发),没有 `fakeExcept`。
@@ -459,25 +460,67 @@ Event.fake(OrderPaid.class);              // 只假装这一个,其余照常分�
 
 ### 4.2 时间控制
 
-> ⚠ **`Clock` 门面尚未实现**;这一节是设计,当前还不能冻结/快进时间。
-
 ```java
-Clock.freeze();
+Clock.freeze();                            // 停在此刻
 Clock.freeze(Instant.parse("2026-01-01T00:00:00Z"));
-Clock.travel(Duration.ofDays(7));
+Clock.travel(Duration.ofDays(7));          // 快进七天
 Clock.travelTo(instant);
-Clock.withFrozen(instant, () -> { ... });
-Clock.reset();                            // 由 JUnit 扩展自动调用
+Clock.withFrozen(instant, () -> { ... });  // 只在这一段里冻结
+Clock.reset();                             // FeatureTest 每个测试前自动调
 ```
 
-所有框架内部的时间读取一律走 `Clock` 门面(而非 `Instant.now()`),否则时间旅行无效。**这是一条架构约束**,需要 ArchUnit 规则强制:
+门面是 `io.jaravel.support.Clock`(在 support 模块 —— 每个模块都要用它,
+它必须在最底层)。`FeatureTest` / `BrowserTest` 在每个测试前 `reset()`:
+漏出去的冻结时间会让后面的测试以「令牌莫名过期/莫名不过期」失败,
+而且只在特定执行顺序下出现。
+
+这是它解决的问题:一条「密码重置链接 60 分钟后失效」的规则,
+若时间只能靠 `Instant.now()` 读,测它只有两条路 —— **睡一小时**,
+或者把 `expire` 配成 1 毫秒再 `sleep(2)`(那测的是「1 毫秒会不会过期」,
+不是那条规则)。于是这类逻辑在多数项目里**没有测试**,而它们恰好
+最容易写错。现在是:
 
 ```java
-@ArchTest static final ArchRule no_direct_now =
-    noClasses().that().resideInAPackage("io.jaravel..")
-        .should().callMethod(Instant.class, "now")
-        .orShould().callMethod(LocalDateTime.class, "now");
+io.jaravel.support.Clock.travel(Duration.ofMinutes(61));
+post("/reset-password", ...).assertSessionHasErrors("token");
 ```
+
+(`examples/auth` 的 `AuthFeatureTest.tokenExpiresAfterConfiguredWindow`,
+以及它的反面 `tokenStillValidWithinWindow` —— 后者把「总是失效」排除掉。)
+
+#### ★ 领域时间走 Clock,存活性计时不走
+
+所有**领域**时间读取一律走 `Clock`:模型时间戳、令牌与签名过期、
+缓存 TTL、任务的可见时刻与延迟、调度器的下次执行时间。
+
+**存活性计时**显式用 `Clock.realNow()`:worker 的 `maxTime` 与关停宽限、
+WebSocket 心跳。它们量的是「真的过了多久」—— 走可冻结的时钟会让一个
+本该 5 秒后退出的循环**永远跑下去**,而挂死比断言失败难查得多。
+
+`System.nanoTime()` 不受这条约束:它是单调时钟,量「这段代码跑了多久」
+本来就该用它。
+
+这条边界由 ArchUnit **阻断式**强制(`ArchitectureBoundaryTest`
+的 `noDirectClockReads`),白名单逐条写明理由:
+
+```java
+ArchRule rule = noClasses()
+        .that().resideInAPackage("io.jaravel..")
+        .and().doNotHaveFullyQualifiedName("io.jaravel.support.Clock")
+        .and().doNotHaveFullyQualifiedName("io.jaravel.spring.broadcast.WsConnection")
+        .should().callMethod(Instant.class, "now")
+        .orShould().callMethod(LocalDateTime.class, "now")
+        .orShould().callMethod(ZonedDateTime.class, "now")
+        .orShould().callMethod(LocalDate.class, "now")
+        .orShould().callMethod(System.class, "currentTimeMillis");
+```
+
+> 这条规则要能**真的**拦住东西才有意义:把 `Clock` 从白名单里拿掉跑一次,
+> 它报出 Clock 自己的 4 处 `Instant.now()` —— 验证过了,再放回去。
+> 为此 `jaravel-archunit-rules` 的 classpath 也补齐了 scheduler / mail /
+> notifications / storage / dashboard / http-client / permissions / events:
+> 不在 classpath 上的模块,ArchUnit 根本没导入它们的字节码,
+> 规则对它们是**静默通过**的 —— 那比没有规则更糟。
 
 ### 4.3 HTTP 客户端假实现
 
@@ -800,9 +843,9 @@ public class JaravelExtension implements BeforeAllCallback, BeforeEachCallback,
 - [ ] 测试隔离注解(`@RefreshDatabase` / `@DatabaseTransactions` /
   `@DatabaseMigrations` / `@WithoutDatabase`)与 `AppTest` 未实现;当前只有
   默认事务回滚、`@WithoutRollback` 与 `FeatureTest`(§2.1、§5)。
-- [ ] `Clock` 时间控制与 `UploadedFile.fake()` 未实现;`Event.fakeExcept`
-  也不存在,部分假实现用 `Event.fake(types)`(§4)。
-  `Queue.fake()` / `Cache.fake()` 已落地(断言在返回的 `QueueFake` /
-  `CacheFake` 上;各自的边界见那两个类的注释)。
+- [ ] `UploadedFile.fake()` 未实现;`Event.fakeExcept` 也不存在,
+  部分假实现用 `Event.fake(types)`(§4)。
+  `Queue.fake()` / `Cache.fake()` / `Clock` 已落地(断言在返回的
+  `QueueFake` / `CacheFake` 上;各自的边界见那几个类的注释)。
 - [ ] 工厂:`Post.factory()` 的 APT 生成与 `make:factory` 未实现,
   `Factory.Faker` 仍是内置最小实现而非 `datafaker`(§3)。

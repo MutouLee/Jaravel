@@ -209,6 +209,30 @@ class QueueFeatureTest extends FeatureTest {
         return response.json().get("id").asLong();
     }
 
+    /**
+     * 批次相关的现场 —— 只给失败消息用。
+     *
+     * <p>存在的理由见 {@code callbackFiresOnceForManyJobs}:
+     * 「then 没触发」的三种原因在断言失败消息里长得一样,
+     * 而它们的修法完全不同。
+     */
+    private String batchDiagnostics(String batchId) {
+        var batch = Queue.findBatch(batchId);
+        var failed = db.table("failed_jobs").get();
+
+        return "batch=%s pending=%s failed=%s succeeded=%s"
+                .formatted(batchId,
+                        batch.map(b -> String.valueOf(b.pendingJobs())).orElse("?"),
+                        batch.map(b -> String.valueOf(b.failedJobs())).orElse("?"),
+                        batch.map(b -> String.valueOf(b.succeededJobs())).orElse("?"))
+             + " · queue(reports)=" + Queue.size("reports")
+             + " · ledger=" + ledger.entries()
+             + " · failed_jobs=" + failed.stream()
+                    .map(row -> String.valueOf(row.get("exception")))
+                    .map(text -> text.lines().findFirst().orElse(""))
+                    .toList();
+    }
+
     // ================= 投递 =================
 
     @Nested
@@ -919,8 +943,17 @@ class QueueFeatureTest extends FeatureTest {
                     .assertOk().json().get("batch").asText();
             drainUntil("reports", () -> ledger.countStartingWith("then:") > 0);
 
-            assertThat(ledger.countStartingWith("then:")).isEqualTo(1);
+            // ★ 失败时把现场带上。这条测试在本机重负载下偶发
+            // (CI 上没出现过):then 停在 0。而「then 没触发」有三种
+            // 完全不同的原因 —— 队列还没跑完、某个任务最终失败了
+            // (then 的语义是「全部成功」,有失败就永不触发)、
+            // 或者回调投到了别的队列。只断言 then==1 的话,这三者
+            // 的失败消息一模一样:expected 1 but was 0。
+            assertThat(ledger.countStartingWith("then:"))
+                    .as("then 回调应恰好一次。现场:%s", batchDiagnostics(batchId))
+                    .isEqualTo(1);
             assertThat(Queue.findBatch(batchId).orElseThrow().succeededJobs())
+                    .as("现场:%s", batchDiagnostics(batchId))
                     .isEqualTo(8);
         }
 

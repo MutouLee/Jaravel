@@ -13,6 +13,7 @@ import io.jaravel.queue.Batch;
 import io.jaravel.queue.BatchRepository;
 import io.jaravel.queue.JobSerializer;
 import io.jaravel.queue.QueuedJob;
+import io.jaravel.support.Clock;
 
 /**
  * 批次状态存在数据库里(docs/10 §1.5)。
@@ -82,7 +83,7 @@ public class DatabaseBatchRepository implements BatchRepository {
     public Batch create(String id, String name, int totalJobs, boolean allowsFailures,
                         QueuedJob thenCallback, QueuedJob catchCallback,
                         QueuedJob finallyCallback) {
-        Instant now = Instant.now();
+        Instant now = Clock.now();
 
         var row = new LinkedHashMap<String, Object>();
         row.put("id", id);
@@ -225,7 +226,7 @@ public class DatabaseBatchRepository implements BatchRepository {
         connection.update(
                 "update %s set cancelled_at = ? where id = ? and cancelled_at is null"
                         .formatted(wrap(table)),
-                List.of(Instant.now(), id));
+                List.of(Clock.now(), id));
     }
 
     @Override
@@ -235,7 +236,7 @@ public class DatabaseBatchRepository implements BatchRepository {
         int affected = connection.update(
                 "update %s set finished_at = ? where id = ? and finished_at is null"
                         .formatted(wrap(table)),
-                List.of(Instant.now(), id));
+                List.of(Clock.now(), id));
 
         return affected == 1;
     }
@@ -244,7 +245,7 @@ public class DatabaseBatchRepository implements BatchRepository {
 
     @Override
     public int prune(Duration olderThan) {
-        Instant cutoff = Instant.now().minus(olderThan);
+        Instant cutoff = Clock.now().minus(olderThan);
 
         // 只清**已完成**的。在跑的批次被清掉会让它的回调永不触发,
         // 而那个症状(「月度报表跑完了但没收到汇总邮件」)

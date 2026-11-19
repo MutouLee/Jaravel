@@ -7,6 +7,7 @@ import io.jaravel.cache.store.RedisStore;
 import io.jaravel.queue.JobSerializer;
 import io.jaravel.queue.QueueStore;
 import io.jaravel.queue.QueuedJob;
+import io.jaravel.support.Clock;
 import io.lettuce.core.ScriptOutputType;
 import io.lettuce.core.api.sync.RedisCommands;
 
@@ -92,7 +93,7 @@ public class RedisQueue implements QueueStore, AutoCloseable {
 
     @Override
     public String push(QueuedJob job) {
-        long now = System.currentTimeMillis();
+        long now = Clock.millis();
         long availableAt = job.availableAt() == null ? now : job.availableAt().toEpochMilli();
         long delay = Math.max(0, availableAt - now);
 
@@ -112,7 +113,7 @@ public class RedisQueue implements QueueStore, AutoCloseable {
 
     @Override
     public Optional<QueuedJob> pop(String queue, Duration retryAfter) {
-        long now = System.currentTimeMillis();
+        long now = Clock.millis();
         long retry = retryAfter == null
                 ? Duration.ofSeconds(60).toMillis()
                 : Math.max(1, retryAfter.toMillis());
@@ -164,7 +165,7 @@ public class RedisQueue implements QueueStore, AutoCloseable {
 
     @Override
     public void release(QueuedJob job, Duration delay) {
-        long now = System.currentTimeMillis();
+        long now = Clock.millis();
         long wait = delay == null ? 0 : Math.max(0, delay.toMillis());
         long availableAt = now + wait;
 
@@ -183,7 +184,7 @@ public class RedisQueue implements QueueStore, AutoCloseable {
     public boolean touch(QueuedJob job, Duration retryAfter) {
         Object updated = commands().eval(TOUCH, ScriptOutputType.INTEGER,
                 new String[]{reserved(job.queue())},
-                job.uuid(), String.valueOf(System.currentTimeMillis()));
+                job.uuid(), String.valueOf(Clock.millis()));
         return updated instanceof Number n && n.longValue() == 1L;
     }
 

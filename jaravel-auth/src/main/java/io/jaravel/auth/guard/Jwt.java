@@ -16,6 +16,8 @@ import java.util.Set;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
+import io.jaravel.support.Clock;
+
 /**
  * JWT 的签发与校验。只支持 HS256 与 RS256。
  *
@@ -101,7 +103,7 @@ public final class Jwt {
 
     public String issue(Map<String, Object> claims, Duration ttl) {
         var payload = new LinkedHashMap<String, Object>(claims);
-        Instant now = Instant.now();
+        Instant now = Clock.now();
 
         payload.putIfAbsent("iat", now.getEpochSecond());
         if (ttl != null) {
@@ -180,7 +182,7 @@ public final class Jwt {
     }
 
     private void validateTime(Map<String, Object> claims) {
-        long now = Instant.now().getEpochSecond();
+        long now = Clock.now().getEpochSecond();
         long slack = leeway.getSeconds();
 
         Object exp = claims.get("exp");

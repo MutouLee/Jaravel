@@ -9,6 +9,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Expiry;
 
 import io.jaravel.cache.CacheStore;
+import io.jaravel.support.Clock;
 
 /**
  * Caffeine 驱动:进程内,带容量上限与 LRU 淘汰。开发期默认。
@@ -59,7 +60,7 @@ public class CaffeineStore implements CacheStore {
 
     private static long remainingNanos(Entry e) {
         if (e.expiresAtMillis() == 0) return Long.MAX_VALUE;
-        long remaining = e.expiresAtMillis() - System.currentTimeMillis();
+        long remaining = e.expiresAtMillis() - Clock.millis();
         // 已过期的给 1ns,让 Caffeine 立刻淘汰而不是当成永久
         return remaining > 0 ? TimeUnit.MILLISECONDS.toNanos(remaining) : 1L;
     }
@@ -70,7 +71,7 @@ public class CaffeineStore implements CacheStore {
         if (entry == null) return Optional.empty();
         // Caffeine 的淘汰是惰性的,自己再判一次,避免读到刚过期的值
         if (entry.expiresAtMillis() > 0
-                && System.currentTimeMillis() >= entry.expiresAtMillis()) {
+                && Clock.millis() >= entry.expiresAtMillis()) {
             cache.invalidate(key);
             return Optional.empty();
         }
@@ -85,7 +86,7 @@ public class CaffeineStore implements CacheStore {
     /** {@code asMap().compute} 对同一键是原子的 —— 锁的互斥靠它 */
     @Override
     public boolean add(String key, Object value, Duration ttl) {
-        long now = System.currentTimeMillis();
+        long now = Clock.millis();
         var inserted = new boolean[1];
 
         cache.asMap().compute(key, (k, existing) -> {
@@ -104,7 +105,7 @@ public class CaffeineStore implements CacheStore {
         Entry entry = cache.getIfPresent(key);
         if (entry == null) return Optional.empty();
         if (entry.expiresAtMillis() == 0) return Optional.of(Duration.ZERO);
-        long remaining = entry.expiresAtMillis() - System.currentTimeMillis();
+        long remaining = entry.expiresAtMillis() - Clock.millis();
         return remaining > 0 ? Optional.of(Duration.ofMillis(remaining)) : Optional.empty();
     }
 
@@ -120,7 +121,7 @@ public class CaffeineStore implements CacheStore {
 
     @Override
     public long increment(String key, long delta) {
-        long now = System.currentTimeMillis();
+        long now = Clock.millis();
         var result = new long[1];
 
         cache.asMap().compute(key, (k, existing) -> {
@@ -147,7 +148,7 @@ public class CaffeineStore implements CacheStore {
     }
 
     private static long expiryOf(Duration ttl) {
-        return ttl == null ? 0 : System.currentTimeMillis() + ttl.toMillis();
+        return ttl == null ? 0 : Clock.millis() + ttl.toMillis();
     }
 
     public long estimatedSize() {

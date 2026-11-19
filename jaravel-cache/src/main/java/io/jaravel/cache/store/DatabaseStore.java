@@ -8,6 +8,7 @@ import java.util.Optional;
 
 import io.jaravel.cache.CacheStore;
 import io.jaravel.database.Connection;
+import io.jaravel.support.Clock;
 
 /**
  * 数据库驱动:一张 {@code cache} 表。
@@ -50,7 +51,7 @@ public class DatabaseStore implements CacheStore {
         if (row.isEmpty()) return Optional.empty();
 
         long expiresAt = asLong(row.get().get("expires_at"));
-        if (expiresAt > 0 && System.currentTimeMillis() >= expiresAt) {
+        if (expiresAt > 0 && Clock.millis() >= expiresAt) {
             // 惰性清理。不在读路径上发 DELETE 会让过期行越积越多,
             // 而积多了之后 flush 与 count 都会变慢
             forget(key);
@@ -71,7 +72,7 @@ public class DatabaseStore implements CacheStore {
 
         long expiresAt = asLong(row.get().get(EXPIRES_AT));
         if (expiresAt == 0) return Optional.of(Duration.ZERO);
-        long remaining = expiresAt - System.currentTimeMillis();
+        long remaining = expiresAt - Clock.millis();
         return remaining > 0
                 ? Optional.of(Duration.ofMillis(remaining))
                 : Optional.empty();
@@ -79,7 +80,7 @@ public class DatabaseStore implements CacheStore {
 
     @Override
     public void put(String key, Object value, Duration ttl) {
-        long expiresAt = ttl == null ? 0 : System.currentTimeMillis() + ttl.toMillis();
+        long expiresAt = ttl == null ? 0 : Clock.millis() + ttl.toMillis();
         String json = FileStore.JsonBridge.write(value);
 
         // 先删再插,而不是 upsert:upsert 的语法三个方言各不相同
@@ -104,14 +105,14 @@ public class DatabaseStore implements CacheStore {
         var existing = connection.table(table).where("key", key).get().first();
         if (existing.isPresent()) {
             long expiresAt = asLong(existing.get().get("expires_at"));
-            if (expiresAt > 0 && System.currentTimeMillis() >= expiresAt) {
+            if (expiresAt > 0 && Clock.millis() >= expiresAt) {
                 deleteIfExpired(key);
             } else {
                 return false;
             }
         }
 
-        long expiresAt = ttl == null ? 0 : System.currentTimeMillis() + ttl.toMillis();
+        long expiresAt = ttl == null ? 0 : Clock.millis() + ttl.toMillis();
         try {
             connection.table(table).insert(Map.of(
                     "key", key,
@@ -164,7 +165,7 @@ public class DatabaseStore implements CacheStore {
                 .where("key", key)
                 .where(EXPIRES_AT, io.jaravel.database.query.QueryState.Op.GT, 0)
                 .where(EXPIRES_AT, io.jaravel.database.query.QueryState.Op.LTE,
-                       System.currentTimeMillis())
+                       Clock.millis())
                 .delete();
     }
 
@@ -223,7 +224,7 @@ public class DatabaseStore implements CacheStore {
         if (row.isEmpty()) return null;
         long expiresAt = asLong(row.get().get("expires_at"));
         if (expiresAt <= 0) return null;
-        long remaining = expiresAt - System.currentTimeMillis();
+        long remaining = expiresAt - Clock.millis();
         return remaining > 0 ? remaining : 1L;
     }
 
@@ -234,7 +235,7 @@ public class DatabaseStore implements CacheStore {
         // 一条 IN 查询而不是 N 条 —— database 驱动最大的成本是往返次数
         var rows = connection.table(table).whereIn("key", keys).get();
         var out = new LinkedHashMap<String, Object>();
-        long now = System.currentTimeMillis();
+        long now = Clock.millis();
 
         for (var row : rows) {
             long expiresAt = asLong(row.get("expires_at"));
@@ -256,7 +257,7 @@ public class DatabaseStore implements CacheStore {
         return connection.table(table)
                 .where("expires_at", io.jaravel.database.query.QueryState.Op.GT, 0)
                 .where("expires_at", io.jaravel.database.query.QueryState.Op.LTE,
-                       System.currentTimeMillis())
+                       Clock.millis())
                 .delete();
     }
 

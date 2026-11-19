@@ -14,6 +14,7 @@ import io.jaravel.eloquent.meta.ModelMeta;
 import io.jaravel.eloquent.meta.ModelRegistry;
 import io.jaravel.eloquent.meta.RelationDef;
 import io.jaravel.eloquent.query.Query;
+import io.jaravel.support.Clock;
 
 /**
  * 各类关联的 SQL 逻辑。按 {@link RelationDef.Kind} 分派。
@@ -160,7 +161,7 @@ public final class RelationSupport {
             row.put(def.relatedPivotKey(), key);
             pivotValues.forEach(row::put);
             if (def.pivotTimestamps()) {
-                Instant now = Instant.now();
+                Instant now = Clock.now();
                 row.put("created_at", now);
                 row.put("updated_at", now);
             }

@@ -59,7 +59,7 @@ public final class DateX implements Comparable<DateX> {
     // ================= 构造 =================
 
     public static DateX now() {
-        return new DateX(ZonedDateTime.now());
+        return new DateX(Clock.zoned());
     }
 
     public static DateX now(ZoneId zone) {
@@ -235,8 +235,8 @@ public final class DateX implements Comparable<DateX> {
         return !isWeekend();
     }
 
-    public boolean isPast()   { return at.toInstant().isBefore(Instant.now()); }
-    public boolean isFuture() { return at.toInstant().isAfter(Instant.now()); }
+    public boolean isPast()   { return at.toInstant().isBefore(Clock.now()); }
+    public boolean isFuture() { return at.toInstant().isAfter(Clock.now()); }
 
     public boolean isToday() {
         return at.toLocalDate().equals(LocalDate.now(at.getZone()));

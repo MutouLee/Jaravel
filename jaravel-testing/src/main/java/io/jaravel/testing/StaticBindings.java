@@ -81,6 +81,11 @@ final class StaticBindings {
     }
 
     static void bind(ApplicationContext context) {
+        // 时间回到真实时间(docs/14 §4.2)。漏出去的冻结时间会让后面的
+        // 测试以「令牌莫名过期 / 莫名不过期」失败,且只在特定执行顺序下
+        // 出现 —— 与门面指向错上下文是同一类故障。
+        io.jaravel.support.Clock.reset();
+
         Container container = bean(context, Container.class);
         if (container != null) {
             Application.bootstrap(container);

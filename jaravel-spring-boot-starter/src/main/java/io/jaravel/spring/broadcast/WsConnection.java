@@ -47,6 +47,15 @@ final class WsConnection {
     private final LinkedBlockingQueue<Runnable> queue = new LinkedBlockingQueue<>();
 
     private volatile boolean open = true;
+    /**
+     * 最后一次收到消息的**真实**时刻。
+     *
+     * <p>★ 这里用 {@code System.currentTimeMillis()} 而不是
+     * {@code Clock.millis()} 是刻意的:它量的是「客户端有多久没说话」,
+     * 属于存活性计时。走可冻结的 Clock 的话,一个 {@code Clock.freeze()}
+     * 会让所有 WebSocket 连接的超时判定永远不成立 —— 死连接不再被回收。
+     * 边界见 {@code io.jaravel.support.Clock} 的类注释。
+     */
     private volatile long lastSeen = System.currentTimeMillis();
 
     WsConnection(String id, WebSocketSession session, LocalWsHub hub,

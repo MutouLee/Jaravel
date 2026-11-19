@@ -3,6 +3,8 @@ package io.jaravel.cache;
 import java.time.Duration;
 import java.util.function.Supplier;
 
+import io.jaravel.support.Clock;
+
 /**
  * 限流器。{@code throttle} 中间件与登录节流都用它。
  *
@@ -55,7 +57,7 @@ public class RateLimiter {
     public Duration availableIn(String key) {
         long resetAt = cache.get(timerKey(key), Long.class, 0L);
         if (resetAt == 0) return Duration.ZERO;
-        long remaining = resetAt - System.currentTimeMillis();
+        long remaining = resetAt - Clock.millis();
         return remaining > 0 ? Duration.ofMillis(remaining) : Duration.ZERO;
     }
 
@@ -75,7 +77,7 @@ public class RateLimiter {
     public long hit(String key, Duration window) {
         // 先用 add 建窗口结束时间:只有第一次命中会成功,
         // 后续命中不会把窗口往后推 —— 否则持续请求会让窗口永不结束
-        cache.add(timerKey(key), System.currentTimeMillis() + window.toMillis(), window);
+        cache.add(timerKey(key), Clock.millis() + window.toMillis(), window);
 
         // 计数器也用 add 初始化,确保它带上 TTL。
         // 直接 increment 时,若键不存在,多数驱动会建一个**永久**条目 ——

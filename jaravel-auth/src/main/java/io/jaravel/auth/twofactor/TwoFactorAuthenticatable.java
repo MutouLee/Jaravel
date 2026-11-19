@@ -4,6 +4,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
+import io.jaravel.support.Clock;
+
 /**
  * 用户侧的二步验证(docs/08 §6.4)。
  *
@@ -79,7 +81,7 @@ public interface TwoFactorAuthenticatable {
     }
 
     default boolean confirmTwoFactor(String code) {
-        return confirmTwoFactor(code, Instant.now());
+        return confirmTwoFactor(code, Clock.now());
     }
 
     /** 确认一次,过后才算启用 */
@@ -92,7 +94,7 @@ public interface TwoFactorAuthenticatable {
     }
 
     default boolean verifyTwoFactor(String code) {
-        return verifyTwoFactor(code, Instant.now());
+        return verifyTwoFactor(code, Clock.now());
     }
 
     default boolean verifyTwoFactor(String code, Instant time) {

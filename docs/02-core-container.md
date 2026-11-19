@@ -163,6 +163,7 @@ public final class Cache {
 | `Auth` | `AuthManager`(请求级) | auth |
 | `Gate` | `GateContract` | auth |
 | `Hash` | `Hasher` | auth |
+| `Clock` | 静态时间源(可冻结/快进) | support |
 | `Cache` | `CacheRepository` | cache |
 | `RateLimiter` | `RateLimiter` | cache |
 | `Queue` | `QueueManager` | queue |
@@ -185,14 +186,21 @@ public final class Cache {
 
     queue.assertPushed(SendInvoice.class, j -> j.orderId().equals(order.getId()));
     queue.assertPushedOnQueue("mail", SendInvoice.class);
-    queue.assertNothingPushed(RefundJob.class);
+    queue.assertNotPushed(RefundJob.class);
 }
 ```
 
-> ⚠ **`Queue.fake()` 及其断言尚未实现** —— 这个例子是目标 API。
-> 已实现的 fake 与仍缺的部分见 [14](14-testing.md) §4 的状态表。
+> 这个例子成立(方法名是 `assertNotPushed`,不是 `assertNothingPushed` ——
+> 后者是「什么都没投」的那条)。仍缺的 fake 见
+> [14](14-testing.md) §4 的状态表。
 
-`fake()` 内部调用 `Facade.swap()`,由 JUnit 扩展在每个测试后自动 `clearSwaps()`。详见 [14-testing.md](14-testing.md)。
+落地与这段写的机制不同:`fake()` **不走** `Facade.swap()`,而是把状态
+放在对应的 manager 上(`QueueManager` / `CacheManager`),由
+`FeatureTest` 在**每个测试前** `stopFaking()` / `Clock.reset()`。
+理由:投递与缓存读写都经 manager 解析,拦在那里才能在**序列化之前**
+拿到业务对象;而「测试后清理」改成「测试前清理」是因为前者在测试
+异常退出时不执行,留下的 fake 会污染下一个测试。详见
+[14-testing.md](14-testing.md) §4。
 
 ### 2.5 契约注入(门面的等价替代)
 

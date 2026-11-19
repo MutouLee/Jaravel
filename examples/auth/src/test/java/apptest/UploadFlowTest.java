@@ -73,15 +73,25 @@ class UploadFlowTest {
 
     // ================= 测试素材 =================
 
-    /** 一个最小的合法 PNG(魔数 + 一点填充) */
+    /**
+     * 指定大小的 PNG 字节 —— 用框架自己的 {@code UploadedFile.fake()}。
+     *
+     * <p>这里原本是一段手写的「魔数 + 填充」。换成 fake 之后少了一份
+     * 重复的魔数表(手写那份与 {@code ContentSniffer} 对不上时,
+     * 症状是测试里嗅探不出来而生产里好的),而且**顺带验收了那个 fake**:
+     * 这整个文件走的是真 multipart + 真磁盘,所以 fake 生成的字节
+     * 必须真的能过完整的上传管道。
+     */
     private static byte[] png(int totalBytes) {
-        byte[] out = new byte[Math.max(8, totalBytes)];
-        byte[] magic = {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
-        System.arraycopy(magic, 0, out, 0, magic.length);
-        return out;
+        return io.jaravel.http.UploadedFile.fake()
+                .create("x.png", Math.max(1, totalBytes / 1024))
+                .content();
     }
 
-    private static final byte[] PNG = png(64);
+    /** 一张真的 4×4 PNG(ImageIO 编的,不是魔数桩) */
+    private static final byte[] PNG = io.jaravel.http.UploadedFile.fake()
+            .image("avatar.png", 4, 4)
+            .content();
     private static final byte[] PHP_SCRIPT =
             "<?php system($_GET['cmd']); ?>".getBytes(StandardCharsets.UTF_8);
 

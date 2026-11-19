@@ -23,7 +23,7 @@ Laravel 的测试体验是其被低估的优势:一行 `$this->get('/users')->as
 | Testcontainers 自动注入(`@UseDatabase`) | ✅ v0.8(默认关闭,见 §2.2) |
 | 并行测试(`jaravel test --parallel` + 每进程测试库) | ✅ v0.8(见 §6.3) |
 | 模型工厂(§3) | ⏳ 只有 `Factory` 基类;`Post.factory()` 的 APT 生成与 `make:factory` **仍未实现** |
-| Fake(§4) | ⚠️ 部分 —— Mail / Event / Storage / Notifications / Broadcast / Http / Queue / Cache 已有,`Clock` 时间控制已有;`UploadedFile.fake()` 未实现 |
+| Fake(§4) | ✅ Mail / Event / Storage / Notifications / Broadcast / Http / Queue / Cache + `Clock` 时间控制 + `UploadedFile.fake()`;`Event.fakeExcept` 不提供(用 `Event.fake(types)`) |
 | `@RefreshDatabase` 等隔离策略注解 | ⏳ 未实现;当前只有默认事务回滚与 `@WithoutRollback` |
 | `AppTest`(容器 + 数据库,无 HTTP,§5) | ⏳ 未实现;当前只有 `JaravelTestApplication` + `FeatureTest` |
 
@@ -429,9 +429,8 @@ Faker 用 `net.datafaker:datafaker`,支持 `locale: zh_CN`。
 > `Notifications.assertSentTo(...)`),不返回示例里的记录器;
 > `Storage.fake(...)` 返回 `FakeDisk`,`Queue.fake()` 返回
 > `QueueFake` —— 示例里 `disk` 与 `queue` 的用法都成立。
-> 仍未实现:`UploadedFile.fake()`。
 > `Cache.fake()` 返回 `CacheFake`(记录命中/未命中/写入/删除);
-> `Clock` 见 §4.2。
+> `Clock` 见 §4.2;`UploadedFile.fake()` 见 §4.4。
 > 门面名是 `Notifications`(`Notification` 是通知的基类)。
 > 事件的部分假实现是 `Event.fake(OrderPaid.class)`(只假装指定类型,
 > 其余照常分发),没有 `fakeExcept`。
@@ -589,6 +588,40 @@ Http.assertNothingSent();
 > 被重试三次然后当成「对方挂了」,而它是调用方的 bug。
 
 ---
+
+### 4.4 假的上传文件
+
+```java
+var avatar = UploadedFile.fake().image("avatar.png");            // 10×10
+var big    = UploadedFile.fake().image("avatar.jpg", 1200, 800);
+var pdf    = UploadedFile.fake().create("report.pdf", 512);      // 512 KB
+var broken = UploadedFile.fake().withContent("avatar.png", new byte[]{(byte) 0x89, 'P'});
+```
+
+#### ★ 内容是真的,否则这个 fake 在骗人
+
+本框架的扩展名与 MIME 一律**按内容嗅探**(docs/11 §3.3:客户端给的
+文件名完全不可信)。所以一个「名字叫 avatar.png、内容是随机字节」的
+假文件会让 `image` 与 `mimes:png` 这两条规则**在测试里与生产里行为
+不同** —— 那是一个假实现最坏的形态。
+
+因此:
+
+- `image(...)` 用 `ImageIO` 编一张**真图片**(真宽高、真魔数),
+  嗅探、`image` 规则、以及应用自己的缩略图代码都走真实路径;
+- `create(name, kb)` 按扩展名写上**对应格式的魔数**再填充到指定大小,
+  单位是 **KB** —— 与校验规则一致(`max:2048` 是 2 MB);
+- 没有魔数的类型(txt / csv / json)**如实**嗅探不出来。
+  伪造一个魔数会让 `mimes:txt` 在测试里通过而在生产里不通过;
+- `withContent(...)` 用来构造坏输入(截断的 PNG、空文件、
+  伪装成图片的脚本)。
+
+`FakeUploadTest` 里有一条测试核对**魔数表与 `ContentSniffer` 一致**:
+两边分叉时假文件就嗅探不出来,而那正是这个类要避免的事。
+
+> `examples/auth` 的 `UploadFlowTest`(真 multipart + 真磁盘)已经改用
+> 它生成素材 —— 那里原本有一份手写的魔数桩。顺带也就把这个 fake
+> 放进了一条端到端的验收里。
 
 ## 5. 单元测试
 
@@ -843,9 +876,9 @@ public class JaravelExtension implements BeforeAllCallback, BeforeEachCallback,
 - [ ] 测试隔离注解(`@RefreshDatabase` / `@DatabaseTransactions` /
   `@DatabaseMigrations` / `@WithoutDatabase`)与 `AppTest` 未实现;当前只有
   默认事务回滚、`@WithoutRollback` 与 `FeatureTest`(§2.1、§5)。
-- [ ] `UploadedFile.fake()` 未实现;`Event.fakeExcept` 也不存在,
-  部分假实现用 `Event.fake(types)`(§4)。
-  `Queue.fake()` / `Cache.fake()` / `Clock` 已落地(断言在返回的
-  `QueueFake` / `CacheFake` 上;各自的边界见那几个类的注释)。
+- [ ] `Event.fakeExcept` 不提供,部分假实现用 `Event.fake(types)`(§4)。
+  `Queue.fake()` / `Cache.fake()` / `Clock` / `UploadedFile.fake()`
+  都已落地(边界见 `QueueFake` / `CacheFake` / `Clock` / `FakeUpload`
+  的类注释)。
 - [ ] 工厂:`Post.factory()` 的 APT 生成与 `make:factory` 未实现,
   `Factory.Faker` 仍是内置最小实现而非 `datafaker`(§3)。

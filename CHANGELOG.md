@@ -21,6 +21,14 @@
   Publishing)、`RELEASE.md`、`SECURITY.md`、`KNOWN-ISSUES.md`。
 - **视图引擎修复**:从 fat jar 运行时即使当前目录有 `views/` 也用预编译
   引擎,避免 `java -jar` 从项目根目录启动时报「必须预编译」。
+- **`UploadedFile.fake()`**(docs/14 §4.4)—— `image(name[, w, h])` 用
+  `ImageIO` 编一张**真图片**,`create(name, kb)` 按扩展名写对应魔数再填充,
+  `withContent(...)` 用来构造坏输入。内容是真的这件事是刻意的:框架的
+  类型判断一律按内容嗅探,一个内容是随机字节的假文件会让 `image` /
+  `mimes:png` 在测试与生产里行为不同。没有魔数的类型(txt/csv)**如实**
+  嗅探不出来,不伪造。一条测试核对魔数表与 `ContentSniffer` 一致;
+  `examples/auth` 的 `UploadFlowTest`(真 multipart + 真磁盘)改用它
+  生成素材,顺带把它放进端到端验收。
 - **`Clock` 时间源**(`io.jaravel.support.Clock`,docs/14 §4.2)——
   `freeze` / `travel` / `travelTo` / `withFrozen` / `reset`。框架内 **106 处**
   领域时间读取(模型时间戳、令牌与签名过期、缓存 TTL、任务可见时刻、

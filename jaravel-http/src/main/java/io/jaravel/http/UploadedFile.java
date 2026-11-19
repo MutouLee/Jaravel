@@ -53,6 +53,23 @@ public final class UploadedFile implements Upload {
         this.content = content == null ? new byte[0] : content;
     }
 
+    /**
+     * 造一个假的上传文件(docs/14 §4)。
+     *
+     * <pre>{@code
+     * var avatar = UploadedFile.fake().image("avatar.png");
+     * var pdf    = UploadedFile.fake().create("report.pdf", 512);   // 512 KB
+     * }</pre>
+     *
+     * <p>内容是**真的**(真图片、真魔数)—— 理由见 {@link FakeUpload} 的
+     * 类注释:本框架的类型判断一律按内容嗅探,一个内容是随机字节的
+     * 假文件会让 {@code image} / {@code mimes:png} 在测试与生产里
+     * 行为不同。
+     */
+    public static FakeUpload fake() {
+        return new FakeUpload();
+    }
+
     /** 表单字段名 —— 也就是 {@code request.file("avatar")} 里的那个 key */
     public String fieldName() {
         return fieldName;

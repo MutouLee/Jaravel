@@ -116,6 +116,16 @@ public final class PendingChain {
                 ? queues.connection()
                 : queues.connection(connectionName);
 
+        // fake:整条链按「一条链」记下来(docs/14 §4)。按**队首**是否
+        // 被假装来判定 —— 一条链被拆成「前半假装、后半真跑」没有任何
+        // 可用的语义,它的执行顺序本身就是靠前一个成功才有下一个。
+        if (queues.shouldFake(jobs.get(0)) && store.isAsynchronous()) {
+            queues.fakeRecorder().recordChain(jobs, resolveQueue(jobs.get(0)),
+                    connectionName != null ? connectionName : store.name(),
+                    onFailure, delay);
+            return java.util.UUID.randomUUID().toString();
+        }
+
         Instant now = Instant.now();
 
         List<QueuedJob> envelopes = new ArrayList<>(jobs.size());

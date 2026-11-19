@@ -117,11 +117,19 @@ final class StaticBindings {
         QueueManager queues = bean(context, QueueManager.class);
         if (queues != null) {
             Queue.use(queues);
+            // ★ 顺手退出 fake 模式。QueueManager 是上下文里的单例 bean,
+            // 而 fake 状态挂在它身上 —— 上一个测试装的 fake 会留到下一个
+            // 测试,症状是「这个测试里任务根本没入队」且毫无线索。
+            // 基类的 @BeforeEach 先于子类执行,所以子类自己装的 fake 不受影响。
+            queues.stopFaking();
         }
 
         CacheManager caches = bean(context, CacheManager.class);
         if (caches != null) {
             Cache.use(caches);
+            // 与队列同理:fake 状态挂在上下文的单例 manager 上,
+            // 留到下一个测试的症状是「缓存怎么是空的 / 怎么没命中」
+            caches.stopFaking();
         }
 
         MailManager mail = bean(context, MailManager.class);

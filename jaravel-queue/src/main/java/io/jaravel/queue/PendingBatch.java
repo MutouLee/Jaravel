@@ -139,6 +139,18 @@ public final class PendingBatch {
         Instant now = Instant.now();
         String id = UUID.randomUUID().toString();
 
+        // fake:记下批次并返回一个「刚投递」的快照(docs/14 §4)。
+        // 刻意在 requireBatches() **之前** —— fake 下不该要求
+        // job_batches 表,否则「测一下有没有投批次」就得先建表。
+        if (!jobs.isEmpty() && queues.shouldFake(jobs.get(0)) && store.isAsynchronous()) {
+            queues.fakeRecorder().recordBatch(id, name, jobs,
+                    resolveQueue(jobs.get(0)),
+                    connectionName != null ? connectionName : store.name(),
+                    allowFailures);
+            return new Batch(id, name, jobs.size(), jobs.size(), 0,
+                    java.util.List.of(), allowFailures, now, null, null);
+        }
+
         var repository = queues.requireBatches();
 
         Batch batch = repository.create(id, name, jobs.size(), allowFailures,

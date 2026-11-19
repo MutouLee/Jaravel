@@ -67,6 +67,15 @@ public class SendInvoice implements ShouldQueue, UniqueJob {
     }
 
     /**
+     * 测试断言用:{@code Queue.fake()} 记下的是任务**实例**,
+     * 于是断言能写成 {@code job -> job.invoiceId().equals(id)}
+     * 而不是去匹配 payload 里的 JSON(docs/14 §4)。
+     */
+    public Long invoiceId() {
+        return invoiceId;
+    }
+
+    /**
      * 执行体。参数**从容器注入** —— 与控制器一致。
      *
      * <p>它不在 ShouldQueue 接口上,因为参数因任务而异;

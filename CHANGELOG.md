@@ -21,6 +21,21 @@
   Publishing)、`RELEASE.md`、`SECURITY.md`、`KNOWN-ISSUES.md`。
 - **视图引擎修复**:从 fat jar 运行时即使当前目录有 `views/` 也用预编译
   引擎,避免 `java -jar` 从项目根目录启动时报「必须预编译」。
+- **`Queue.fake()`**(docs/14 §4)—— 投递被记录而不入队,断言写在任务
+  **实例**上(`queue.assertPushed(SendInvoice.class, j -> j.invoiceId().equals(id))`);
+  覆盖 `assertPushed`(三个重载)/ `assertPushedOnQueue` / `assertNotPushed` /
+  `assertPushedCount` / `assertNothingPushed` / `assertChained` / `assertBatched`,
+  以及部分 fake(`Queue.fake(SendInvoice.class)`,其余照常入队)。
+  刻意**不拦** `dispatchSync` —— 它的语义是「现在、在我的调用栈上执行」,
+  拦下等于让被测代码什么都没做而测试绿了。`FeatureTest` 每个测试前退出
+  fake 模式,避免 fake 漏进下一个测试。
+- **`Cache.fake()`**(docs/14 §4)—— 默认 store 换成一个**记录型**的空缓存,
+  可断言 `assertHit` / `assertMissed` / `assertPut` / `assertForgotten` /
+  `assertHas` / `assertMissing` / `assertNothingPut`。它比「换成 array 驱动」
+  多出来的是命中记录 ——「这段代码加了缓存」唯一值得测的断言是
+  「第二次没有再去算」,而那从返回值上看不出来。
+  边界:换的是 manager 的默认 store,**构造注入了 `Repository`** 的代码
+  (框架自己的会话、限流、队列唯一性锁)持有旧实例、不受影响。
 - **`Cache` 静态门面**(`io.jaravel.cache.Cache`)—— docs/09 §1.1 与
   docs/02 §2.3 一直在写它,但代码里只有 `CacheManager` / `Repository`。
   starter 启动时绑定,`FeatureTest` 每个测试前重绑到当前上下文。

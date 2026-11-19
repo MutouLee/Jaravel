@@ -1137,4 +1137,73 @@ class QueueFeatureTest extends FeatureTest {
             assertThat(db.table("failed_jobs").count()).isZero();
         }
     }
+
+    // ================= fake(docs/14 §4) =================
+
+    @Nested
+    @DisplayName("Queue.fake")
+    class Faking {
+
+        @Test
+        @DisplayName("★ fake 之后接口照常 200,但队列表里一条也没有")
+        void fakeInterceptsRealDispatch() {
+            var fake = Queue.fake();
+
+            Long id = createInvoice("ORD-FAKE-1");
+
+            assertThat(db.table("jobs").count())
+                    .as("fake 要在序列化与入队之前拦下 —— 表里不该有行")
+                    .isZero();
+            assertThat(Queue.size("mail")).isZero();
+
+            fake.assertPushed(app.jobs.SendInvoice.class);
+            fake.assertPushedOnQueue("mail", app.jobs.SendInvoice.class);
+            fake.assertPushedCount(1);
+            assertThat(Invoice.query().findOrFail(id).status)
+                    .as("业务数据照常落库 —— fake 只拦队列")
+                    .isEqualTo("pending");
+        }
+
+        @Test
+        @DisplayName("★ 断言写在任务对象上,而不是 payload 的 JSON 上")
+        void assertsOnTheJobInstance() {
+            var fake = Queue.fake();
+
+            Long id = createInvoice("ORD-FAKE-2");
+
+            fake.assertPushed(app.jobs.SendInvoice.class,
+                    job -> job.invoiceId().equals(id));
+        }
+
+        @Test
+        @DisplayName("链与批在真实上下文里也被拦下")
+        void chainsAndBatchesAreFakedToo() {
+            Long id = createInvoice("ORD-FAKE-3");
+            db.table("jobs").allowUnconditional().delete();
+
+            var fake = Queue.fake();
+            postJson("/api/invoices/" + id + "/pipeline", Map.of()).assertOk();
+            postJson("/api/statements", Map.of()).assertOk();
+
+            assertThat(db.table("jobs").count()).isZero();
+            fake.assertChained(java.util.List.of(
+                    app.jobs.MarkInvoiceReady.class,
+                    app.jobs.SendInvoice.class,
+                    app.jobs.ArchiveInvoice.class));
+            fake.assertBatched(b -> b.jobs().size() == 1 && b.allowsFailures());
+        }
+
+        @Test
+        @DisplayName("★ fake 不会漏进下一个测试 —— 基类每个测试前退出 fake 模式")
+        void fakeDoesNotLeakIntoTheNextTest() {
+            // 上一条测试里装的 fake 若留着,这里的投递会被静默吞掉,
+            // 症状是「队列是空的」且毫无线索。StaticBindings 在
+            // @BeforeEach 里 stopFaking(),这条测试钉住它。
+            assertThat(Queue.isFaking()).isFalse();
+
+            createInvoice("ORD-FAKE-4");
+
+            assertThat(Queue.size("mail")).isEqualTo(1);
+        }
+    }
 }

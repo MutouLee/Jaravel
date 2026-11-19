@@ -137,8 +137,9 @@ public final class Cache {
 > 静态字段比每次查容器快,也让 `reset()` 能在测试里清干净。
 > 全部转发方法见 `io.jaravel.cache.Cache` 的 Javadoc。
 >
-> ⚠ `fake()` / `CacheFake` 尚未实现(见
-> [KNOWN-ISSUES](../KNOWN-ISSUES.md))。
+> `fake()` 与 `CacheFake` 已落地,但不在门面上 ——
+> 它是 `Cache.fake()` 返回的记录器(命中/未命中/写入/删除),
+> 边界见 `CacheFake` 的类注释与 docs/14 §4。
 
 > **为什么手写转发而不是动态代理**:门面一共约 20 个、方法总量约 400 个,一次性写完即长期稳定;换来的是完整的 IDE 支持、无反射、无启动开销、GraalVM 零配置。代码生成也是选项(APT 从契约接口生成门面),v0.5 后可考虑,但首版手写更可控。
 

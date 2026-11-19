@@ -110,6 +110,56 @@ public final class CacheManager {
     public void reset() {
         resolved.clear();
         resolvedStores.clear();
+        fake = null;
+        previousDefaultStore = null;
+    }
+
+    // ================= 测试(docs/14 §4) =================
+
+    /** fake 之前的默认 store 名,{@link #stopFaking} 用它还原 */
+    private String previousDefaultStore;
+
+    private CacheFake fake;
+
+    /**
+     * 把默认 store 换成一个记录型的空缓存。
+     *
+     * <p>边界(注入了 {@code Repository} 的代码不受影响)写在
+     * {@link CacheFake} 的类注释里。
+     */
+    public CacheFake fake() {
+        var recorder = new CacheFake(new io.jaravel.cache.store.ArrayStore(), prefix);
+        if (previousDefaultStore == null) previousDefaultStore = defaultStore;
+
+        // register 会丢弃这个名字下已解析的 store 与 Repository;
+        // defaultStore 改名后 store() 解析到的就是 fake
+        register(CacheFake.STORE_NAME, recorder);
+        this.defaultStore = CacheFake.STORE_NAME;
+        this.fake = recorder;
+        return recorder;
+    }
+
+    /** 还原 fake 之前的默认 store */
+    public CacheManager stopFaking() {
+        if (previousDefaultStore != null) {
+            this.defaultStore = previousDefaultStore;
+            this.previousDefaultStore = null;
+        }
+        this.fake = null;
+        return this;
+    }
+
+    public boolean isFaking() {
+        return fake != null;
+    }
+
+    public CacheFake recorder() {
+        if (fake == null) {
+            throw new IllegalStateException("""
+                    当前不在 fake 模式,没有记录可查。
+                      在被测代码**之前**调 Cache.fake()。""");
+        }
+        return fake;
     }
 
     /**

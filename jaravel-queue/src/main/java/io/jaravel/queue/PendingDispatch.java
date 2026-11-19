@@ -186,6 +186,17 @@ public final class PendingDispatch {
         String target = queueName != null ? queueName
                 : (job.queue() != null ? job.queue() : queues.defaultQueueName());
 
+        // fake 在**序列化之前**拦下(docs/14 §4):记的是任务实例,
+        // 于是断言能写在业务对象上。只拦异步连接 —— dispatchSync 的语义
+        // 是「现在、在我的调用栈上执行」,拦下它等于让被测代码什么都没做
+        // 而测试绿了。理由与边界写在 QueueFake 的类注释。
+        if (queues.shouldFake(job) && store.isAsynchronous()) {
+            this.uuid = java.util.UUID.randomUUID().toString();
+            queues.fakeRecorder().recordPushed(job, target,
+                    connectionName != null ? connectionName : store.name(), delay);
+            return uuid;
+        }
+
         var envelope = QueuedJob.of(job, target,
                 queues.serializer().toData(job), Instant.now(), delay);
         this.uuid = envelope.uuid();

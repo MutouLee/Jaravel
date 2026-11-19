@@ -62,6 +62,22 @@ public final class QueueManager {
      */
     private BatchRepository batches;
 
+    /**
+     * fake 模式的记录器(docs/14 §4)。null 表示不在 fake 模式。
+     *
+     * <p>与 {@code MailManager} 同样的位置:状态在 manager 上,
+     * 而不是换一个 {@link QueueStore} 实现 —— 因为 fake 要在**序列化
+     * 之前**拦下,记住任务**实例**,断言才能写在业务对象上。
+     */
+    private QueueFake fake;
+
+    /**
+     * 只假装这些类型(部分 fake,docs/14 §4.1)。null 表示全部假装。
+     *
+     * <p>用途:「我只想拦住发邮件那条,其余照常跑完」。
+     */
+    private java.util.Set<Class<?>> fakeOnly;
+
     public QueueManager(JobSerializer serializer) {
         this.serializer = serializer;
     }
@@ -193,5 +209,64 @@ public final class QueueManager {
      */
     public boolean isDefaultAsynchronous() {
         return connection().isAsynchronous();
+    }
+
+    // ================= 测试(docs/14 §4) =================
+
+    /** 记录投递但**不入队**。见 {@link QueueFake} 的类注释。 */
+    public QueueFake fake() {
+        this.fake = new QueueFake();
+        this.fakeOnly = null;
+        return this.fake;
+    }
+
+    /**
+     * 部分 fake:只假装这些类型,其余照常入队(docs/14 §4.1)。
+     *
+     * <p>空集合等同于 {@link #fake()} —— 「只假装零个类型」不是任何人
+     * 的意图,而静默什么都不拦会让断言全部失败且原因不明。
+     */
+    public QueueFake fake(java.util.Collection<Class<? extends ShouldQueue>> only) {
+        QueueFake recorder = fake();
+        if (only != null && !only.isEmpty()) {
+            this.fakeOnly = java.util.Set.copyOf(only);
+        }
+        return recorder;
+    }
+
+    public QueueManager stopFaking() {
+        this.fake = null;
+        this.fakeOnly = null;
+        return this;
+    }
+
+    public boolean isFaking() {
+        return fake != null;
+    }
+
+    public QueueFake recorder() {
+        if (fake == null) {
+            throw new IllegalStateException("""
+                    当前不在 fake 模式,没有记录可查。
+                      在被测代码**之前**调 Queue.fake() ——
+                      之后调的话那些任务已经真的入队了。""");
+        }
+        return fake;
+    }
+
+    /**
+     * 这次投递要被拦下吗。
+     *
+     * <p>调用方还要自己确认连接是**异步**的 —— 同步投递不拦,
+     * 理由在 {@link QueueFake} 的类注释。
+     */
+    boolean shouldFake(ShouldQueue job) {
+        if (fake == null) return false;
+        return fakeOnly == null || fakeOnly.contains(job.getClass());
+    }
+
+    /** 包内用:记录器(已经确认在 fake 模式时调) */
+    QueueFake fakeRecorder() {
+        return fake;
     }
 }

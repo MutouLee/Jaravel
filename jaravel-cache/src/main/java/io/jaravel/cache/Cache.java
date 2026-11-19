@@ -184,4 +184,36 @@ public final class Cache {
     public static Lock restoreLock(String name, String owner) {
         return store().restoreLock(name, owner);
     }
+
+    // ================= 测试(docs/14 §4) =================
+
+    /**
+     * 把默认 store 换成一个记录型的空缓存,并返回它。
+     *
+     * <pre>{@code
+     * var cache = Cache.fake();
+     * service.dashboard(7L);
+     * cache.assertMissed("dashboard:7");
+     * cache.assertPut("dashboard:7");
+     * }</pre>
+     *
+     * <p>边界(注入了 {@link Repository} 的代码持有旧实例、不受影响)
+     * 写在 {@link CacheFake} 的类注释里。
+     */
+    public static CacheFake fake() {
+        return manager().fake();
+    }
+
+    /** 还原 fake 之前的默认 store */
+    public static void stopFaking() {
+        manager().stopFaking();
+    }
+
+    public static boolean isFaking() {
+        return manager().isFaking();
+    }
+
+    public static CacheFake recorder() {
+        return manager().recorder();
+    }
 }

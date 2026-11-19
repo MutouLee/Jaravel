@@ -179,4 +179,47 @@ public final class Queue {
     public static void clear(String queue) {
         manager().connection().clear(queue);
     }
+
+    // ================= 测试(docs/14 §4) =================
+
+    /**
+     * 之后的异步投递只记录,不入队。
+     *
+     * <pre>{@code
+     * var queue = Queue.fake();
+     * service.checkout(order);
+     * queue.assertPushed(SendInvoice.class, j -> j.orderId().equals(order.id()));
+     * }</pre>
+     *
+     * <p>返回的记录器上是全部断言 —— 边界(不拦 dispatchSync、不发
+     * JobQueued、不抢 UniqueJob 的锁)写在 {@link QueueFake} 的类注释。
+     */
+    public static QueueFake fake() {
+        return manager().fake();
+    }
+
+    /** 部分 fake:只假装这些类型,其余照常入队(docs/14 §4.1) */
+    public static QueueFake fake(java.util.Collection<Class<? extends ShouldQueue>> only) {
+        return manager().fake(only);
+    }
+
+    /** 部分 fake 的变参写法 */
+    @SafeVarargs
+    public static QueueFake fake(Class<? extends ShouldQueue>... only) {
+        return manager().fake(java.util.List.of(only));
+    }
+
+    /** 退出 fake 模式 —— 之后的投递真的入队 */
+    public static void stopFaking() {
+        manager().stopFaking();
+    }
+
+    public static boolean isFaking() {
+        return manager().isFaking();
+    }
+
+    /** fake 模式下的记录器;不在 fake 模式时报错并说明原因 */
+    public static QueueFake recorder() {
+        return manager().recorder();
+    }
 }

@@ -23,7 +23,7 @@ Laravel 的测试体验是其被低估的优势:一行 `$this->get('/users')->as
 | Testcontainers 自动注入(`@UseDatabase`) | ✅ v0.8(默认关闭,见 §2.2) |
 | 并行测试(`jaravel test --parallel` + 每进程测试库) | ✅ v0.8(见 §6.3) |
 | 模型工厂(§3) | ⏳ 只有 `Factory` 基类;`Post.factory()` 的 APT 生成与 `make:factory` **仍未实现** |
-| Fake(§4) | ⚠️ 部分 —— Mail / Event / Storage / Notifications / Broadcast / Http 已有;`Queue.fake`、`Cache.fake`、`Clock`、`UploadedFile.fake()` 未实现 |
+| Fake(§4) | ⚠️ 部分 —— Mail / Event / Storage / Notifications / Broadcast / Http / **Queue** / **Cache** 已有;`Clock`、`UploadedFile.fake()` 未实现 |
 | `@RefreshDatabase` 等隔离策略注解 | ⏳ 未实现;当前只有默认事务回滚与 `@WithoutRollback` |
 | `AppTest`(容器 + 数据库,无 HTTP,§5) | ⏳ 未实现;当前只有 `JaravelTestApplication` + `FeatureTest` |
 
@@ -396,6 +396,7 @@ Faker 用 `net.datafaker:datafaker`,支持 `locale: zh_CN`。
     var event = Event.fake();
     var disk  = Storage.fake("s3");
     var notif = Notifications.fake();
+    var cache = Cache.fake();
     Clock.freeze(Instant.parse("2026-10-28T10:00:00Z"));
 
     service.checkout(order);
@@ -416,27 +417,45 @@ Faker 用 `net.datafaker:datafaker`,支持 `locale: zh_CN`。
 
     disk.assertExists("invoices/" + order.getId() + ".pdf");
     notif.assertSentTo(order.customer(), InvoicePaid.class);
+
+    cache.assertForgotten("orders:" + order.getId());
 }
 ```
 
-> ⚠ **这段是目标 API,不是当前状态。** 已实现的是
+> ⚠ **这段里有两处还不是当前状态。** 已实现的是
 > `Mail.fake()` / `Event.fake()` / `Notifications.fake()` /
 > `Broadcast.fake()` / `Http.fake()`,它们的断言是**静态方法**
 > (`Mail.assertSent(...)`、`Event.assertDispatched(...)`、
 > `Notifications.assertSentTo(...)`),不返回示例里的记录器;
-> `Storage.fake(...)` 返回 `FakeDisk`,示例里的 `disk` 用法成立。
-> 未实现:`Queue.fake()` / `Cache.fake()` 及其相应断言、
-> `Clock` 时间控制、`UploadedFile.fake()`。
+> `Storage.fake(...)` 返回 `FakeDisk`,`Queue.fake()` 返回
+> `QueueFake` —— 示例里 `disk` 与 `queue` 的用法都成立。
+> 仍未实现:`Clock` 时间控制、`UploadedFile.fake()`。
+> `Cache.fake()` 返回 `CacheFake`(记录命中/未命中/写入/删除)。
 > 门面名是 `Notifications`(`Notification` 是通知的基类)。
 > 事件的部分假实现是 `Event.fake(OrderPaid.class)`(只假装指定类型,
 > 其余照常分发),没有 `fakeExcept`。
+>
+> **`Queue.fake()` 的三条边界**(都写在 `QueueFake` 的类注释里):
+> 不拦 `dispatchSync`(它的语义是「现在、在我的调用栈上执行」,拦下等于
+> 让被测代码什么都没做而测试绿了);不发 `JobQueued` 事件;不抢
+> `UniqueJob` 的锁,所以记录里可能出现真实运行时会被去重的重复任务。
+>
+> **`Cache.fake()` 的一条边界**:它换掉的是 `CacheManager` 的默认 store,
+> 所以走 `Cache` 门面的代码会被接住,而**构造注入了 `Repository` bean**
+> 的代码持有旧实例、不受影响。这不完全是缺点 —— 框架自己的会话存储、
+> 限流器、队列唯一性锁都是注入式的,一个连它们一起换掉的 fake 会让
+> 「测一下缓存」顺带清掉当前测试的登录态。
 
 ### 4.1 部分假实现
 
 ```java
-Queue.fake(List.of(SendInvoice.class));   // ⏳ 未实现
+Queue.fake(List.of(SendInvoice.class));   // 只假装这一个,其余真的入队
+Queue.fake(SendInvoice.class);            // 变参写法
 Event.fake(OrderPaid.class);              // 只假装这一个,其余照常分发
 ```
+
+> 队列的部分 fake 对**链**按队首判定:一条链被拆成「前半假装、后半真跑」
+> 没有可用的语义(它的执行顺序本就靠前一个成功才有下一个)。
 
 ### 4.2 时间控制
 
@@ -781,8 +800,9 @@ public class JaravelExtension implements BeforeAllCallback, BeforeEachCallback,
 - [ ] 测试隔离注解(`@RefreshDatabase` / `@DatabaseTransactions` /
   `@DatabaseMigrations` / `@WithoutDatabase`)与 `AppTest` 未实现;当前只有
   默认事务回滚、`@WithoutRollback` 与 `FeatureTest`(§2.1、§5)。
-- [ ] `Queue.fake()` / `Cache.fake()` 与相应断言、`Clock` 时间控制、
-  `UploadedFile.fake()` 未实现;`Event.fakeExcept` 也不存在,
-  部分假实现用 `Event.fake(types)`(§4)。
+- [ ] `Clock` 时间控制与 `UploadedFile.fake()` 未实现;`Event.fakeExcept`
+  也不存在,部分假实现用 `Event.fake(types)`(§4)。
+  `Queue.fake()` / `Cache.fake()` 已落地(断言在返回的 `QueueFake` /
+  `CacheFake` 上;各自的边界见那两个类的注释)。
 - [ ] 工厂:`Post.factory()` 的 APT 生成与 `make:factory` 未实现,
   `Factory.Faker` 仍是内置最小实现而非 `datafaker`(§3)。

@@ -31,6 +31,23 @@ public class DirectiveDemoController {
     }
 
     /**
+     * GET /notes/{id}/row —— 只回那一行(docs/04 §1.8 的 {@code @fragment})。
+     *
+     * <p>htmx / turbo 的局部刷新:改完一条笔记只换掉表格里那一行,
+     * 而回的 HTML 与整页渲染出来的**是同一段模板代码** ——
+     * 另写一个 partial 模板的话两份会分叉,症状是「整页对、局部不对」
+     * 或者反过来。
+     *
+     * <p>数据仍然要齐全:片段的渲染路径与整页完全一样(整页照样渲染
+     * 一遍,再把那一段取出来),理由见 {@code JbladeEngine.renderFragment}。
+     */
+    public Object row(Long id) {
+        return View.of("notes.page")
+                .with("notes", Note.query().orderByKeyDesc().get().toList())
+                .fragment("note-" + id);
+    }
+
+    /**
      * DELETE /notes/{id} —— 页面上那个 POST + {@code @method('DELETE')} 表单
      * 最终落在这里。
      *

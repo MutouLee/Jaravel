@@ -162,6 +162,45 @@ public final class JbladeEngine implements ViewEngine {
         return out.toString();
     }
 
+    /**
+     * 只返回某个 {@code @fragment} 的内容。
+     *
+     * <p>★ **整页照样渲染一遍**,然后把那一段取出来。
+     *
+     * <p>听起来浪费,但另一条路更糟:要「只渲染片段」就得让生成的模板
+     * 类支持从中间进入,也就是把一个模板切成多个入口方法 ——
+     * 而片段里引用的变量、所在的 {@code @foreach} 的循环变量、
+     * 外层 {@code @if} 的条件,全都来自它上面的代码。切开之后那些
+     * 上下文就没了,表现是「局部刷新时变量是 null」。
+     *
+     * <p>渲染一遍的代价是可度量且可接受的(模板渲染在毫秒级,
+     * 而局部刷新本来就是为了省**网络**与**前端重排**,不是省 CPU)。
+     */
+    @Override
+    public String renderFragment(String name, String fragment, Map<String, Object> data) {
+        String templatePath = toJtePath(name);
+        var ctx = new JbContext();
+
+        Map<String, Object> params = new LinkedHashMap<>(data == null ? Map.of() : data);
+        params.put("ctx", ctx);
+
+        var out = new StringOutput();
+        try {
+            jte.render(templatePath, params, out);
+        } catch (TemplateException e) {
+            throw isPrecompileRequired(e) ? precompileRequired(name, e) : translateError(e, name);
+        } catch (JbladeException e) {
+            throw e;
+        }
+
+        return ctx.fragmentValue(fragment).orElseThrow(() -> new JbladeException(name, 1,
+                "模板 %s 里没有名为 \"%s\" 的 @fragment。%s".formatted(name, fragment,
+                        ctx.fragmentNames().isEmpty()
+                                ? "\n  这个模板里一个 @fragment 都没有。"
+                                : "\n  有的是:" + ctx.fragmentNames())
+              + "\n  写法:@fragment('row') ... @endfragment"));
+    }
+
     @Override
     public boolean exists(String name) {
         if (repository.read(name).isPresent()) return true;

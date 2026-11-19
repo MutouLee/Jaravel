@@ -41,7 +41,17 @@
 
   <ul>
   @foreach(notes as note)
+    {{-- ★ 每一行一个 @fragment:名字里拼上 id,于是
+         View.of("notes.page").fragment("note-" + id) 能只渲染这一行。
+         htmx / turbo 的局部刷新就靠它 —— 而那一行的 HTML 与整页里
+         那一行是**同一段模板代码**,不会分叉。 --}}
+    @fragment('note-' + note.id)
     <li>
+      {{-- @once:行内的那段脚本只输出一次,哪怕有一百行笔记 --}}
+      @once
+      <script id="row-behaviour">/* 行为绑定,只需要一次 */</script>
+      @endonce
+
       <span class="title">{{ note.title }}</span>
 
       {{-- ★ 按**对象**判:只有自己的笔记才出现编辑/删除。
@@ -68,6 +78,7 @@
         <span class="locked">不能删</span>
       @endcannot
     </li>
+    @endfragment
   @endforeach
   </ul>
 

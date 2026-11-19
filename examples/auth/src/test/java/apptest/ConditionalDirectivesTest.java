@@ -236,4 +236,61 @@ class ConditionalDirectivesTest extends FeatureTest {
 
         assertThat(Note.query().whereId(theirs.id).first()).isPresent();
     }
+
+    // ================= @once / @fragment =================
+
+    @Test
+    @DisplayName("★ 片段路由只回那一行,不带整页")
+    void fragmentRouteReturnsOnlyThatRow() {
+        User me = user("me@example.com", true);
+        Note first = note(me, "第一条");
+        note(me, "第二条");
+
+        String row = get("/notes/" + first.id + "/row").assertOk().content();
+
+        assertThat(row).contains("第一条");
+        assertThat(row)
+                .as("局部刷新要的是一行,不是一整页 —— 否则 htmx 会把一个"
+                  + " <html> 塞进 <li> 里")
+                .doesNotContain("第二条")
+                .doesNotContain("<html")
+                .doesNotContain("我的笔记");
+    }
+
+    @Test
+    @DisplayName("★ @once 在多行里也只输出一次")
+    void onceIsEmittedOnlyOnceAcrossRows() {
+        User me = user("me@example.com", true);
+        note(me, "第一条");
+        note(me, "第二条");
+        note(me, "第三条");
+
+        String page = get("/notes/page").assertOk().content();
+
+        assertThat(page.split("id=\"row-behaviour\"", -1).length - 1)
+                .as("一百行笔记也只要一段行为绑定脚本")
+                .isEqualTo(1);
+        assertThat(page.split("class=\"title\"", -1).length - 1)
+                .as("@once 之外的行内容每行都要有")
+                .isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("片段里的 @can 仍然按登录用户判")
+    void fragmentStillRespectsAuthorization() {
+        User me = user("me@example.com", true);
+        User other = user("other@example.com", true);
+        Note theirs = note(other, "别人的");
+
+        String asOwner = actingAs(other).get("/notes/" + theirs.id + "/row")
+                .assertOk().content();
+        assertThat(asOwner).contains("class=\"edit\"");
+
+        String asOther = actingAs(me).get("/notes/" + theirs.id + "/row")
+                .assertOk().content();
+        assertThat(asOther)
+                .as("片段与整页走同一条渲染路径,所以授权判断也一样")
+                .doesNotContain("class=\"edit\"")
+                .contains("class=\"locked\"");
+    }
 }

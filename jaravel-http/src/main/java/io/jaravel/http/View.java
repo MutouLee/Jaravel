@@ -16,6 +16,7 @@ public final class View {
     private final String name;
     private final Map<String, Object> data = new LinkedHashMap<>();
     private int status = 200;
+    private String fragment;
 
     private View(String name) {
         this.name = name;
@@ -46,13 +47,33 @@ public final class View {
         return this;
     }
 
+    /**
+     * 只渲染模板里的一个 {@code @fragment}(docs/04 §1.8)。
+     *
+     * <pre>{@code
+     * // htmx 的局部刷新:只回那一行
+     * return View.of("notes.page").with("notes", notes).fragment("row-" + id);
+     * }</pre>
+     *
+     * <p>数据仍然要**齐全** —— 片段的渲染路径与整页完全一样
+     * (整页照样渲染一遍,再把那一段取出来),所以片段上方用到的
+     * 变量一个都不能少。理由见 {@code JbladeEngine.renderFragment}。
+     */
+    public View fragment(String name) {
+        this.fragment = name;
+        return this;
+    }
+
     public String name()                 { return name; }
     public Map<String, Object> data()    { return Map.copyOf(data); }
     public int status()                   { return status; }
 
+    /** 要渲染的片段名;null = 整页 */
+    public String fragment()             { return fragment; }
+
     /** 转成 Response,由 starter 在返回值归一化时调用 */
     public Response toResponse() {
-        return Response.of(new Response.Body.ViewRef(name, data()), status)
+        return Response.of(new Response.Body.ViewRef(name, data(), fragment), status)
                        .contentType("text/html;charset=UTF-8");
     }
 

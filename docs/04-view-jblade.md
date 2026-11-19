@@ -485,7 +485,9 @@ public class PostCard extends Component {
 | `@method('PUT')` | ✅ 输出 `_method` 字段;服务端是 `MethodOverrideFilter` |
 | `@lang('k')` / `@lang('k', 替换表)` | ✅ 走 `Lang`,消息在 `resources/lang/<locale>/<group>.yml` |
 | `@choice('k', n)` / `@choice('k', n, 替换表)` | ✅ `|` 分段;支持 `{0}` / `[1,19]` / `[20,*]` 区间 |
-| 其余(`@vite` / `@inject` / `@once` / `@fragment`) | ⏳ 未实现,见 [KNOWN-ISSUES](../KNOWN-ISSUES.md) |
+| `@once` / `@endonce` | ✅ 同一次渲染只输出一次;去重键是**模板名 + 行号** |
+| `@fragment('row')` / `@endfragment` | ✅ 照常出现在整页里,也能被单独渲染(`View.fragment(...)`) |
+| 其余(`@vite` / `@inject`) | ⏳ 未实现,见 [KNOWN-ISSUES](../KNOWN-ISSUES.md) |
 
 条件指令的三条边界:
 
@@ -500,6 +502,51 @@ public class PostCard extends Component {
 - **`@can('create')` 这种没有实例的能力要传类型**:
   `@can('create', app.models.Note.class)` —— Gate 靠参数找 Policy,
   不传的话它无从分派,会按「权限未定义」拒绝。
+
+#### `@once` 与 `@fragment`
+
+```html
+@once
+<script id="row-behaviour">/* 行为绑定,只需要一次 */</script>
+@endonce
+```
+
+`@once` 的用途是组件自带的那段 `<script>` / `<style>`:一个被用了 20 次的
+日期选择器组件,它的初始化脚本只该出现一次。
+
+- **去重键是「模板名 + 行号」**,不是内容。两处恰好内容相同的 `@once`
+  是两段不同的声明,各输出一次才对;而用自增计数做键的话,同一个模板
+  被 `@include` 两次时计数会从头开始,于是第二次又输出一遍 ——
+  那正是 `@once` 要解决的那个场景。
+- 第二次之后 body **不会被求值**(jte 的内容块是惰性的),所以里面的
+  副作用(嵌套的 `@push` 等)也只发生一次。
+
+```html
+@fragment('note-' + note.id)
+<li>…</li>
+@endfragment
+```
+
+```java
+// htmx / turbo 的局部刷新:只回那一行
+return View.of("notes.page").with("notes", notes).fragment("note-" + id);
+```
+
+`@fragment` 同时做两件事:**照常输出**(片段是页面的一部分),并把这一段
+单独记下来。于是局部刷新回的 HTML 与整页里那一行是**同一段模板代码** ——
+另写一个 partial 模板的话两份会分叉,而分叉的症状是「整页对、局部不对」
+或者反过来。
+
+- **渲染片段时整页照样渲染一遍**,再把那一段取出来。要「只渲染片段」
+  就得让生成的模板类支持从中间进入,而片段里引用的变量、所在
+  `@foreach` 的循环变量、外层 `@if` 的条件全都来自它上面的代码 ——
+  切开之后那些上下文就没了,表现是「局部刷新时变量是 null」。
+  所以**数据仍然要齐全**。
+- 片段名不存在时**报错并列出有哪些**;换了视图引擎时
+  `ViewEngine.renderFragment` 的默认实现也报错,不回落到整页 ——
+  静默回落会把一整个 `<html>` 塞进一个 `<tr>` 里。
+- `@foreach` 里的 `@fragment` 用拼出来的名字区分每一行
+  (`@fragment('row-' + note.id)`);重名是后者覆盖前者,不报错。
 
 `@method` 的三条安全约束(都在 `MethodOverrideFilter` 里强制,
 且各有一条测试):

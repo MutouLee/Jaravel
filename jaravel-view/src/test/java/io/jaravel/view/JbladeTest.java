@@ -2335,4 +2335,153 @@ class JbladeTest {
                     .hasMessageContaining("最多 两个参数(键、替换表)");
         }
     }
+
+    // ================= @once / @fragment =================
+
+    @Nested
+    @DisplayName("@once 与 @fragment")
+    class OnceAndFragment {
+
+        @Test
+        @DisplayName("★ 同一处 @once 被渲染多次,只输出第一次")
+        void onceOutputsOnlyTheFirstTime(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of(
+                    "widget", """
+                        @once
+                        <script id="init">boot()</script>
+                        @endonce
+                        <div class="widget">一个控件</div>
+                        """,
+                    "t", """
+                        @include('widget')
+                        @include('widget')
+                        @include('widget')
+                        """));
+
+            String out = e.render("t", Map.of());
+
+            assertThat(out.split("<script id=\"init\">", -1).length - 1)
+                    .as("一个被用了多次的组件,它的初始化脚本只该出现一次")
+                    .isEqualTo(1);
+            assertThat(out.split("class=\"widget\"", -1).length - 1)
+                    .as("@once 之外的内容每次都要输出")
+                    .isEqualTo(3);
+        }
+
+        @Test
+        @DisplayName("★ 两处不同的 @once 各输出一次 —— 键是位置,不是内容")
+        void differentOncesAreIndependent(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of("t", """
+                @once <p>一样的内容</p> @endonce
+                @once <p>一样的内容</p> @endonce
+                """));
+
+            assertThat(e.render("t", Map.of()).split("一样的内容", -1).length - 1)
+                    .as("两处恰好内容相同的 @once 是两段不同的声明")
+                    .isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("@once 的内容可以带表达式与嵌套指令")
+        void onceBodyIsARealTemplate(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of("t", """
+                @params(String name, boolean flag)
+                @once
+                  <p>{{ name }}</p>
+                  @if (flag) <b>真</b> @endif
+                @endonce
+                """));
+
+            assertThat(e.render("t", Map.of("name", "张三", "flag", true)))
+                    .contains("张三").contains("<b>真</b>");
+        }
+
+        @Test
+        @DisplayName("@once 没闭合时报错")
+        void unclosedOnce() {
+            assertThatThrownBy(() -> JbladeTranspiler.transpile("@once <p>x</p>\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("once");
+        }
+
+        @Test
+        @DisplayName("★ @fragment 照常出现在整页里,也能被单独渲染")
+        void fragmentIsBothInlineAndStandalone(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of("t", """
+                @params(String title, String row)
+                <html><body>
+                  <h1>{{ title }}</h1>
+                  @fragment('row')
+                  <tr><td>{{ row }}</td></tr>
+                  @endfragment
+                </body></html>
+                """));
+
+            var data = Map.<String, Object>of("title", "标题", "row", "一行");
+
+            String full = e.render("t", data);
+            assertThat(full).contains("<h1>标题</h1>").contains("<td>一行</td>");
+
+            String fragment = e.renderFragment("t", "row", data);
+            assertThat(fragment)
+                    .as("局部刷新只要那一行,而它与整页里那一行是同一段模板代码")
+                    .contains("<td>一行</td>");
+            assertThat(fragment).doesNotContain("<h1>").doesNotContain("<html>");
+        }
+
+        @Test
+        @DisplayName("★ 片段名不存在时报错,并列出有哪些")
+        void unknownFragmentListsTheKnownOnes(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of("t", """
+                @fragment('row') <tr></tr> @endfragment
+                @fragment('total') <b>合计</b> @endfragment
+                """));
+
+            assertThatThrownBy(() -> e.renderFragment("t", "nope", Map.of()))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("没有名为 \"nope\" 的 @fragment")
+                    .hasMessageContaining("row");
+        }
+
+        @Test
+        @DisplayName("一个 @fragment 都没有时,报错也要说清这件事")
+        void templateWithoutFragments(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of("t", "<p>没有片段</p>\n"));
+
+            assertThatThrownBy(() -> e.renderFragment("t", "row", Map.of()))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("一个 @fragment 都没有");
+        }
+
+        @Test
+        @DisplayName("@foreach 里的 @fragment 用拼出来的名字区分每一行")
+        void fragmentsInsideLoops(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of("t", """
+                @params(java.util.List<String> rows)
+                @foreach(rows as row)
+                  @fragment('row-' + row)
+                  <tr><td>{{ row }}</td></tr>
+                  @endfragment
+                @endforeach
+                """));
+
+            var data = Map.<String, Object>of("rows", List.of("a", "b"));
+
+            assertThat(e.renderFragment("t", "row-b", data))
+                    .contains("<td>b</td>")
+                    .doesNotContain("<td>a</td>");
+        }
+
+        @Test
+        @DisplayName("@fragment 没闭合 / 缺名字时报错")
+        void fragmentErrors() {
+            assertThatThrownBy(() -> JbladeTranspiler.transpile(
+                    "@fragment('row') <tr></tr>\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("fragment");
+            assertThatThrownBy(() -> JbladeTranspiler.transpile("@fragment\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("@fragment 需要一个名字参数");
+        }
+    }
 }

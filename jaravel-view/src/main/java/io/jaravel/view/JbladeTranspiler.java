@@ -561,6 +561,12 @@ public final class JbladeTranspiler {
             case "cannot"       -> { open("cannot", line); yield "@if(" + abilityCall("denies", args, "cannot", line) + ")"; }
             case "endcannot"    -> { close("cannot", "endcannot", line); yield "@endif"; }
 
+            case "once"         -> { open("once", line); yield "${ctx.once(\"" + onceKey(line) + "\", @`"; }
+            case "endonce"      -> { close("once", "endonce", line); yield "`)}"; }
+
+            case "fragment"     -> { open("fragment", line); yield "${ctx.fragment(" + firstStringArg(args, "fragment", line) + ", @`"; }
+            case "endfragment"  -> { close("fragment", "endfragment", line); yield "`)}"; }
+
             case "lang"         -> "${io.jaravel.view.Jb.lang(" + langArgs(args, "lang", line) + ")}";
             case "choice"       -> "${io.jaravel.view.Jb.choice(" + langArgs(args, "choice", line) + ")}";
 
@@ -1508,6 +1514,18 @@ public final class JbladeTranspiler {
                   + "\n  但框架校验的是 _token,改名会让它一直 419。");
         }
         return "$unsafe{io.jaravel.view.Jb.csrfField()}";
+    }
+
+    /**
+     * {@code @once} 的去重键:**模板名 + 行号**。
+     *
+     * <p>不用内容做键:两处恰好内容相同的 {@code @once} 是两段不同的
+     * 声明,各输出一次才对。也不用一个自增计数:同一个模板被
+     * {@code @include} 两次时,两次的计数会从头开始,于是第二次又输出一遍
+     * —— 而那正是 {@code @once} 要解决的那个场景。
+     */
+    private String onceKey(int line) {
+        return templateName + ":" + line;
     }
 
     /**

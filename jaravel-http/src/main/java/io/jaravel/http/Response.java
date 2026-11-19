@@ -17,7 +17,19 @@ public class Response {
         /** 已就绪的字符串(JSON / HTML / 文本) */
         record Text(String content) implements Body {}
         /** 待渲染的视图,由视图层处理 */
-        record ViewRef(String name, Map<String, Object> data) implements Body {}
+        /**
+         * 待渲染的视图。
+         *
+         * @param fragment 只渲染这个 {@code @fragment};null = 整页
+         *                 (docs/04 §1.8)
+         */
+        record ViewRef(String name, Map<String, Object> data, String fragment)
+                implements Body {
+
+            public ViewRef(String name, Map<String, Object> data) {
+                this(name, data, null);
+            }
+        }
         /** 待序列化的对象,由 starter 的 JSON 层处理 */
         record Json(Object value) implements Body {}
         /**

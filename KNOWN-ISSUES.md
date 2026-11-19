@@ -26,7 +26,8 @@
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| `@vite` / `@inject` / `@once` / `@fragment` | 未实现 | docs/04 §1.8 的其余指令 |
+| `@vite` | 未实现 | 需要 manifest 解析与 dev server 约定(前端工具链耦合) |
+| `@inject` | 不做 | docs/04 §1.8 自己就写着「不鼓励」—— 模板里从容器取服务会让「这个页面依赖什么」不可见;用控制器传 |
 | `DateX.diffForHumans()` 本地化 | 未实现 | 消息目录已有(`Lang`),但 `DateX` 在 support,比 core 低一层、不能依赖它;需要一个钩子 |
 | `Mail.to(user).locale(...)` | 未实现 | 原语已有:`Lang.withLocale(...)` |
 | 按请求切 locale 的中间件 | 未实现 | 手写:读 `Accept-Language` 后 `Lang.setLocale(...)` |

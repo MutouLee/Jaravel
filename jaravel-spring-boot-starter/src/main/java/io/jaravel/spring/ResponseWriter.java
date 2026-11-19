@@ -219,7 +219,10 @@ public class ResponseWriter {
         return switch (response.body()) {
             case Response.Body.None n -> null;
             case Response.Body.Text t -> t.content();
-            case Response.Body.ViewRef v -> views.render(v.name(), v.data());
+            // fragment 为空 = 整页;否则只渲染那一段(docs/04 §1.8)
+            case Response.Body.ViewRef v -> v.fragment() == null
+                    ? views.render(v.name(), v.data())
+                    : views.renderFragment(v.name(), v.fragment(), v.data());
             case Response.Body.Json j -> json.writeValueAsString(j.value());
             case Response.Body.Negotiated n -> renderNegotiated(n, servletResponse);
 

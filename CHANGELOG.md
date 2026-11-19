@@ -21,6 +21,18 @@
   Publishing)、`RELEASE.md`、`SECURITY.md`、`KNOWN-ISSUES.md`。
 - **视图引擎修复**:从 fat jar 运行时即使当前目录有 `views/` 也用预编译
   引擎,避免 `java -jar` 从项目根目录启动时报「必须预编译」。
+- **`@once` / `@fragment` 与片段渲染**(docs/04 §1.8)——
+  `@once` 让组件自带的 `<script>` 在被用 N 次时只输出一次,去重键是
+  **模板名 + 行号**(用内容做键会把两段不同的声明合成一段;用自增计数
+  会在同一模板被 `@include` 两次时从头开始,那正是要解决的场景)。
+  `@fragment('row')` 照常出现在整页里,同时可被单独渲染:
+  `View.of("notes.page").fragment("note-" + id)` —— htmx / turbo 的局部
+  刷新回的 HTML 与整页里那一行是同一段模板代码,不会分叉。
+  渲染片段时**整页照样渲染一遍**再取那一段:要从模板中间进入就得把它
+  切成多个入口,而片段用到的循环变量与外层条件都来自它上面的代码,
+  切开之后表现是「局部刷新时变量是 null」。片段名不存在时报错并列出
+  有哪些;`ViewEngine.renderFragment` 的默认实现也报错而不回落到整页
+  (静默回落会把一整个 `<html>` 塞进一个 `<tr>` 里)。
 - **`@method` + 服务端的 `_method` 方法伪装**(docs/04 §1.8)——
   浏览器表单只会发 GET / POST,而 REST 路由需要 PUT / PATCH / DELETE。
   `MethodOverrideFilter` 按 `_method` 字段(或 `X-HTTP-Method-Override` 头)

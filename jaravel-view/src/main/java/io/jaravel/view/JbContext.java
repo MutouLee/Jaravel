@@ -89,6 +89,80 @@ public final class JbContext {
         return push(name, body);
     }
 
+    // ---------- once ----------
+
+    /**
+     * {@code @once ... @endonce} —— 同一次渲染里只输出一次。
+     *
+     * <p>用途是组件自带的那段 {@code <script>} / {@code <style>}:
+     * 一个被用了 20 次的日期选择器组件,它的初始化脚本只该出现一次。
+     *
+     * <p>key 由转写器生成(模板名 + 行号),所以「同一处 {@code @once}」
+     * 的判定与**写在哪**绑定,而不是与内容绑定 —— 两处恰好内容相同的
+     * {@code @once} 仍然各输出一次,那是对的:它们是两段不同的声明。
+     *
+     * <p>★ 返回 {@link Content} 而**不是** String:模板里它以
+     * {@code ${ctx.once(...)}} 出现,而 jte 对 String 返回值会再转义一次 ——
+     * 于是标签变成页面上的字符。{@code stack(...)} 同理,
+     * 这是这个类里统一的做法。
+     *
+     * <p>({@code $unsafe{...}} 不是选项:jte 的内容块语法
+     * {@code @`...`} 只在 {@code ${...}} 里成立,写进 $unsafe 会在生成的
+     * Java 里留下一个裸反引号,报「非法字符」。)
+     *
+     * <p>第二次之后 body **不会被求值**:jte 的 {@code @`...`} 是惰性的
+     * {@code Content},不调 {@code writeTo} 就什么都不发生。于是
+     * {@code @once} 里的副作用(比如嵌套的 {@code @push})也只发生一次。
+     */
+    public Content once(String key, Content body) {
+        if (!onceKeys.add("once\u0000" + key)) return EMPTY;
+        if (body == null) return EMPTY;
+        return prerender(body);
+    }
+
+    // ---------- fragment ----------
+
+    /** 片段名 → 已渲染的 HTML */
+    private final Map<String, String> fragments = new LinkedHashMap<>();
+
+    /**
+     * {@code @fragment('row') ... @endfragment}(docs/04 §1.8)。
+     *
+     * <p>两件事同时做:**照常输出**(片段是页面的一部分),并把这一段
+     * 单独记下来,于是同一个模板可以只渲染这一块 ——
+     * 配合 htmx / turbo 的局部刷新:一次表单提交只换掉表格里那一行,
+     * 而那一行的 HTML 与整页渲染出来的**完全是同一段代码**。
+     *
+     * <p>这是它比「再写一个 partial 模板」强的地方:两份模板会分叉,
+     * 而分叉的症状是「整页刷新对、局部刷新不对」或者反过来。
+     *
+     * <p>重名**后者覆盖前者**并不报错:{@code @fragment} 出现在
+     * {@code @foreach} 里是最常见的用法(每行一个),此时 N 次迭代
+     * 写的是同一个名字。要取某一行就把下标拼进名字
+     * ({@code @fragment('row-' + note.id)})。
+     */
+    public Content fragment(String name, Content body) {
+        if (body == null) return EMPTY;
+
+        var buffer = new StringOutput();
+        body.writeTo(new OwaspHtmlTemplateOutput(buffer));
+        String rendered = buffer.toString();
+        fragments.put(name, rendered);
+
+        // 与 once 同理:返回 Content,否则 jte 会把这段 HTML 再转义一次
+        return out -> out.writeContent(rendered);
+    }
+
+    /** 渲染后取某个片段;没有这个名字时返回 empty */
+    public java.util.Optional<String> fragmentValue(String name) {
+        return java.util.Optional.ofNullable(fragments.get(name));
+    }
+
+    /** 这次渲染里出现过的片段名 —— 报错消息要把它们列出来 */
+    public java.util.Set<String> fragmentNames() {
+        return java.util.Set.copyOf(fragments.keySet());
+    }
+
     /** {@code @stack('x')} */
     public Content stack(String name) {
         List<Content> list = stacks.get(name);

@@ -253,6 +253,8 @@ public class JaravelAuthAutoConfiguration {
                                manager.registeredStores()));
         }
         manager.defaultStore(defaultStore);
+
+        io.jaravel.cache.Cache.use(manager);
         return manager;
     }
 

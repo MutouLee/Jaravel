@@ -113,22 +113,32 @@ public abstract class Facade<T> {
 具体门面是手写的薄转发类(**不用动态代理**,保证 IDE 可跳转、可重构、native-image 友好):
 
 ```java
-package io.jaravel.facades;
+package io.jaravel.cache;      // 门面与它转发的类型同模块、同包
 
 public final class Cache {
     private Cache() {}
-    private static CacheRepository repo() { return Facade.resolve(CacheRepository.class); }
+    private static volatile CacheManager manager;     // starter 启动时 use(...)
 
-    public static <T> Optional<T> get(String key, Class<T> type)       { return repo().get(key, type); }
-    public static <T> T remember(String key, Duration ttl, Supplier<T> s) { return repo().remember(key, ttl, s); }
-    public static void put(String key, Object value, Duration ttl)     { repo().put(key, value, ttl); }
-    public static boolean forget(String key)                           { return repo().forget(key); }
-    public static CacheRepository store(String name)                   { return Facade.resolveNamed(CacheRepository.class, name); }
-    public static CacheFake fake()                                     { return CacheFake.install(); }
+    public static Repository store()                                      { return manager().store(); }
+    public static Repository store(String name)                           { return manager().store(name); }
+
+    public static <T> Optional<T> get(String key, Class<T> type)          { return store().get(key, type); }
+    public static <T> T remember(String key, Duration ttl, Supplier<T> s) { return store().remember(key, ttl, s); }
+    public static void put(String key, Object value, Duration ttl)        { store().put(key, value, ttl); }
+    public static void forget(String key)                                 { store().forget(key); }
 }
 ```
 
-> ⚠ `fake()` 这行与 `CacheFake` 尚未实现;当前的门面只有上面那些转发方法。
+> 实际落地与这段略有不同,差异都在**真实的那一侧**:
+> 契约是 `Repository`(不是 `CacheRepository`),门面在
+> `io.jaravel.cache`(与 `Storage` / `Auth` / `Queue` 一致,不在一个
+> 集中的 `io.jaravel.facades` 包里),绑定走 starter 的
+> `Cache.use(manager)` 而不是 `Facade.resolve` ——
+> 静态字段比每次查容器快,也让 `reset()` 能在测试里清干净。
+> 全部转发方法见 `io.jaravel.cache.Cache` 的 Javadoc。
+>
+> ⚠ `fake()` / `CacheFake` 尚未实现(见
+> [KNOWN-ISSUES](../KNOWN-ISSUES.md))。
 
 > **为什么手写转发而不是动态代理**:门面一共约 20 个、方法总量约 400 个,一次性写完即长期稳定;换来的是完整的 IDE 支持、无反射、无启动开销、GraalVM 零配置。代码生成也是选项(APT 从契约接口生成门面),v0.5 后可考虑,但首版手写更可控。
 

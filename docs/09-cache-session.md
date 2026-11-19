@@ -188,6 +188,10 @@ cache:
 Cache.get("posts", new TypeRef<List<Post>>() {});
 ```
 
+> ⚠ `TypeRef` 这个重载**尚未实现**(见 [KNOWN-ISSUES](../KNOWN-ISSUES.md))。
+> 当前取泛型容器:缓存一个包装 record(`record Posts(List<Post> items) {}`),
+> 或 `Cache.get(key, String.class)` 后自行反序列化。
+
 > **重要约束**:缓存 Eloquent 模型实例需谨慎——模型带脏跟踪状态与关联缓存。文档建议缓存 DTO/record 而非模型。`@Model` 的 Jackson 序列化器会剔除内部状态字段,但反序列化出的模型 `exists()` 为 false,`save()` 会变成 INSERT。这是必须在文档中显著警告的陷阱。
 
 ### 1.6 缓存击穿防护
@@ -202,7 +206,12 @@ Cache.remember("hot-key", ttl, () -> expensive());
 Cache.rememberLocked("hot-key", ttl, Duration.ofSeconds(10), () -> expensive());
 ```
 
-这是对 Laravel 的增强——Laravel 的 `remember` 没有防击穿,高并发下会出现惊群。
+> ⚠ `rememberLocked` **尚未实现**(见 [KNOWN-ISSUES](../KNOWN-ISSUES.md))。
+> 跨进程防击穿目前自己拼:`Cache.lock(key, ttl).get(() -> ...)` ——
+> `Lock` 已落地,缺的只是这个把「锁 + remember」合起来的便利方法。
+
+进程内那一层是对 Laravel 的增强——Laravel 的 `remember` 没有防击穿,
+高并发下会出现惊群。
 
 ---
 

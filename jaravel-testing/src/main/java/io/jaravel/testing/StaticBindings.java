@@ -14,6 +14,8 @@ import io.jaravel.auth.passwords.Password;
 import io.jaravel.auth.passwords.PasswordBroker;
 import io.jaravel.broadcasting.Broadcast;
 import io.jaravel.broadcasting.BroadcastManager;
+import io.jaravel.cache.Cache;
+import io.jaravel.cache.CacheManager;
 import io.jaravel.console.Artisan;
 import io.jaravel.console.CommandRegistry;
 import io.jaravel.core.Application;
@@ -115,6 +117,11 @@ final class StaticBindings {
         QueueManager queues = bean(context, QueueManager.class);
         if (queues != null) {
             Queue.use(queues);
+        }
+
+        CacheManager caches = bean(context, CacheManager.class);
+        if (caches != null) {
+            Cache.use(caches);
         }
 
         MailManager mail = bean(context, MailManager.class);

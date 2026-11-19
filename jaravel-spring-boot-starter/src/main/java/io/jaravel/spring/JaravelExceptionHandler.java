@@ -122,6 +122,24 @@ public class JaravelExceptionHandler {
         }
 
         int status = statusFor(t);
+
+        // ★ 3xx 不是错误,是重定向:body 必须是空的。
+        //
+        // {@code Authenticate.unauthenticated} 用 HttpException(302, Location)
+        // 把未登录的页面请求弹回 /login —— 走到这里如果按「错误」渲染,
+        // 一个 302 就会带上整张开发错误页(实测 13KB)。浏览器看不见
+        // (它跟着 Location 走了),但用 curl / devtools 调试的人看见的是
+        // 一个标题写着「HttpException」的崩溃页 —— 而什么都没崩。
+        // 生产模式下同理:302 的 body 是一张错误页。
+        if (t instanceof HttpException redirecting && status >= 300 && status < 400) {
+            String location = redirecting.headers().get("Location");
+            if (location != null) {
+                var response = io.jaravel.http.Redirect.to(location, status);
+                redirecting.headers().forEach(response::header);
+                return response;
+            }
+        }
+
         return request.expectsJson()
                 ? renderJson(request, t, status)
                 : renderHtml(request, t, status);

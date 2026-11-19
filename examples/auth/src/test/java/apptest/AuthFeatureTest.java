@@ -174,6 +174,20 @@ class AuthFeatureTest extends FeatureTest {
         }
 
         @Test
+        @DisplayName("★ 那个 302 的 body 是空的 —— 不是一张开发错误页")
+        void guestRedirectHasNoErrorPageBody() {
+            // 302 是用 HttpException 表达的(见 Authenticate.unauthenticated),
+            // 而异常处理器此前把**所有**异常都按「错误」渲染:于是开发模式下
+            // 每个未登录请求都带回一张 13KB 的开发错误页,标题写着
+            // 「HttpException」。浏览器看不见(它跟着 Location 走了),
+            // 但用 curl / devtools 调试的人看见的是一个什么都没崩的崩溃页。
+            assertThat(get("/dashboard").content())
+                    .as("重定向不该有 body")
+                    .doesNotContain("HttpException")
+                    .isBlank();
+        }
+
+        @Test
         @DisplayName("★ 登录后跳回原本想去的地址")
         void redirectsToIntendedUrl() {
             createUser("a@example.com", "correct-horse");

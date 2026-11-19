@@ -482,9 +482,10 @@ public class PostCard extends Component {
 | `@auth` / `@endauth`、`@guest` / `@endguest` | ✅ 可带 guard 名(`@auth('api')`) |
 | `@can` / `@elsecan` / `@elsecannot` / `@endcan`、`@cannot` / `@endcannot` | ✅ 走 `Gate`,**按对象判**(`@can('update', post)`) |
 | `@env('local'[, 'staging'])` / `@endenv`、`@production` / `@endproduction` | ✅ 读 `Application.environment()` |
+| `@method('PUT')` | ✅ 输出 `_method` 字段;服务端是 `MethodOverrideFilter` |
 | `@lang('k')` / `@lang('k', 替换表)` | ✅ 走 `Lang`,消息在 `resources/lang/<locale>/<group>.yml` |
 | `@choice('k', n)` / `@choice('k', n, 替换表)` | ✅ `|` 分段;支持 `{0}` / `[1,19]` / `[20,*]` 区间 |
-| 其余(`@method` / `@vite` / `@inject` / `@once` / `@fragment`) | ⏳ 未实现,见 [KNOWN-ISSUES](../KNOWN-ISSUES.md) |
+| 其余(`@vite` / `@inject` / `@once` / `@fragment`) | ⏳ 未实现,见 [KNOWN-ISSUES](../KNOWN-ISSUES.md) |
 
 条件指令的三条边界:
 
@@ -499,6 +500,29 @@ public class PostCard extends Component {
 - **`@can('create')` 这种没有实例的能力要传类型**:
   `@can('create', app.models.Note.class)` —— Gate 靠参数找 Policy,
   不传的话它无从分派,会按「权限未定义」拒绝。
+
+`@method` 的三条安全约束(都在 `MethodOverrideFilter` 里强制,
+且各有一条测试):
+
+- **只改写 POST**。GET 不能被升级成 DELETE —— 否则
+  `<a href="/notes/7?_method=DELETE">` 这样一个链接就能删数据,
+  而链接会被浏览器预取、被爬虫抓、被聊天软件展开预览。
+  这是方法伪装最经典的一个漏洞。
+- **只能伪装成 PUT / PATCH / DELETE**。不允许改成 GET / HEAD ——
+  `VerifyCsrfToken` 的安全方法正是 GET/HEAD/OPTIONS,伪装成它们
+  就不再校验令牌了。`@method('GET')` 在**转写期**就报错。
+- **只读表单体**(`application/x-www-form-urlencoded`),或显式的
+  `X-HTTP-Method-Override` 头。multipart 不读参数:在 filter 里调
+  `getParameter` 会触发容器解析 multipart,而那一步本该由上传那一层
+  (带大小上限与临时目录配置)来做。
+
+> 伪装后的请求**照常校验 CSRF**,所以表单里 `@csrf` 与 `@method` 两个
+> 都要写。少写前者是 419。
+>
+> 它必须是 Filter 而不是中间件:路由按**方法**匹配,而匹配发生在
+> Spring 的 HandlerMapping 里 —— 也就是中间件管道之前。写成中间件的
+> 版本会在「已经按 POST 匹配过」之后才改写方法,于是
+> `r.delete("/notes/{id}")` 永远匹配不上,症状是 404 / 405。
 
 `@lang` / `@choice` 的两条:
 

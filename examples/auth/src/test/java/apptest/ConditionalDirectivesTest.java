@@ -172,4 +172,68 @@ class ConditionalDirectivesTest extends FeatureTest {
                 .as("withLocale 结束后还原")
                 .isEqualTo("zh_CN");
     }
+
+    // ================= 方法伪装 =================
+
+    @Test
+    @DisplayName("★ POST + @method('DELETE') 真的落在 r.delete 的路由上")
+    void methodSpoofingReachesTheDeleteRoute() {
+        User me = user("me@example.com", true);
+        Note mine = note(me, "要删的");
+
+        String page = actingAs(me).get("/notes/page").assertOk().content();
+        assertThat(page)
+                .as("自己的笔记上有删除表单,表单里既有 _token 也有 _method")
+                .contains("name=\"_method\" value=\"DELETE\"")
+                .contains("name=\"_token\"");
+
+        actingAs(me).post("/notes/" + mine.id, java.util.Map.of("_method", "DELETE"))
+                .assertRedirect("/notes/page");
+
+        assertThat(Note.query().whereId(mine.id).first())
+                .as("浏览器发不出 DELETE,所以这条路必须通 —— 否则页面上那个"
+                  + "表单只能永远用 POST 路由")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("★ GET 带 ?_method=DELETE 什么也不会发生")
+    void getIsNotUpgradedByTheQueryString() {
+        User me = user("me@example.com", true);
+        Note mine = note(me, "不该被删");
+
+        // 一个带 ?_method=DELETE 的链接会被浏览器预取、被爬虫抓、
+        // 被聊天软件展开预览 —— 它绝不能删数据
+        actingAs(me).get("/notes/" + mine.id + "?_method=DELETE");
+
+        assertThat(Note.query().whereId(mine.id).first()).isPresent();
+    }
+
+    @Test
+    @DisplayName("★ 伪装后的 DELETE 照常校验 CSRF")
+    void spoofedDeleteStillNeedsTheCsrfToken() {
+        User me = user("me@example.com", true);
+        Note mine = note(me, "要删的");
+
+        actingAs(me).withoutCsrfToken()
+                .post("/notes/" + mine.id, java.util.Map.of("_method", "DELETE"))
+                .assertStatus(419);
+
+        assertThat(Note.query().whereId(mine.id).first())
+                .as("少写 @csrf 的表单应当 419,而不是把数据删掉")
+                .isPresent();
+    }
+
+    @Test
+    @DisplayName("别人的笔记删不掉 —— 伪装只解决方法,不解决授权")
+    void spoofingDoesNotBypassAuthorization() {
+        User me = user("me@example.com", true);
+        User other = user("other@example.com", true);
+        Note theirs = note(other, "别人的");
+
+        actingAs(me).post("/notes/" + theirs.id, java.util.Map.of("_method", "DELETE"))
+                .assertStatus(403);
+
+        assertThat(Note.query().whereId(theirs.id).first()).isPresent();
+    }
 }

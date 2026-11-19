@@ -230,4 +230,19 @@ public final class Jb {
     public static String choice(String key, Number count) {
         return choice(key, count == null ? 0L : count.longValue());
     }
+
+    /**
+     * {@code @method('PUT')} —— 方法伪装的隐藏 input。
+     *
+     * <p>字段名 {@code _method} 与 Laravel 一致,服务端那一侧是
+     * {@code MethodOverrideFilter}。只允许 PUT / PATCH / DELETE:
+     * 伪装成 GET 会把一个要 CSRF 校验的请求变成「安全方法」。
+     *
+     * <p>值在这里就被规范化成大写并校验过了,所以运行时不会出现
+     * 「拼错了但没人说」—— 转写期的校验在 {@code JbladeTranspiler}。
+     */
+    public static String methodField(String method) {
+        String upper = method == null ? "" : method.trim().toUpperCase(java.util.Locale.ROOT);
+        return "<input type=\"hidden\" name=\"_method\" value=\"" + upper + "\">";
+    }
 }

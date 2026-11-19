@@ -479,6 +479,27 @@ public class JaravelAutoConfiguration {
         return registration;
     }
 
+    /**
+     * HTML 表单的方法伪装(docs/04 §1.8)。
+     *
+     * <p>顺序在路由分发之前、请求 ID 之后:它改写的是**方法**,
+     * 而路由匹配按方法选路由。写成中间件会太晚 ——
+     * 理由见 {@link MethodOverrideFilter} 的类注释。
+     *
+     * <p>永远开。它只在「POST + 表单体里有 _method」时才动手,
+     * 而那个组合除了伪装没有别的含义;加一个开关只会让
+     * 「我写了 @method 但不生效」多一种可能的原因。
+     */
+    @Bean
+    public org.springframework.boot.web.servlet.FilterRegistrationBean<MethodOverrideFilter>
+            jaravelMethodOverrideFilter() {
+
+        var registration = new org.springframework.boot.web.servlet.FilterRegistrationBean<>(
+                new MethodOverrideFilter());
+        registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE + 25);
+        return registration;
+    }
+
     /** 请求 ID(docs/12 §6.4)—— 永远开:每个响应都该能被定位到一次请求 */
     @Bean
     public org.springframework.boot.web.servlet.FilterRegistrationBean<RequestIdFilter>

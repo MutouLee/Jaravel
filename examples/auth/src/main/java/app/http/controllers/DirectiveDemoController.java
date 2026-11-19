@@ -29,4 +29,20 @@ public class DirectiveDemoController {
         return View.of("notes.page")
                 .with("notes", Note.query().orderByKeyDesc().get().toList());
     }
+
+    /**
+     * DELETE /notes/{id} —— 页面上那个 POST + {@code @method('DELETE')} 表单
+     * 最终落在这里。
+     *
+     * <p>授权仍然走 Gate:方法伪装只解决「浏览器发不出 DELETE」,
+     * 与「谁能删」无关。模板里 {@code @cannot('delete', note)} 不显示按钮,
+     * 而这里是真正的那道门 —— 少显示一个按钮不等于接口安全。
+     */
+    public io.jaravel.http.Response destroy(Long id) {
+        Note note = Note.findOrFail(id);
+        io.jaravel.auth.access.Gate.authorize("delete", note);
+        note.delete();
+
+        return io.jaravel.http.Redirect.to("/notes/page").with("status", "已删除");
+    }
 }

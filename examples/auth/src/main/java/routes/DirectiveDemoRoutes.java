@@ -23,5 +23,12 @@ public class DirectiveDemoRoutes implements RouteDefinition {
     public void define(Router r) {
         r.get("/notes/page", DirectiveDemoController::page)
          .middleware("web").name("notes.page");
+
+        // ★ 真的 DELETE 路由。浏览器表单发不出 DELETE,所以页面上那个
+        // 表单是 POST + @method('DELETE'),由 MethodOverrideFilter 改写
+        // (docs/04 §1.8)。挂 auth:删之前先得知道你是谁
+        r.delete("/notes/{id}", DirectiveDemoController::destroy)
+         .whereNumber("id")
+         .middleware("web", "auth").name("notes.destroy");
     }
 }

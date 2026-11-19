@@ -21,6 +21,20 @@
   Publishing)、`RELEASE.md`、`SECURITY.md`、`KNOWN-ISSUES.md`。
 - **视图引擎修复**:从 fat jar 运行时即使当前目录有 `views/` 也用预编译
   引擎,避免 `java -jar` 从项目根目录启动时报「必须预编译」。
+- **`@method` + 服务端的 `_method` 方法伪装**(docs/04 §1.8)——
+  浏览器表单只会发 GET / POST,而 REST 路由需要 PUT / PATCH / DELETE。
+  `MethodOverrideFilter` 按 `_method` 字段(或 `X-HTTP-Method-Override` 头)
+  改写方法,字段名与 Laravel 一致,照抄过来的表单直接能用。
+  **它必须是 Filter**:路由按方法匹配,而匹配在 Spring 的 HandlerMapping
+  里发生 —— 中间件版本会在「已按 POST 匹配过」之后才改写,
+  于是 `r.delete(...)` 永远匹配不上(症状是 404/405)。
+  三条安全约束各有测试:只改写 POST(否则一个链接就能删数据)、
+  只能伪装成 PUT/PATCH/DELETE(伪装成 GET 等于绕过 CSRF,`@method('GET')`
+  在转写期就报错)、非表单体只认头(在 filter 里读 multipart 参数会
+  触发容器解析,而那该由上传层带着大小上限去做)。
+  端到端:`examples/auth` 的演示页加了一个真的
+  `DELETE /notes/{id}` 路由与 POST + `@method('DELETE')` 的表单,
+  并钉住「伪装后仍要 CSRF(少令牌 419)」与「伪装不绕过授权(别人的 403)」。
 - **i18n 底座 + `@lang` / `@choice`**(docs/02 §2.3、docs/04 §1.8)——
   `Translator` / `Lang` / `LangLoader` 落在 `jaravel-core`;消息放
   `resources/lang/<locale>/<group>.yml`,**键的第一段永远是文件名**

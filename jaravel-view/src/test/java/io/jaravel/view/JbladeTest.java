@@ -1912,6 +1912,40 @@ class JbladeTest {
         }
 
         @Test
+        @DisplayName("★ @method('PUT') 输出方法伪装字段")
+        void methodFieldIsRendered(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of("t", """
+                <form method="post" action="/notes/7">@method('DELETE')</form>
+                """));
+
+            assertThat(e.render("t", Map.of()))
+                    .contains("<input type=\"hidden\" name=\"_method\" value=\"DELETE\">");
+        }
+
+        @Test
+        @DisplayName("小写也行,输出统一大写")
+        void methodIsUppercased(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of("t", "<form>@method('put')</form>\n"));
+
+            assertThat(e.render("t", Map.of())).contains("value=\"PUT\"");
+        }
+
+        @Test
+        @DisplayName("★ @method('GET') 在转写期就被拒 —— 它等于绕过 CSRF")
+        void methodRejectsSafeMethods() {
+            assertThatThrownBy(() -> JbladeTranspiler.transpile("@method('GET')\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("只能是 PUT / PATCH / DELETE")
+                    .hasMessageContaining("绕过 CSRF");
+            assertThatThrownBy(() -> JbladeTranspiler.transpile("@method('POST')\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("POST 不需要伪装");
+            assertThatThrownBy(() -> JbladeTranspiler.transpile("@method()\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("@method 需要一个名字参数");
+        }
+
+        @Test
         @DisplayName("@csrf 带参数是写错了")
         void csrfTakesNoArguments(@TempDir Path tmp) {
             assertThatThrownBy(() -> JbladeTranspiler.transpile(

@@ -543,6 +543,7 @@ public final class JbladeTranspiler {
 
             // ---- 框架指令(docs/04 §1.8) ----
             case "csrf"         -> handleCsrf(args, line);
+            case "method"       -> handleMethod(args, line);
             case "error"        -> openError(args, line);
             case "enderror"     -> { close("error", "enderror", line); errorDepth--; yield "@endif"; }
             case "old"          -> "${io.jaravel.view.Jb.old(" + oldArgs(args, line) + ")}";
@@ -1507,6 +1508,32 @@ public final class JbladeTranspiler {
                   + "\n  但框架校验的是 _token,改名会让它一直 419。");
         }
         return "$unsafe{io.jaravel.view.Jb.csrfField()}";
+    }
+
+    /**
+     * {@code @method('PUT')} → 方法伪装的隐藏 input。
+     *
+     * <p>方法名在**转写期**校验:只允许 PUT / PATCH / DELETE。
+     * 运行时再校验就太晚了 —— 那时表单已经渲染出去,
+     * 而一个 {@code @method('GET')} 的表单看起来完全正常,
+     * 只是悄悄绕过了 CSRF(见 MethodOverrideFilter 的类注释)。
+     */
+    private String handleMethod(String args, int line) {
+        String raw = firstStringArg(args, "method", line);
+        // firstStringArg 返回的是 Java 字符串字面量(带引号),这里取里面的值
+        String value = raw.length() >= 2 && raw.startsWith("\"") && raw.endsWith("\"")
+                ? raw.substring(1, raw.length() - 1)
+                : raw;
+        String upper = value.trim().toUpperCase(java.util.Locale.ROOT);
+
+        if (!java.util.List.of("PUT", "PATCH", "DELETE").contains(upper)) {
+            throw new JbladeException(templateName, line,
+                    "@method 只能是 PUT / PATCH / DELETE,收到:" + value
+                  + "\n  POST 不需要伪装(表单本来就能发);"
+                  + "\n  GET / HEAD 不允许 —— 那会把一个要 CSRF 校验的请求"
+                  + "变成「安全方法」,等于绕过 CSRF。");
+        }
+        return "$unsafe{io.jaravel.view.Jb.methodField(\"" + upper + "\")}";
     }
 
     /**

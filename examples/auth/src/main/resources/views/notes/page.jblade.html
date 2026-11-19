@@ -52,6 +52,18 @@
         <span class="readonly">只读</span>
       @endcan
 
+      @can('delete', note)
+        {{-- 浏览器的表单只会发 GET / POST。@method('DELETE') 放一个
+             _method 字段,服务端的 MethodOverrideFilter 据此改写方法,
+             于是 r.delete("/notes/{id}") 能匹配上。
+             @csrf 仍然要写 —— 伪装后的 DELETE 照常校验令牌。 --}}
+        <form class="destroy" method="post" action="/notes/{{ note.id }}">
+          @csrf
+          @method('DELETE')
+          <button type="submit">删除</button>
+        </form>
+      @endcan
+
       @cannot('delete', note)
         <span class="locked">不能删</span>
       @endcannot

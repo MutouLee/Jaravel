@@ -13,6 +13,22 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Maven 下载失败就重试(Maven 3.9+ 读 MAVEN_ARGS,会拼在命令行参数前面)。
+#
+# ★ 为什么需要这个:6b09653 的 test 作业挂在
+#   「Could not find artifact org.apache.maven.surefire:surefire-junit-platform:jar:3.5.2」
+# —— 不是代码问题,是一次 Central 抖动。它恰好发生在**冷缓存**那一跑上
+# (上一个提交改了 pom,setup-java 的缓存键跟着变),于是那一跑要下载
+# 全部依赖,撞上抖动的概率也最高。
+#
+# 默认的 wagon 不重试:一次 404/超时就直接判失败,而那条错误看起来
+# 像「这个依赖不存在」。重试三次把「抖动」与「真的没有这个坐标」
+# 区分开 —— 后者重试三次仍然失败,消息也不会更误导。
+env:
+  MAVEN_ARGS: >-
+    -Dmaven.wagon.http.retryHandler.count=3
+    -Dmaven.wagon.http.retryHandler.requestSentEnabled=true
+
 jobs:
   test:
     name: test (JDK 21)

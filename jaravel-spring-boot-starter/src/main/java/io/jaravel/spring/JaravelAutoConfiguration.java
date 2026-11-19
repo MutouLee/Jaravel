@@ -35,6 +35,7 @@ import io.jaravel.routing.RouteCollection;
 import io.jaravel.routing.RouteDefinition;
 import io.jaravel.routing.Router;
 import io.jaravel.view.JbladeEngine;
+import io.jaravel.core.lang.LangLoader;
 import io.jaravel.view.ViewEngine;
 import io.jaravel.view.ViewRequestState;
 
@@ -223,6 +224,51 @@ public class JaravelAutoConfiguration {
      * 才能工作的 bean 可以依赖它,而不是靠 bean 初始化顺序碰运气。
      */
     public static final class JaravelStaticWiring {
+    }
+
+    // ================= i18n =================
+
+    /**
+     * 消息目录(docs/02 §2.3)。
+     *
+     * <p>locale 与 fallback 来自 {@code app.locale} / {@code app.fallback-locale};
+     * 消息从两处装:**classpath 的 {@code lang/}** 与**磁盘的
+     * {@code resources/lang/}**,磁盘后装所以同名键覆盖 jar 里的 ——
+     * 开发时改一条消息不必重新打包。
+     *
+     * <p>jar 里无法枚举目录,所以 classpath 那一侧按约定读
+     * {@code lang/<locale>/_groups.yml} 里列出的分组(见
+     * {@link LangLoader#groupsOnClasspath})。没有那个文件就只用磁盘那份 ——
+     * 开发期最常见的情形,不该因此报错。
+     *
+     * <p>一条消息都没有也**不报错**:绝大多数应用是单语言的,
+     * 它们不该为了渲染页面先建一个 lang 目录。那时 {@code @lang('k')}
+     * 输出的是键本身(见 {@code Lang} 的类注释)。
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public io.jaravel.core.lang.Translator jaravelTranslator(ConfigRepository config) {
+        String locale = config.string("app.locale", "zh_CN");
+        String fallback = config.string("app.fallback-locale", "en");
+        var translator = new io.jaravel.core.lang.Translator(locale, fallback);
+
+        var loader = getClass().getClassLoader();
+        var locales = java.util.LinkedHashSet.<String>newLinkedHashSet(2);
+        locales.add(locale);
+        locales.add(fallback);
+
+        for (String name : locales) {
+            var groups = LangLoader.groupsOnClasspath(loader, name);
+            if (groups.isEmpty()) continue;
+            LangLoader.fromClasspath(loader, java.util.List.of(name), groups)
+                    .forEach(translator::put);
+        }
+
+        Path langRoot = Path.of(config.string("lang.root", "src/main/resources/lang"));
+        LangLoader.fromDirectory(langRoot).forEach(translator::put);
+
+        io.jaravel.core.lang.Lang.use(translator);
+        return translator;
     }
 
     // ================= 视图 =================

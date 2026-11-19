@@ -171,7 +171,7 @@ public final class Cache {
 | `Storage` | `FilesystemManager` | storage |
 | `Mail` | `Mailer` | mail |
 | `Notifications` | `NotificationDispatcher` | notifications |
-| `Lang` | `Translator` | core |
+| `Lang` | `Translator` | core(消息在 `resources/lang/<locale>/<group>.yml`) |
 | `Artisan` | `ConsoleKernel` | console |
 
 ### 2.4 测试期假实现
@@ -523,9 +523,17 @@ DateX.now().timezone("UTC");
 > **一周从周一开始**(ISO-8601 与 Carbon 都是)。两种习惯都对,
 > 但必须选一个并说清 —— 否则「本周的订单」在两个报表里会差一天。
 >
-> ⚠ **`diffForHumans()` 只有中文。** 本地化需要一个消息目录,而这个
-> 框架还没有本地化模块(docs/11 §1.3 那条 `Mail.to(user).locale(...)`
-> 同样因此是空的)。硬编码中文而不是假装支持多语言 —— 后者更误导。
+> ⚠ **`diffForHumans()` 只有中文。** 消息目录已经有了(`Lang` /
+> `Translator`,见 §2.3 与 docs/04 §1.8),但 `DateX` 在 `jaravel-support`
+> 里 —— 那是**比 core 更底层**的模块,按 ADR-001 的依赖方向它不能
+> 反过来依赖 `Lang`。要本地化它得给 support 留一个钩子(与视图那边的
+> `ViewRequestState.Source` 同一手法),这件事还没做,登记在
+> [KNOWN-ISSUES](../KNOWN-ISSUES.md)。
+> 硬编码中文而不是假装支持多语言 —— 后者更误导。
+>
+> `Mail.to(user).locale(...)` 同样仍是空的,但原语已经有了:
+> `Lang.withLocale(locale, () -> ...)`(它在那一段里切 locale 并在结束时
+> 还原,嵌套安全)。
 >
 > 逃生口是 `toZonedDateTime()`:这里没包的能力直接从底层对象拿,
 > 不用等框架补。

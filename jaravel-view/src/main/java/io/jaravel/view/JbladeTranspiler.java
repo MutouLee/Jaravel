@@ -560,6 +560,9 @@ public final class JbladeTranspiler {
             case "cannot"       -> { open("cannot", line); yield "@if(" + abilityCall("denies", args, "cannot", line) + ")"; }
             case "endcannot"    -> { close("cannot", "endcannot", line); yield "@endif"; }
 
+            case "lang"         -> "${io.jaravel.view.Jb.lang(" + langArgs(args, "lang", line) + ")}";
+            case "choice"       -> "${io.jaravel.view.Jb.choice(" + langArgs(args, "choice", line) + ")}";
+
             case "env"          -> { open("env", line);    yield "@if(io.jaravel.view.Jb.isEnv(" + envArgs(args, line) + "))"; }
             case "endenv"       -> { close("env", "endenv", line);     yield "@endif"; }
             case "production"   -> { open("production", line); yield "@if(io.jaravel.view.Jb.isProduction())"; }
@@ -1439,6 +1442,42 @@ public final class JbladeTranspiler {
             call.append(", ").append(rewriteExpression(parts.get(i)));
         }
         return call.append(")").toString();
+    }
+
+    /**
+     * {@code @lang('k')} / {@code @lang('k', replacements)} /
+     * {@code @choice('k', n)} / {@code @choice('k', n, replacements)}。
+     *
+     * <p>第一个参数是键(字符串),其余原样作为表达式传过去 ——
+     * 数量与替换表都来自模板里的变量。
+     */
+    private String langArgs(String args, String directive, int line) {
+        List<String> parts = splitArgs(args);
+        if (parts.isEmpty()) {
+            throw new JbladeException(templateName, line,
+                    "@" + directive + " 需要一个消息键,如 @" + directive
+                  + ("choice".equals(directive) ? "('posts.count', n)" : "('posts.created')"));
+        }
+        if ("choice".equals(directive) && parts.size() < 2) {
+            throw new JbladeException(templateName, line,
+                    "@choice 还需要一个数量:@choice('posts.count', posts.size())"
+                  + "\n  只要一条消息用 @lang。");
+        }
+        // @lang 最多两个(键、替换表);@choice 最多三个(键、数量、替换表)
+        int max = "choice".equals(directive) ? 3 : 2;
+        if (parts.size() > max) {
+            throw new JbladeException(templateName, line,
+                    "@" + directive + " 最多 " + (max == 3 ? "三" : "两")
+                  + "个参数(" + ("choice".equals(directive)
+                                ? "键、数量、替换表" : "键、替换表")
+                  + "),收到 " + parts.size() + " 个");
+        }
+
+        var call = new StringBuilder(normalizeString(parts.get(0)));
+        for (int i = 1; i < parts.size(); i++) {
+            call.append(", ").append(rewriteExpression(parts.get(i)));
+        }
+        return call.toString();
     }
 
     /** {@code @env('local')} / {@code @env('local', 'staging')} */

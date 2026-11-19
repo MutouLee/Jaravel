@@ -21,6 +21,19 @@
   Publishing)、`RELEASE.md`、`SECURITY.md`、`KNOWN-ISSUES.md`。
 - **视图引擎修复**:从 fat jar 运行时即使当前目录有 `views/` 也用预编译
   引擎,避免 `java -jar` 从项目根目录启动时报「必须预编译」。
+- **i18n 底座 + `@lang` / `@choice`**(docs/02 §2.3、docs/04 §1.8)——
+  `Translator` / `Lang` / `LangLoader` 落在 `jaravel-core`;消息放
+  `resources/lang/<locale>/<group>.yml`,**键的第一段永远是文件名**
+  (与 Laravel 一致,于是「这条消息在哪」能从键读出来)。占位符用
+  `:name`,替换是**一次扫描**(用户填的内容里含 `:other` 不会被二次替换,
+  否则那是一个注入点);复数支持 `单|复` 两段、`0|1|其余` 三段,
+  以及 `{0}` / `[1,19]` / `[20,*]` 显式区间。
+  starter 从 `app.locale` / `app.fallback-locale` 装配,消息同时从
+  classpath 的 `lang/`(按 `_groups.yml` 索引 —— jar 里无法枚举目录)
+  与磁盘的 `resources/lang/` 装,磁盘后装所以覆盖 jar 里的。
+  找不到键、甚至没装消息目录时都**输出键本身**而不是报错或留空 ——
+  漏翻是翻译工作的正常中间状态。`Lang.withLocale(l, () -> ...)` 可在
+  一段里切语言并还原(嵌套安全),这是「按收件人语言发邮件」的原语。
 - **条件指令 `@auth` / `@guest` / `@can` / `@cannot` / `@env` / `@production`**
   (docs/04 §1.8)—— `@auth('api')` 可指定 guard;`@can('update', post)` 走
   `Gate`、**按对象判**(与 `middleware("can:update,note")` 和

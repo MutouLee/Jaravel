@@ -4,6 +4,12 @@ app:
   debug: ${APP_DEBUG:true}
   url: ${APP_URL:http://localhost:8002}
 
+  # i18n(docs/02 §2.3):消息在 resources/lang/<locale>/<group>.yml。
+  # 取不到当前 locale 的键时回退到 fallback-locale,再取不到就显示键本身 ——
+  # 漏翻在页面上一眼可见,而不是让页面 500 或静默留空
+  locale: ${APP_LOCALE:zh_CN}
+  fallback-locale: ${APP_FALLBACK_LOCALE:en}
+
   # 会话加密、签名 URL(邮箱验证链接)、加密字段都依赖它。
   # 真实项目里这一行只写 ${APP_KEY} —— 不带默认值,让它缺失时启动失败。
   # 示例为了能直接跑给了个固定值;换掉它会让所有已发出的

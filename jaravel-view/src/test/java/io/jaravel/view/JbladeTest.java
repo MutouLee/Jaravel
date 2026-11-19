@@ -2216,4 +2216,89 @@ class JbladeTest {
                     .hasMessageContaining("@endauth");
         }
     }
+
+    @Nested
+    @DisplayName("i18n 指令:@lang / @choice")
+    class LangDirectives {
+
+        @org.junit.jupiter.api.AfterEach
+        void clearTranslator() {
+            io.jaravel.core.lang.Lang.reset();
+        }
+
+        private void messages() {
+            io.jaravel.core.lang.Lang.use(
+                    new io.jaravel.core.lang.Translator("zh_CN", "en")
+                            .put("zh_CN", Map.of(
+                                    "posts.created", "文章已发布",
+                                    "posts.greeting", "你好 :name",
+                                    "posts.count", "没有文章|一篇文章|:count 篇文章")));
+        }
+
+        @Test
+        @DisplayName("@lang 取消息,@choice 按数量取")
+        void langAndChoice(@TempDir Path tmp) {
+            messages();
+            var e = engine(tmp, Map.of("t", """
+                @params(java.util.List<String> posts)
+                <h1>@lang('posts.created')</h1>
+                <p>@choice('posts.count', posts.size())</p>
+                """));
+
+            assertThat(e.render("t", Map.of("posts", List.of("a", "b"))))
+                    .contains("文章已发布")
+                    .contains("2 篇文章");
+        }
+
+        @Test
+        @DisplayName("@lang 带占位符")
+        void langWithReplacements(@TempDir Path tmp) {
+            messages();
+            var e = engine(tmp, Map.of("t", """
+                @params(String name)
+                <p>@lang('posts.greeting', java.util.Map.of("name", name))</p>
+                """));
+
+            assertThat(e.render("t", Map.of("name", "张三"))).contains("你好 张三");
+        }
+
+        @Test
+        @DisplayName("★ 输出走转义 —— 消息里可能带用户数据")
+        void outputIsEscaped(@TempDir Path tmp) {
+            io.jaravel.core.lang.Lang.use(
+                    new io.jaravel.core.lang.Translator("zh_CN", "en")
+                            .put("zh_CN", Map.of("x", "你好 :name")));
+            var e = engine(tmp, Map.of("t", """
+                @params(String name)
+                <p>@lang('x', java.util.Map.of("name", name))</p>
+                """));
+
+            assertThat(e.render("t", Map.of("name", "<script>alert(1)</script>")))
+                    .doesNotContain("<script>alert(1)</script>")
+                    .contains("&lt;script&gt;");
+        }
+
+        @Test
+        @DisplayName("★ 没装翻译器时输出键本身 —— 页面还能用,漏翻一眼可见")
+        void withoutTranslatorShowsTheKey(@TempDir Path tmp) {
+            var e = engine(tmp, Map.of("t", "<h1>@lang('posts.created')</h1>\n"));
+
+            assertThat(e.render("t", Map.of())).contains("posts.created");
+        }
+
+        @Test
+        @DisplayName("参数写错时在转写期报错")
+        void argumentErrors() {
+            assertThatThrownBy(() -> JbladeTranspiler.transpile("@lang()\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("@lang 需要一个消息键");
+            assertThatThrownBy(() -> JbladeTranspiler.transpile("@choice('k')\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("@choice 还需要一个数量");
+            assertThatThrownBy(() -> JbladeTranspiler.transpile(
+                    "@lang('a', b, c)\n", "t"))
+                    .isInstanceOf(JbladeException.class)
+                    .hasMessageContaining("最多 两个参数(键、替换表)");
+        }
+    }
 }

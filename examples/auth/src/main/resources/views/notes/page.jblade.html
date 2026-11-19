@@ -6,6 +6,11 @@
   <title>笔记</title>
 </head>
 <body>
+  {{-- @lang / @choice 走消息目录(resources/lang/<locale>/notes.yml)。
+       键的第一段是文件名,所以这两条在 notes.yml 里。 --}}
+  <h1>@lang('notes.title')</h1>
+  <p id="count">@choice('notes.count', notes.size())</p>
+
   {{-- 这个页面存在的理由是**演示并验收**条件指令(docs/04 §1.8):
        @auth / @guest 走 Auth,@can 走 Gate(与 NotePolicy 是同一条路径),
        @env 走 Application.environment()。

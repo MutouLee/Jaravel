@@ -14,7 +14,6 @@ import java.util.Optional;
 public final class Jb {
 
     private Jb() {}
-
     /**
      * Blade 的「空」语义:null、空串、空白串、空集合、空 Map、空数组、空 Optional
      * 都算空。数值 0 与 false **不算**空(这点与 PHP 的 empty() 不同,
@@ -30,23 +29,19 @@ public final class Jb {
         if (o instanceof Iterable<?> it)   return !it.iterator().hasNext();
         return false;
     }
-
     public static boolean isNotEmpty(Object o) {
         return !isEmpty(o);
     }
-
     /** {@code {{ a ?? b }}} 的落点 */
     public static <T> T coalesce(T a, T b) {
         return a != null ? a : b;
     }
-
     /** {@code @isset(x)} 的落点。Optional 的空也算未设置。 */
     public static boolean isset(Object o) {
         if (o == null) return false;
         if (o instanceof Optional<?> opt) return opt.isPresent();
         return true;
     }
-
     /**
      * {@code @foreach} 的遍历入口,**按类型重载以保留元素类型**。
      *
@@ -59,16 +54,13 @@ public final class Jb {
     public static <T> Iterable<T> iter(Iterable<T> items) {
         return items == null ? java.util.List.of() : items;
     }
-
     public static <T> Iterable<T> iter(T[] items) {
         return items == null ? java.util.List.of() : java.util.Arrays.asList(items);
     }
-
     /** Map 遍历 entrySet,与 Blade 遍历关联数组的语义一致 */
     public static <K, V> Iterable<Map.Entry<K, V>> iter(Map<K, V> map) {
         return map == null ? java.util.List.of() : map.entrySet();
     }
-
     /** 弱类型回落。重载都不匹配时使用,元素类型退化为 Object。 */
     public static Iterable<?> iterable(Object o) {
         if (o == null) return java.util.List.of();
@@ -84,7 +76,6 @@ public final class Jb {
                 "@foreach 无法遍历 " + o.getClass().getName()
               + "(支持 Iterable / Collection / Map / 数组 / null)");
     }
-
     /** 用于 {@code loop} 变量:尽量拿到序列长度,拿不到返回 -1 */
     public static int sizeOf(Object o) {
         if (o == null) return 0;
@@ -93,7 +84,6 @@ public final class Jb {
         if (o.getClass().isArray()) return java.lang.reflect.Array.getLength(o);
         return -1;
     }
-
     /** {@code @json(data)} —— 安全地把对象输出到 JS 上下文 */
     public static String json(Object o) {
         // v0.1 用极简实现;v0.2 接 Jackson(由 starter 注入序列化器)
@@ -104,7 +94,6 @@ public final class Jb {
                 .replace("<", "\\u003C").replace(">", "\\u003E")
                 .replace("&", "\\u0026").replace("\n", "\\n") + "\"";
     }
-
     // ================= 框架指令的落点(docs/04 §1.8) =================
 
     /**
@@ -126,12 +115,10 @@ public final class Jb {
         String token = ViewRequestState.current().csrfToken();
         return "<input type=\"hidden\" name=\"_token\" value=\"" + escapeAttribute(token) + "\">";
     }
-
     /** {@code @error(field)} 的条件 */
     public static boolean hasError(String field) {
         return !ViewRequestState.current().errors(field).isEmpty();
     }
-
     /**
      * {@code @error(field)} 块里的 {@code message}。
      *
@@ -143,17 +130,14 @@ public final class Jb {
         List<String> all = ViewRequestState.current().errors(field);
         return all.isEmpty() ? "" : all.get(0);
     }
-
     /** 某个字段的全部错误消息 */
     public static List<String> errors(String field) {
         return ViewRequestState.current().errors(field);
     }
-
     /** {@code @old(field)} —— 没有旧输入时是空串 */
     public static String old(String field) {
         return old(field, "");
     }
-
     /**
      * {@code @old(field, fallback)} —— 没有旧输入时用 fallback。
      *
@@ -170,7 +154,6 @@ public final class Jb {
         Object value = ViewRequestState.current().old(field).orElse(fallback);
         return value == null ? "" : String.valueOf(value);
     }
-
     /**
      * HTML 属性值的转义。
      *
@@ -184,29 +167,24 @@ public final class Jb {
                     .replace("<", "&lt;")
                     .replace(">", "&gt;");
     }
-
     // ---------- 条件指令(docs/04 §1.8) ----------
 
     /** {@code @auth} / {@code @auth('api')} */
     public static boolean isAuth(String guard) {
         return ViewRequestState.current().authenticated(guard);
     }
-
     /** {@code @guest} / {@code @guest('api')} */
     public static boolean isGuest(String guard) {
         return !isAuth(guard);
     }
-
     /** {@code @can('update', post)} */
     public static boolean allows(String ability, Object... arguments) {
         return ViewRequestState.current().allows(ability, arguments);
     }
-
     /** {@code @cannot('delete', post)} */
     public static boolean denies(String ability, Object... arguments) {
         return !allows(ability, arguments);
     }
-
     /**
      * {@code @env('local')} / {@code @env('local', 'staging')}。
      *
@@ -220,9 +198,36 @@ public final class Jb {
         }
         return false;
     }
-
     /** {@code @production} —— 等价于 {@code @env('production')} */
     public static boolean isProduction() {
         return isEnv("production");
+    }
+
+    // ---------- i18n(docs/04 §1.8) ----------
+
+    /** {@code @lang('posts.created')} / {@code @lang('posts.hi', Map.of("name", n))} */
+    public static String lang(String key) {
+        return io.jaravel.core.lang.Lang.get(key);
+    }
+    public static String lang(String key, Map<String, ?> replacements) {
+        return io.jaravel.core.lang.Lang.get(key, replacements);
+    }
+    /** {@code @choice('posts.count', n)} */
+    public static String choice(String key, long count) {
+        return io.jaravel.core.lang.Lang.choice(key, count);
+    }
+    public static String choice(String key, long count, Map<String, ?> replacements) {
+        return io.jaravel.core.lang.Lang.choice(key, count, replacements);
+    }
+    /**
+     * {@code @choice} 的宽松重载。
+     *
+     * <p>模板里的数量常常是 {@code posts.size()}(int)或一个
+     * {@code Long} 字段。没有这个重载时 {@code Integer} 能自动拆箱,
+     * 但 {@code Long} 包装类型与 {@code null} 不行 —— 而
+     * 「数量字段是 null」在模板里太常见,炸在 NPE 上毫无信息。
+     */
+    public static String choice(String key, Number count) {
+        return choice(key, count == null ? 0L : count.longValue());
     }
 }

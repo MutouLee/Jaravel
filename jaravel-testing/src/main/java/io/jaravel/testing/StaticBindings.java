@@ -109,6 +109,15 @@ final class StaticBindings {
             }
         }
 
+        io.jaravel.core.lang.Translator translator =
+                bean(context, io.jaravel.core.lang.Translator.class);
+        if (translator != null) {
+            io.jaravel.core.lang.Lang.use(translator);
+            // locale 回到配置值 —— 上一个测试里的 setLocale("en") 不该漏过来
+            translator.setLocale(config == null ? translator.locale()
+                    : config.string("app.locale", translator.locale()));
+        }
+
         CommandRegistry commands = bean(context, CommandRegistry.class);
         if (commands != null) {
             Artisan.use(commands);

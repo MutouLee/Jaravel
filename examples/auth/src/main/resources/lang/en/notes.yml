@@ -1,0 +1,4 @@
+title: My notes
+greeting: Hello :name
+count: No notes yet|One note|:count notes
+bucket: "{0} empty|[1,19] :count notes|[20,*] many"

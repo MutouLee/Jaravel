@@ -482,7 +482,9 @@ public class PostCard extends Component {
 | `@auth` / `@endauth`、`@guest` / `@endguest` | ✅ 可带 guard 名(`@auth('api')`) |
 | `@can` / `@elsecan` / `@elsecannot` / `@endcan`、`@cannot` / `@endcannot` | ✅ 走 `Gate`,**按对象判**(`@can('update', post)`) |
 | `@env('local'[, 'staging'])` / `@endenv`、`@production` / `@endproduction` | ✅ 读 `Application.environment()` |
-| 其余(`@method` / `@lang` / `@choice` / `@vite` / `@inject` / `@once` / `@fragment`) | ⏳ 未实现,见 [KNOWN-ISSUES](../KNOWN-ISSUES.md) |
+| `@lang('k')` / `@lang('k', 替换表)` | ✅ 走 `Lang`,消息在 `resources/lang/<locale>/<group>.yml` |
+| `@choice('k', n)` / `@choice('k', n, 替换表)` | ✅ `|` 分段;支持 `{0}` / `[1,19]` / `[20,*]` 区间 |
+| 其余(`@method` / `@vite` / `@inject` / `@once` / `@fragment`) | ⏳ 未实现,见 [KNOWN-ISSUES](../KNOWN-ISSUES.md) |
 
 条件指令的三条边界:
 
@@ -497,6 +499,16 @@ public class PostCard extends Component {
 - **`@can('create')` 这种没有实例的能力要传类型**:
   `@can('create', app.models.Note.class)` —— Gate 靠参数找 Policy,
   不传的话它无从分派,会按「权限未定义」拒绝。
+
+`@lang` / `@choice` 的两条:
+
+- **找不到键时输出键本身**(`posts.created`),不抛异常也不留空 ——
+  漏翻是翻译工作的正常中间状态:抛异常会让一个漏翻的字符串打挂整个页面,
+  空串会让它静默消失。输出键本身时页面还能用,漏翻在页面上一眼可见,
+  也能直接 grep 到位置。没装消息目录的单语言应用同理(绝大多数应用)。
+- **输出走转义**。消息里的占位符值常常来自用户(`:name`),
+  不转义就是一个反射型 XSS。替换本身是**一次扫描**完成的,
+  所以一个值里恰好含 `:other` 不会被二次替换。
 
 这三个指令的数据都在**会话**里(令牌、上一次请求校验失败时闪存的
 errors 与 old)。而 `jaravel-view` 不能依赖 `jaravel-session` ——

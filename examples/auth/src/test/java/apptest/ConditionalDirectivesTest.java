@@ -133,4 +133,43 @@ class ConditionalDirectivesTest extends FeatureTest {
         assertThat(actingAs(me).get("/notes/page").assertOk().content())
                 .contains("name=\"_token\"");
     }
+
+    @Test
+    @DisplayName("★ @lang / @choice 走真的消息目录(resources/lang/)")
+    void langAndChoiceReadTheCatalog() {
+        User me = user("me@example.com", true);
+
+        assertThat(get("/notes/page").assertOk().content())
+                .as("一条笔记都没有时取复数的第一段")
+                .contains("我的笔记")
+                .contains("还没有笔记");
+
+        note(me, "第一条");
+        assertThat(get("/notes/page").assertOk().content())
+                .as("一条 → 第二段")
+                .contains("一条笔记");
+
+        note(me, "第二条");
+        assertThat(get("/notes/page").assertOk().content())
+                .as("两条 → 第三段,:count 被替换")
+                .contains("2 条笔记");
+    }
+
+    @Test
+    @DisplayName("★ 切 locale 之后同一个页面换语言")
+    void switchingLocaleSwitchesTheMessages() {
+        User me = user("me@example.com", true);
+        note(me, "第一条");
+
+        io.jaravel.core.lang.Lang.withLocale("en", () ->
+                assertThat(get("/notes/page").assertOk().content())
+                        .as("en 目录里有同样的键 —— 页面与模板都不用改")
+                        .contains("My notes")
+                        .contains("One note")
+                        .doesNotContain("我的笔记"));
+
+        assertThat(io.jaravel.core.lang.Lang.locale())
+                .as("withLocale 结束后还原")
+                .isEqualTo("zh_CN");
+    }
 }

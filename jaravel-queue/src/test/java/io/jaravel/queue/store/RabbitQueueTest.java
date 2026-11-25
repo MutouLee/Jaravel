@@ -200,6 +200,106 @@ class RabbitQueueTest {
             var redelivered = second.pop(q, Duration.ofSeconds(10));
             assertThat(redelivered).isPresent();
             assertThat(redelivered.orElseThrow().uuid()).isEqualTo("redeliver");
+            assertThat(redelivered.orElseThrow().attempts())
+                    .as("""
+                            classic 队列没有 x-delivery-count —— 重投的 payload
+                            是旧的,所以这里仍然是 1。这条断言钉住的是**限制本身**:
+                            要让崩溃重投算一次尝试,得用 quorum 队列(见下一组测试)。""")
+                    .isEqualTo(1);
         }
+    }
+
+    // ================= quorum 队列:崩溃重投也算一次尝试 =================
+
+    private static RabbitQueue quorumQueue() {
+        return new RabbitQueue(uri, SERIALIZER, prefix + "quorum:", true);
+    }
+
+    @Test
+    @DisplayName("★ quorum 队列:崩溃重投让 attempts 递增,重试上限才成立")
+    void quorumCountsCrashRedeliveries() {
+        String q = q();
+
+        var first = quorumQueue();
+        first.push(job("qa", q));
+        assertThat(first.pop(q, Duration.ofSeconds(10)).orElseThrow().attempts())
+                .isEqualTo(1);
+        first.close();                       // 不 ack 直接关闭 = worker 崩了
+
+        var second = quorumQueue();
+        QueuedJob redelivered = second.pop(q, Duration.ofSeconds(10)).orElseThrow();
+        assertThat(redelivered.attempts())
+                .as("""
+                        权威值来自 broker 的 x-delivery-count。只看 payload 的话
+                        这里是 1,于是一个每次都把 worker 弄死的任务永远重投。""")
+                .isEqualTo(2);
+        second.close();
+
+        try (var third = quorumQueue()) {
+            QueuedJob last = third.pop(q, Duration.ofSeconds(10)).orElseThrow();
+            assertThat(last.attempts()).isEqualTo(3);
+            assertThat(last.canRetry(Instant.now()))
+                    .as("tries=3,第三次就该进 failed_jobs")
+                    .isFalse();
+
+            third.delete(last);
+        }
+    }
+
+    @Test
+    @DisplayName("quorum 队列上 push/pop/release/延迟 与 classic 行为一致")
+    void quorumBehavesLikeClassicOtherwise() {
+        String q = q();
+        try (var queue = quorumQueue()) {
+            queue.push(job("q1", q));
+            QueuedJob popped = queue.pop(q, Duration.ofSeconds(10)).orElseThrow();
+            assertThat(popped.attempts()).isEqualTo(1);
+
+            // 延迟队列仍然是 classic(per-message TTL + 死信回 quorum 主队列)
+            queue.release(popped.withException(), Duration.ofMillis(300));
+            assertThat(queue.pop(q, Duration.ofSeconds(10))).isEmpty();
+
+            QueuedJob second = awaitPop(queue, q);
+            assertThat(second.attempts()).isEqualTo(2);
+            assertThat(second.exceptions()).isEqualTo(1);
+
+            queue.delete(second);
+            assertThat(queue.pop(q, Duration.ofSeconds(10))).isEmpty();
+        }
+    }
+
+    @Test
+    @DisplayName("★ 队列类型改不了:报错要说清「删掉它或配回去」")
+    void switchingQueueTypeFailsWithAnActionableMessage() {
+        String q = q();
+        try (var classic = new RabbitQueue(uri, SERIALIZER, prefix + "switch:")) {
+            classic.push(job("s1", q));
+        }
+
+        // 同一个队列名,改声明成 quorum —— broker 给的是
+        // 「PRECONDITION_FAILED - inequivalent arg 'x-queue-type'」,
+        // 那句话不会告诉你要怎么办
+        try (var quorum = new RabbitQueue(uri, SERIALIZER, prefix + "switch:", true)) {
+            org.assertj.core.api.Assertions
+                    .assertThatThrownBy(() -> quorum.push(job("s2", q)))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("队列类型不能原地改")
+                    .hasMessageContaining("queue-type");
+        }
+    }
+
+    private static QueuedJob awaitPop(RabbitQueue queue, String q) {
+        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        while (System.nanoTime() < deadline) {
+            var found = queue.pop(q, Duration.ofSeconds(10));
+            if (found.isPresent()) return found.get();
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError("等待延迟消息时被中断", e);
+            }
+        }
+        throw new AssertionError("10 秒内没有取到延迟后的消息");
     }
 }

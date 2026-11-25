@@ -40,8 +40,10 @@
 | 项 | 状态 | 说明 |
 |---|---|---|
 | Kafka 队列驱动 | **不做** | 事件流语义,需独立设计;见 V0.7-RESULT §2.4 |
-| RabbitMQ / SQS 的 failed_jobs / job_batches | 未实现 | 用 database/redis |
-| RabbitMQ / SQS 的 attempts 持久化 | 未实现 | 消息不可变 |
+| RabbitMQ / SQS 的 failed_jobs / job_batches | **按设计(问错了问题)** | 归档与批次账本**不属于队列驱动** —— 它们是独立的 `queue.failed.driver` / `queue.batching.driver`(与 Laravel 一样),任何队列驱动都能配 database / redis。此前确实没有测试证明这个组合能跑,现在有:`BrokerArchiveTest`(broker 队列 + 库里的 failed_jobs/job_batches,含「归档之后消息必须从 broker 上消失」)|
+| RabbitMQ / SQS 的 attempts 持久化 | **已实现** | SQS 取 payload 与 `ApproximateReceiveCount` 的较大值;RabbitMQ 取 payload 与 `x-delivery-count` 的较大值(**要 quorum 队列**,配 `queue-type: quorum`)。于是「worker 崩了之后的重投」也算一次尝试,重试上限成立 |
+| RabbitMQ classic 队列的 attempts | **不做** | classic 队列没有 `x-delivery-count`,broker 侧拿不到投递次数,而消息又不能原地改 —— 只能退回 payload 里的旧计数(崩溃循环会永远重投)。要严格计数就用 quorum 队列;额外挂一个 Redis/DB 计数器等于要求 SQS/Rabbit 用户再配一套存储,代价比换队列类型大 |
+| DynamoDB 的 failed_jobs | 未实现 | Laravel 有 `dynamodb` 失败存储(给无库的 serverless 部署)。挡在这里的是**接口的 id 类型**:`FailedJobStore` 用 `long id`(`queue:retry <id>` 也是),而 Dynamo 侧的自然主键是 uuid —— 要先决定「把 id 改成 String」还是「在 Dynamo 上维护一个计数器」,那是个会动 CLI 表面的设计决定 |
 
 ## native
 

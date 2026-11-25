@@ -359,17 +359,41 @@ QueueWorker
 > - **没有可见性超时**:`retryAfter` 被忽略,`touch` 只回答「这条消息
 >   还在本实例的 unacked 表里」。worker 进程死掉时连接断开、broker 立即
 >   重投;但 worker 活着只是卡住时,消息会一直 unacked;
-> - **崩溃重投不增加 attempts**:payload 里那份是旧的。要严格计数需要
->   额外的 Redis/DB 尝试存储,当前不做;
+> - **崩溃重投算不算一次尝试,取决于队列类型**:attempts 存在 payload 里,
+>   而 broker 上的消息不能原地改 —— worker 崩在 ack 之前时重投的 payload
+>   是旧计数。**quorum** 队列(`queue-type: quorum`)的每次投递带一个
+>   `x-delivery-count`,驱动取它与 payload 的较大值,于是重投也算一次尝试、
+>   重试上限成立;**classic** 队列没有这个计数,崩溃循环会**永远重投**
+>   (症状是「队列里有一条任务一直在跑」,没人会想到是计数没涨)。
+>   队列类型**不能原地改**:换它要先删掉已存在的队列,驱动在撞上
+>   `PRECONDITION_FAILED` 时会把这句话写进报错;
 > - **延迟队列是 per-message TTL + 死信**:先入的长 TTL 会挡住后入的短
 >   TTL(head-of-line)。重试 backoff 通常递增(10s → 60s → 300s),
 >   这个顺序下不会触发;任意乱序延迟要么按 TTL 分桶,要么用插件;
 > - `size` **不含 unacked**;`clear` 只 purge ready 消息。
 >
-> `failed_jobs` / `job_batches` 没有 rabbitmq 版本 —— 用 database 或 redis。
+> **`failed_jobs` / `job_batches` 与队列驱动无关**:它们是独立的
+> `queue.failed.driver` / `queue.batching.driver`(与 Laravel 一样),
+> rabbitmq / sqs 连接照常配 `database` 或 `redis`。
+> 「rabbitmq 版本的 failed_jobs」是个范畴错误 —— 归档不是 broker 的事。
+> 这个组合由 `BrokerArchiveTest` 钉住(含一条
+> 「归档之后那条消息必须从 broker 上消失」:ack 漏了的话任务会被无限重投)。
 >
-> **测试**:`RabbitQueueTest` 8 条(push/pop/delete、FIFO、延迟、release、
-> touch、size、clear、连接断开重投)。给了
+> 配置:
+>
+> ```yaml
+> queue:
+>   connections:
+>     rabbitmq:
+>       driver: rabbitmq
+>       uri: amqp://guest:guest@127.0.0.1:5672/%2f
+>       prefix: "jaravel:queue:"
+>       queue-type: quorum        # classic(默认)| quorum
+> ```
+>
+> **测试**:`RabbitQueueTest` 11 条(push/pop/delete、FIFO、延迟、release、
+> touch、size、clear、连接断开重投、**quorum 的崩溃重投计数**、
+> quorum 上的 release/延迟、**改队列类型时的报错**)。给了
 > `-Djaravel.test.rabbitmq.uri=amqp://guest:guest@127.0.0.1:5672/%2f`
 > (或环境变量 `JARAVEL_TEST_RABBITMQ_URI`)才跑:
 >
@@ -394,8 +418,11 @@ QueueWorker
 > - 消息体最大 256KB;
 > - `size` 是近似值(visible + delayed),不含 in-flight;
 >   `clear` 的 purge 最多 60 秒才完全生效;
-> - 可见性超时重投时 payload 里的 attempts 不会增加 ——
->   与 RabbitMQ 同一限制。
+> - 可见性超时重投**也算一次尝试**:attempts 取 payload 与
+>   `ApproximateReceiveCount` 的较大值。两条路径各自只对一半 ——
+>   `release` 发的是新消息(broker 计数重置为 1,payload 里的计数是权威的),
+>   崩溃重投时 payload 一个字没改(broker 计数是权威的)。
+>   取 max 之后两条都对;不取的后果是重试上限失效。
 >
 > 配置:
 >
@@ -411,8 +438,9 @@ QueueWorker
 >       prefix: jaravel-queue-
 > ```
 >
-> **测试**:`SqsQueueTest` 6 条(push/pop/delete、延迟、release、touch
-> 延长可见性、可见性超时重投、clear)。给了
+> **测试**:`SqsQueueTest` 8 条(push/pop/delete、延迟、release、touch
+> 延长可见性、可见性超时重投、**崩溃重投的 attempts 递增到上限**、
+> **release 之后接着 payload 计数**、clear)。给了
 > `-Djaravel.test.sqs.endpoint=http://127.0.0.1:9324`(或环境变量
 > `JARAVEL_TEST_SQS_ENDPOINT`)才跑:
 >
@@ -462,6 +490,7 @@ queue:
       driver: rabbitmq
       uri: amqp://guest:guest@localhost:5672/%2f
       prefix: jaravel:queue:
+      queue-type: classic               # quorum 才能让「崩溃重投」算一次尝试
       queue: default
       retry-after: 90s
     sqs:

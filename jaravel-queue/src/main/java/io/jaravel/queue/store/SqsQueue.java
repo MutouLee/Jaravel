@@ -56,8 +56,9 @@ import io.jaravel.support.Clock;
  *   <li>消息体最大 256KB;</li>
  *   <li>{@code size} 是近似值(visible + delayed),不含 in-flight;
  *       {@code clear} 的 purge 最多需要 60 秒才完全生效;</li>
- *   <li>payload 里的 attempts 在「可见性超时重投」时不会增加 ——
- *       与 RabbitMQ 同一限制,严格计数需要额外的尝试存储。</li>
+ *   <li>attempts 取 payload 与 {@code ApproximateReceiveCount} 的较大值
+ *       (见 {@link #attempts}),所以**可见性超时重投也算一次尝试** ——
+ *       崩溃循环会撞上重试上限而不是永远重投。</li>
  * </ul>
  *
  * <h2>队列命名</h2>
@@ -68,6 +69,9 @@ import io.jaravel.support.Clock;
 public class SqsQueue implements QueueStore, AutoCloseable {
 
     public static final String DEFAULT_PREFIX = "jaravel-queue-";
+
+    /** broker 侧的投递计数 —— 见 {@link #attempts(QueuedJob, Message)} */
+    private static final String RECEIVE_COUNT = "ApproximateReceiveCount";
 
     private static final int MAX_DELAY_SECONDS = 900;
     private static final int MAX_VISIBILITY_SECONDS = 12 * 60 * 60;
@@ -177,6 +181,8 @@ public class SqsQueue implements QueueStore, AutoCloseable {
                 .maxNumberOfMessages(1)
                 .visibilityTimeout(visibilitySeconds(retryAfter))
                 .waitTimeSeconds(0)
+                // ★ 要 broker 自己的投递计数,见 attempts(...)
+                .attributeNamesWithStrings(RECEIVE_COUNT)
                 .build());
 
         if (response.messages().isEmpty()) return Optional.empty();
@@ -186,7 +192,7 @@ public class SqsQueue implements QueueStore, AutoCloseable {
         QueuedJob job;
         try {
             QueuedJob decoded = serializer.decode(message.body());
-            job = decoded.withAttempts(decoded.attempts() + 1);
+            job = decoded.withAttempts(attempts(decoded, message));
         } catch (RuntimeException e) {
             // 坏 payload 不能留在队列里无限重投
             deleteReceipt(queue, receipt);
@@ -198,6 +204,40 @@ public class SqsQueue implements QueueStore, AutoCloseable {
 
         receipts.put(job.uuid(), receipt);
         return Optional.of(job);
+    }
+
+    /**
+     * 这是第几次尝试 —— 取 payload 与 **broker 自己的投递计数**里更大的那个。
+     *
+     * <p>两条路径各自只对一半:
+     * <ul>
+     *   <li>payload 里的 attempts 在 {@code release} 那条路上是权威的
+     *       (我们重发一条新消息,计数写在里面);但**可见性超时重投**时
+     *       payload 一个字都没改 —— worker 崩在 delete 之前的那次尝试不见了;</li>
+     *   <li>{@code ApproximateReceiveCount} 在崩溃重投那条路上是权威的
+     *       (broker 数的是「这条消息被收了几次」);但 {@code release}
+     *       发的是**新消息**,它的计数从 1 重新开始。</li>
+     * </ul>
+     *
+     * <p>取 max 之后两条路都对:release 之后 payload 更大,
+     * 崩溃重投之后 broker 更大。不取 max 的后果是**重试上限失效** ——
+     * 一个每次都把 worker 弄死的任务会永远重投,而症状是
+     * 「队列里有一条任务一直在跑」,没人会想到是计数没涨。
+     *
+     * <p>⚠ 这是 SQS 的名字里就写了「Approximate」的那个值。它在极少数
+     * 情况下可能偏大(比如一次投递在网络层重试)—— 偏大的后果是任务
+     * 少试一次,偏小的后果是无限重投,所以宁可偏大。
+     */
+    private static int attempts(QueuedJob decoded, Message message) {
+        int fromPayload = decoded.attempts() + 1;
+        String raw = message.attributesAsStrings().get(RECEIVE_COUNT);
+        if (raw == null) return fromPayload;        // ElasticMQ 之外也有不给的实现
+
+        try {
+            return Math.max(fromPayload, Integer.parseInt(raw.trim()));
+        } catch (NumberFormatException e) {
+            return fromPayload;
+        }
     }
 
     private static int visibilitySeconds(Duration retryAfter) {

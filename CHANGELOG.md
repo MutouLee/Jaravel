@@ -6,6 +6,27 @@
 
 ### Added
 
+- **broker 队列的 attempts 不再只信 payload**(docs/10 §1.5)——
+  SQS 取 payload 与 `ApproximateReceiveCount` 的较大值;RabbitMQ 新增
+  `queue-type: quorum`,取 payload 与 `x-delivery-count` 的较大值。
+  两条路径各自只对一半:`release` 发的是**新消息**(broker 的计数重置,
+  payload 里的才是权威),而**崩溃重投**时 payload 一个字都没改
+  (broker 的计数才是权威)。取 max 之后两条都对 ——
+  不取的后果是**重试上限失效**:一个每次都把 worker 弄死的任务会永远重投,
+  而症状是「队列里有一条任务一直在跑」,没人会想到是计数没涨。
+  classic 队列没有 `x-delivery-count`,那个旧行为保留并在文档/报错里写明;
+  队列类型**不能原地改**,撞上 `PRECONDITION_FAILED` 时报错会说
+  「删掉它或把 queue-type 配回去」—— broker 原文(`inequivalent arg`)
+  不会告诉你要怎么办。
+  验收:`SqsQueueTest` 8 条 + `RabbitQueueTest` 11 条,**对着真 broker**
+  (ElasticMQ / RabbitMQ 3-management)跑过,含「崩溃重投三次后 `canRetry`
+  变 false」。
+- **`BrokerArchiveTest`:broker 队列 + 库里的 failed_jobs / job_batches**
+  —— KNOWN-ISSUES 里那条「RabbitMQ / SQS 的 failed_jobs 未实现」**问错了问题**:
+  归档与批次账本不属于队列驱动,它们是独立的 `queue.failed.driver` /
+  `queue.batching.driver`(与 Laravel 一样)。真正缺的是**证明这个组合能跑的
+  测试** —— 现在有了,其中一条钉的是「归档之后那条消息必须从 broker 上消失」
+  (worker 的 `delete` 漏了的话任务会被无限重投,而 failed_jobs 里已经有记录了)。
 - **`jaravel new`** —— 内嵌模板生成可运行项目(`web` / `api` / `minimal`
   preset),含 pom、`app`/`routes`、配置、`.env`、烟雾测试与 README。
 - **`jaravel install:auth`** —— 生成 User 模型、`users` /

@@ -177,6 +177,58 @@ class SqsQueueTest {
     }
 
     @Test
+    @DisplayName("★ 崩溃重投也算一次尝试 —— 否则重试上限失效")
+    void crashRedeliveryCountsAsAnAttempt() throws InterruptedException {
+        String q = q();
+        try (var queue = queue()) {
+            queue.push(job("a1", q));
+
+            // 取出来就「崩掉」:既不 delete 也不 release,
+            // payload 里的 attempts 一个字都没改
+            assertThat(queue.pop(q, Duration.ofSeconds(1)).orElseThrow().attempts())
+                    .isEqualTo(1);
+            Thread.sleep(2500);
+
+            var second = queue.pop(q, Duration.ofSeconds(1)).orElseThrow();
+            assertThat(second.attempts())
+                    .as("""
+                            只看 payload 的实现这里会一直是 1 —— 于是一个每次都把
+                            worker 弄死的任务永远重投,而症状是「有一条任务一直在跑」。
+                            权威值来自 broker 的 ApproximateReceiveCount。""")
+                    .isEqualTo(2);
+            Thread.sleep(2500);
+
+            var third = queue.pop(q, Duration.ofSeconds(30)).orElseThrow();
+            assertThat(third.attempts()).isEqualTo(3);
+            assertThat(third.canRetry(Instant.now()))
+                    .as("tries=3,第三次就该进 failed_jobs 而不是再放回去")
+                    .isFalse();
+
+            queue.delete(third);
+        }
+    }
+
+    @Test
+    @DisplayName("release 之后 attempts 接着 payload 走 —— 新消息的投递计数会重置")
+    void releaseKeepsCountingFromThePayload() throws InterruptedException {
+        String q = q();
+        try (var queue = queue()) {
+            queue.push(job("a2", q));
+            var first = queue.pop(q, Duration.ofSeconds(30)).orElseThrow();
+
+            // release 发的是一条**新消息**,它的 ApproximateReceiveCount 从 1 开始;
+            // 取 max 的另一半意义就在这里 —— payload 里的计数更大
+            queue.release(first.withException(), Duration.ZERO);
+            await(() -> queue.size(q) >= 1, "release 后消息回到队列");
+
+            var second = queue.pop(q, Duration.ofSeconds(30)).orElseThrow();
+            assertThat(second.attempts()).isEqualTo(2);
+
+            queue.delete(second);
+        }
+    }
+
+    @Test
     @DisplayName("clear 清空队列")
     void clear() throws InterruptedException {
         String q = q();

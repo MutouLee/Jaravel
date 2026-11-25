@@ -44,10 +44,13 @@ import io.jaravel.support.Clock;
  * 连接断开,broker 立刻重新投递;但 worker **还活着只是卡住**时,
  * 消息会一直 unacked。这是 AMQP 的模型,不是可以在这里补的。
  *
- * <p><b>崩溃重投不增加 attempts</b>:attempts 存在 payload 里,而我们
- * 不能在 broker 上原地修改消息;worker 崩在 release 之前时,重投的
- * payload 还是旧计数。要严格计数需要外的尝试存储(Redis/DB),
- * 当前版本不做 —— 文档里写明。
+ * <p><b>崩溃重投算不算一次尝试,取决于队列类型</b>:attempts 存在
+ * payload 里,而我们不能在 broker 上原地修改消息 —— worker 崩在 ack 之前时
+ * 重投的 payload 还是旧计数。<b>quorum</b> 队列(构造参数 {@code quorum=true}
+ * 或配置 {@code queue-type: quorum})的每次投递带一个
+ * {@code x-delivery-count},于是重投也算一次尝试(见 {@link #attempts});
+ * <b>classic</b> 队列没有这个计数,崩溃循环会永远重投 ——
+ * 这是选择 classic 时必须知道的那件事。
  *
  * <p><b>size 不含 unacked</b>:主队列的 ready + 延迟队列的消息数;
  * 已被本实例取走、尚未 ack 的不在其中。clear 只 purge ready 消息,
@@ -65,6 +68,7 @@ public class RabbitQueue implements QueueStore, AutoCloseable {
     private final String uri;
     private final String prefix;
     private final JobSerializer serializer;
+    private final boolean quorum;
 
     private final ReentrantLock lock = new ReentrantLock();
     private final Set<String> declared = ConcurrentHashMap.newKeySet();
@@ -79,9 +83,22 @@ public class RabbitQueue implements QueueStore, AutoCloseable {
     }
 
     public RabbitQueue(String uri, JobSerializer serializer, String prefix) {
+        this(uri, serializer, prefix, false);
+    }
+
+    /**
+     * @param quorum 主队列声明成 <b>quorum</b> 队列。
+     *               这会让 broker 在每次投递上带一个 {@code x-delivery-count},
+     *               于是**崩溃重投也算一次尝试**(见 {@link #attempts})——
+     *               classic 队列没有这个计数,崩溃循环会永远重投。
+     *               代价:quorum 队列要求 3.8+、常驻内存索引更大、
+     *               而且**不能原地从 classic 改过来**(见 {@link #declare})
+     */
+    public RabbitQueue(String uri, JobSerializer serializer, String prefix, boolean quorum) {
         this.uri = uri;
         this.prefix = prefix == null ? "" : prefix;
         this.serializer = serializer;
+        this.quorum = quorum;
     }
 
     @Override public String name() { return "rabbitmq"; }
@@ -132,13 +149,30 @@ public class RabbitQueue implements QueueStore, AutoCloseable {
         if (declared.contains(name)) return;
 
         try {
-            c.queueDeclare(name, true, false, false, null);
+            // 主队列:quorum 时带 x-queue-type,这样 broker 会在每次投递上
+            // 带一个 x-delivery-count(见 attempts(...))
+            c.queueDeclare(name, true, false, false,
+                    quorum ? Map.of("x-queue-type", "quorum") : null);
+
+            // 延迟队列**始终是 classic**:它靠 per-message TTL + 死信实现延迟,
+            // 而那两样在 quorum 队列上的支持跨版本不一致。
+            // classic → quorum 的死信投递是正常用法,没有限制
             c.queueDeclare(delayName(queue), true, false, false, Map.of(
                     "x-dead-letter-exchange", "",
                     "x-dead-letter-routing-key", name));
             declared.add(name);
         } catch (IOException e) {
-            throw new IllegalStateException("声明 RabbitMQ 队列失败:" + name, e);
+            // 406 PRECONDITION_FAILED:队列已存在且类型/参数不一致。
+            // 这是切换 queue-type 时一定会撞上的那个错,而 broker 给的原文
+            // (「inequivalent arg 'x-queue-type'」)不会告诉你要怎么办
+            throw new IllegalStateException("""
+                    声明 RabbitMQ 队列失败:%s
+                      若报的是 PRECONDITION_FAILED / inequivalent arg 'x-queue-type',
+                      说明这个队列已经存在、且类型与现在要声明的不同
+                      (queue-type: %s)。队列类型不能原地改:
+                        · 要么等队列排空后删掉它(rabbitmqctl delete_queue %s),
+                        · 要么把 queue.connections.<name>.queue-type 配回原来那个。""".formatted(
+                    name, quorum ? "quorum" : "classic", name), e);
         }
     }
 
@@ -208,7 +242,7 @@ public class RabbitQueue implements QueueStore, AutoCloseable {
             QueuedJob job;
             try {
                 QueuedJob decoded = serializer.decode(payload);
-                job = decoded.withAttempts(decoded.attempts() + 1);
+                job = decoded.withAttempts(attempts(decoded, response));
             } catch (RuntimeException e) {
                 // 坏 payload 不能留在队列里无限重投
                 try {
@@ -227,6 +261,43 @@ public class RabbitQueue implements QueueStore, AutoCloseable {
         } finally {
             lock.unlock();
         }
+    }
+
+    /**
+     * 这是第几次尝试 —— 取 payload 与 broker 的 {@code x-delivery-count}
+     * 里更大的那个。
+     *
+     * <p>两条路径各自只对一半(与 {@code SqsQueue} 同一个结构):
+     * <ul>
+     *   <li>payload 里的 attempts 在 {@code release} 那条路上是权威的
+     *       (我们重发一条新消息,计数写在里面);但**连接断开后的重投**
+     *       payload 一个字都没改 —— worker 崩在 ack 之前的那次尝试不见了;</li>
+     *   <li>{@code x-delivery-count} 在重投那条路上是权威的(broker 数的是
+     *       「这条消息被投了几次」,0 = 第一次);但 {@code release} 发的是
+     *       **新消息**,它的计数从 0 重新开始。</li>
+     * </ul>
+     *
+     * <p>不取 max 的后果是**重试上限失效**:一个每次都把 worker 弄死的任务
+     * 会永远重投,而症状是「队列里有一条任务一直在跑」,
+     * 没人会想到是计数没涨。
+     *
+     * <p>⚠ {@code x-delivery-count} **只有 quorum 队列有**(RabbitMQ 3.8+)。
+     * classic 队列上这个头不存在,于是只能退回 payload —— 也就是
+     * 「崩溃重投不增加 attempts」那个旧行为。要严格计数就把
+     * {@code queue.connections.<name>.queue-type} 配成 {@code quorum}。
+     */
+    private static int attempts(QueuedJob decoded, GetResponse response) {
+        int fromPayload = decoded.attempts() + 1;
+
+        Map<String, Object> headers = response.getProps() == null
+                ? null
+                : response.getProps().getHeaders();
+        Object count = headers == null ? null : headers.get("x-delivery-count");
+
+        // classic 队列没有这个头 —— 不是错误,是队列类型的能力差异
+        if (!(count instanceof Number deliveries)) return fromPayload;
+
+        return Math.max(fromPayload, deliveries.intValue() + 1);
     }
 
     // ================= 完成 / 放回 =================

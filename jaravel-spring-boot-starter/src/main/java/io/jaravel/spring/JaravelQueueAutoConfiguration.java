@@ -312,11 +312,21 @@ public class JaravelQueueAutoConfiguration {
                               或把 queue.default / queue.connections 改成 database / redis / sync。"""
                             .formatted(name));
                 }
+                String queueType = config.string(path + ".queue-type", "classic");
+                if (!queueType.equals("classic") && !queueType.equals("quorum")) {
+                    throw new IllegalStateException("""
+                            队列连接 "%s" 的 queue-type "%s" 不支持 —— 只有 classic / quorum。
+                              quorum 的区别是 broker 会带 x-delivery-count,
+                              于是「worker 崩了之后的重投」也算一次尝试;
+                              classic 没有那个计数,崩溃循环会永远重投。"""
+                            .formatted(name, queueType));
+                }
                 queues.register(name, m -> new RabbitQueue(
                         config.string(path + ".uri",
                                 "amqp://guest:guest@localhost:5672/%2f"),
                         serializer,
-                        config.string(path + ".prefix", RabbitQueue.DEFAULT_PREFIX)));
+                        config.string(path + ".prefix", RabbitQueue.DEFAULT_PREFIX),
+                        queueType.equals("quorum")));
             }
 
             case "sqs" -> {

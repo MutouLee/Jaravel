@@ -297,7 +297,16 @@ public class Repository {
         emitForgotten(key);
     }
 
-    public void deleteMultiple(List<String> keys) {
+    /**
+     * 删一批。
+     *
+     * <p>★ 叫 {@code forgetMany} 是为了与 {@link CacheStore#forgetMany} 一致。
+     * 它原来叫 {@code deleteMultiple}(PSR-16 的名字),于是同一个操作在
+     * 驱动层叫 forgetMany、在门面层叫 deleteMultiple —— 读 SPI 学到一个名字、
+     * 读门面学到另一个,而 PSR-16 是 PHP 的接口,在 Java 这边没有任何约束力。
+     * 现在这一族是 {@code many} / {@code putMany} / {@code forget} / {@code forgetMany}。
+     */
+    public void forgetMany(List<String> keys) {
         store.forgetMany(keys.stream().map(this::prefixed).toList());
     }
 

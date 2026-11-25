@@ -87,7 +87,7 @@ public final class Lang {
     /**
      * 改**默认** locale(整个 JVM)。
      *
-     * <p>按请求切语言不要用它 —— 见 {@link #useLocale(String)}
+     * <p>按请求切语言不要用它 —— 见 {@link #overrideLocale(String)}
      * 与 {@link Translator#locale()} 里「为什么不能只有那个 volatile 字段」。
      */
     public static void setLocale(String locale) {
@@ -100,10 +100,22 @@ public final class Lang {
      *
      * <p>{@code SetLocale} 中间件用的就是它(按 {@code Accept-Language}
      * 选语言)。作用域结束自动失效,不需要配对的恢复调用。
+     *
+     * <h2>★ 三层,三个动词</h2>
+     * <pre>
+     * setLocale(l)           整个 JVM 的默认值(启动时读配置、测试前重置)
+     * overrideLocale(l)      当前执行作用域(一个请求 / 一个任务 / 一条命令)
+     * withLocale(l, body)    当前线程的一段代码(「按收件人语言渲染这封邮件」)
+     * </pre>
+     *
+     * <p>它**原来叫 {@code useLocale}**,而这个仓库里 {@code use(...)} 是
+     * 「装一个全局协作者」的意思({@link #use(Translator)} 就在上面几行)——
+     * 于是 {@code useLocale} 读起来像「把这个 locale 装成全局的」,
+     * 而它的语义恰好相反。
      */
-    public static void useLocale(String locale) {
+    public static void overrideLocale(String locale) {
         Translator t = translator;
-        if (t != null) t.useLocale(locale);
+        if (t != null) t.overrideLocale(locale);
     }
 
     /**

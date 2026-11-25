@@ -17,12 +17,14 @@
 | `install:*`(除 auth / api / broadcasting / vite) | **按设计** | Laravel **核心**只有 `install:api` 与 `install:broadcasting` 两条 —— 都已实现。其余 `install` 都来自第一方**包**,逐条见下 |
 | `horizon:install` / `reverb:install` 的对应物 | **不需要** | 两样都是**内置**的:队列面板 `/_jaravel/dashboard`(docs/10 §1.8)、WS 端点嵌在应用进程里(ADR-014/015)。没有要装的东西 |
 | `breeze:install` / `jetstream:install` 的对应物 | **已有** | `install:auth` + `install:vite` 覆盖了脚手架那部分 |
-| `telescope:install` 的对应物 | 未实现 | 请求/查询/任务的录制与回看面板。`jaravel-devtools` 是热重载,不是这个。它是一个功能模块,不是一条 install 命令 |
-| `passport:install` 的对应物 | 未实现 | OAuth2 授权服务器(docs/08 §7 列在 v1.1)。`SanctumGuard` 等价物已内置,缺的是「给第三方发 token」那一套 |
+| `telescope:install` 的对应物 | **不做**(所有者决定,2026-11-25) | 请求/查询/任务的录制与回看面板。它不是一条 install 命令,而是一个要存储 + UI + 全链路埋点的模块,而它要解决的问题这里已经有阻断式的答案:N+1 由 `preventLazyLoading` 开发期直接报错、SQL 由 `Connection.queryLog()` / `assertQueryCount` 看、队列由内置面板看、指标走 Spring Boot Actuator/Micrometer(ADR-001 的红利)。再做一个「事后翻日志」的面板,收益不匹配 |
+| `passport:install` 的对应物 | **不做**(所有者决定,2026-11-25) | OAuth2 授权服务器是一个独立产品:授权/令牌端点、四种 grant、同意页、密钥轮换、客户端管理 —— 不是一个 guard 能装下的东西。「给自己的前端/移动端发 token」已经由内置的 `TokenGuard` 覆盖;真要发 OAuth2 令牌时,Jaravel 骑在 Spring Boot 上(ADR-001),直接并排跑 **Spring Authorization Server** 并用 `jaravel-security-bridge` 对接 —— 这条路比自研一套更可信(docs/08 §7)|
 | `octane:install` / `sail:install` 的对应物 | **不适用** | Octane 解决的是 PHP 的「每请求重建世界」,JVM 上没有这个问题;Sail 是 Docker 开发环境,与框架无关 |
 | `scout` / `cashier` / `nova` 的对应物 | 不做 | 搜索 / 订阅计费 / 管理后台,都在 v1.0 范围外 |
 | `optimize` 的四种缓存 | **不做** | 那四种缓存里三种在 Jaravel 已经是**构建期产物**(view 由 `compile-views` 预编译成 class、event 由 APT 生成索引、config 就是启动时读几个 YAML),第四种 route **做不到** —— Laravel 能序列化路由是因为 handler 是 `"Ctrl@index"` 字符串,而这里是方法引用。于是 `optimize` 只会是一条什么都没做的命令(docs/13 §10) |
 | `analyze:*` | **不做** | N+1 由 `preventLazyLoading`(开发期直接报错)+ `assertQueryCount`(CI 回归)覆盖,边界由 `jaravel-archunit-rules` 覆盖,运行期误配由 `doctor` 覆盖 —— 三者都是阻断式的,而静态扫描器给出的清单会被忽略(docs/13 §10) |
+
+| `Queue.assertPushed(...)` 门面级断言 | 未实现(非破坏性,随时可加) | Laravel 是 `Queue::fake(); Queue::assertPushed(X::class);`,Jaravel 的断言在 `Queue.fake()` 返回的 `QueueFake` 上(`Queue.recorder().assertPushed(X.class)`)。`Event` 门面两种都有 —— 这是一处**形状不一致**,但补门面方法是**加方法**,发布后再加也不破坏任何人,所以不占发布前的窗口 |
 
 ## 视图 / 前端
 
@@ -65,7 +67,7 @@
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| Maven Central 发布 | 未执行 | 流程见 RELEASE.md;命名空间/密钥就绪后执行 |
+| Maven Central 发布 | 未执行(**等条件具备**) | 流程与清单见 RELEASE.md,`release` profile 已就绪(source/javadoc/GPG/Central Publishing)。卡在所有者侧的两样东西:**Central 的命名空间归属验证**与**GPG 签名密钥**。⚠ 发布之前公开 API 还能自由改,之后就是破坏性变更 —— 这一轮与上一轮的「发布前扫查」就是为此做的 |
 | 文档站英文完整版 | 部分 | English 目前是 index + quickstart;其余页面中文 |
 | IntelliJ 插件 | 未开始 | 独立项目,见 docs/15 |
 | 多租户 opt-in 包 | 不做 | 只有示例;ADR-016 |

@@ -503,7 +503,7 @@ class CacheStoreContractTest {
         assertThat(got).containsOnlyKeys("a", "b");
         assertThat(got.get("a")).isEqualTo("1");
 
-        cache.deleteMultiple(List.of("a", "b"));
+        cache.forgetMany(List.of("a", "b"));
         assertThat(cache.many(List.of("a", "b"), String.class)).isEmpty();
     }
 

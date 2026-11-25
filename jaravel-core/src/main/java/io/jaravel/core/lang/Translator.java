@@ -108,7 +108,7 @@ public final class Translator {
      * <ol>
      *   <li>{@link #withLocale} 的线程内覆盖 —— 「这几行按收件人的语言渲染」;</li>
      *   <li>当前执行作用域的 locale —— 「这个请求按 Accept-Language 渲染」
-     *       (由 {@code SetLocale} 中间件用 {@link #useLocale} 写入);</li>
+     *       (由 {@code SetLocale} 中间件用 {@link #overrideLocale} 写入);</li>
      *   <li>配置里的默认值({@code app.locale})。</li>
      * </ol>
      *
@@ -134,7 +134,7 @@ public final class Translator {
      *
      * <p>用于启动时读配置、以及测试前重置。**不要用它实现「按请求切语言」**
      * —— 那会串台,理由见 {@link #locale()}。请求级的切换用
-     * {@link #useLocale(String)},一段代码内的切换用 {@link #withLocale}。
+     * {@link #overrideLocale(String)},一段代码内的切换用 {@link #withLocale}。
      */
     public void setLocale(String value) {
         this.locale = normalize(value, locale);
@@ -153,10 +153,10 @@ public final class Translator {
      *
      * @throws IllegalStateException 不在任何执行作用域里
      */
-    public void useLocale(String value) {
+    public void overrideLocale(String value) {
         String normalized = normalize(value, locale);
         ExecutionScope.tryCurrent().orElseThrow(() -> new IllegalStateException("""
-                useLocale("%s") 不在任何执行作用域里(请求 / 队列任务 / 命令)。
+                overrideLocale("%s") 不在任何执行作用域里(请求 / 队列任务 / 命令)。
                   要在一段代码里临时切语言用 Lang.withLocale(locale, () -> ...);
                   要改整个 JVM 的默认语言用 Lang.setLocale(locale)。"""
                 .formatted(value))).put(SCOPE_KEY, normalized);

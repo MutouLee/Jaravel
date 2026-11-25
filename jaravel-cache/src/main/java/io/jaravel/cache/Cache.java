@@ -166,8 +166,8 @@ public final class Cache {
         store().forget(key);
     }
 
-    public static void deleteMultiple(List<String> keys) {
-        store().deleteMultiple(keys);
+    public static void forgetMany(List<String> keys) {
+        store().forgetMany(keys);
     }
 
     public static void flush() {

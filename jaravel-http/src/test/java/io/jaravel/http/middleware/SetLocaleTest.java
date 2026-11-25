@@ -22,7 +22,7 @@ import io.jaravel.http.Response;
  *
  * <p>测试分两层:协商规则(纯函数,好测)与「真的切了」(要一个执行作用域,
  * 因为请求级的 locale 存在作用域属性里 —— 那个设计的理由见
- * {@code Translator.useLocale})。
+ * {@code Translator.overrideLocale})。
  */
 class SetLocaleTest {
 

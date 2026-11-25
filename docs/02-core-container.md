@@ -174,7 +174,7 @@ public final class Cache {
 | `Lang` | `Translator` | core(消息在 `resources/lang/<locale>/<group>.yml`) |
 
 > **`Lang` 的「当前语言」有三层**,从窄到宽:`Lang.withLocale(l, () -> …)`
-> 的线程内覆盖(「这几行按收件人的语言渲染」)> `Lang.useLocale(l)` 写进
+> 的线程内覆盖(「这几行按收件人的语言渲染」)> `Lang.overrideLocale(l)` 写进
 > 当前执行作用域(「这个请求 / 这个任务」,`SetLocale` 中间件用的就是它,
 > 见 docs/03 §2.7)> `app.locale` 配置的默认值(`Lang.setLocale` 改的是这一层)。
 >

@@ -40,7 +40,7 @@ import io.jaravel.http.Response;
  *
  * <h2>★ 只认已装载的语言</h2>
  * <p>浏览器会发一串 {@code Accept-Language: de,fr;q=0.8,en;q=0.5},而应用只
- * 翻译了 zh_CN 与 en。如果照单全收地 {@code useLocale("de")},结果是**整站
+ * 翻译了 zh_CN 与 en。如果照单全收地 {@code overrideLocale("de")},结果是**整站
  * 回退到 fallback**:每一条消息都查不到 de 的目录,于是 `Lang.get` 全部走
  * fallbackLocale —— 看起来像「语言设置没生效」,而原因是设成了一个不存在的语言。
  *
@@ -86,7 +86,7 @@ public class SetLocale implements Middleware {
 
     @Override
     public Response handle(Request request, Function<Request, Response> next) {
-        resolve(request).ifPresent(Lang::useLocale);
+        resolve(request).ifPresent(Lang::overrideLocale);
         return next.apply(request);
     }
 

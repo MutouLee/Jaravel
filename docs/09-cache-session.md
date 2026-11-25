@@ -36,7 +36,7 @@ User u4 = Cache.rememberForever("config", () -> loadConfig());
 // 删
 Cache.forget("user:1");
 Cache.flush();                                           // 清空当前 store
-Cache.deleteMultiple(List.of("a", "b"));
+Cache.forgetMany(List.of("a", "b"));
 
 // 取出并删除
 Optional<String> v = Cache.pull("flash", String.class);

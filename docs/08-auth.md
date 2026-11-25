@@ -720,7 +720,7 @@ auth:
 | `auth()->user()` | 请求外返回 null | 抛 `OutsideRequestException` | 消除静默 bug |
 | Policy 注册 | provider 里写映射数组 | `@Policy(Post.class)` + APT 自动注册 | 减少样板,编译期校验 |
 | Gate 闭包 | `function ($user, $post)` | `(User u, Post p) -> ...` 带泛型 | 类型安全 |
-| Sanctum/Passport | 独立包 | `SanctumGuard` 内置;OAuth2 Server 列入 v1.1 | 核心需求内置 |
+| Sanctum/Passport | 独立包 | `SanctumGuard` 内置;**OAuth2 授权服务器不做**(所有者决定,2026-11-25)—— 它是一个独立产品(授权/令牌端点、四种 grant、同意页、密钥轮换、客户端管理),不是一个 guard。真要发 OAuth2 令牌时,Jaravel 骑在 Spring Boot 上(ADR-001)—— 直接并排跑 **Spring Authorization Server**,用 `jaravel-security-bridge` 对接 | 核心需求内置 |
 | 二步验证 | Fortify 包 | 内置(含二维码编码器与挑战状态机) | 二维码不引库:手写一个字节模式/纠错 M 的编码器,用 zxing 在测试里解回来验证(§6.4) |
 | Spring Security | — | 可选桥接 | 企业场景必需 |
 

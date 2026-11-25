@@ -6,6 +6,33 @@
 
 ### Added
 
+- **发布前的门面与注解扫查**(接着上一轮的 SPI 那一遍)—— 标尺只有一条:
+  **同一件事有没有两个名字,或者一个名字指两件事**。注解那边是干净的
+  (`description` / `required` / `defaultValue` 到处一致;单属性注解一律 `value`;
+  `Command.name` 单数 vs `Option.names` 复数是语义差别,不是口径差别)。
+  门面那边改了两处:
+  **① `Cache.deleteMultiple` → `Cache.forgetMany`。** 驱动层(`CacheStore`)
+  本来就叫 `forgetMany`,而门面与 `Repository` 叫 `deleteMultiple`(PSR-16 的
+  名字)—— 读 SPI 学到一个名字、读门面学到另一个,而 PSR-16 是 PHP 的接口,
+  在 Java 这边没有任何约束力。现在这一族是
+  `many` / `putMany` / `forget` / `forgetMany`。
+  **② `Lang.useLocale` → `Lang.overrideLocale`。** 这个仓库里 `use(...)` 是
+  「装一个全局协作者」(`Lang.use(Translator)` 就在上面几行),于是
+  `useLocale` 读起来像「把这个 locale 装成全局的」,而它的语义恰好相反
+  (只对当前执行作用域有效)。现在三层三个动词:`setLocale`(整个 JVM)/
+  `overrideLocale`(当前请求/任务/命令)/ `withLocale`(当前线程的一段代码)。
+  **没动的那一处也记下来了**:`Queue` 的断言在 `QueueFake` 上而 `Event` 的在
+  门面上(Laravel 两处都在门面上)。补门面方法是**加方法**,发布后再加不破坏
+  任何人 —— 所以它不占发布前的窗口,登记在 KNOWN-ISSUES。
+- **两项范围决定(所有者,2026-11-25)**:**Telescope 等价物不做** ——
+  它要解决的问题这里已经有阻断式的答案(N+1 由 `preventLazyLoading` 开发期
+  直接报错、SQL 由 `queryLog` / `assertQueryCount` 看、队列由内置面板看、
+  指标走 Actuator/Micrometer),再做一个事后翻日志的面板收益不匹配;
+  **OAuth2 授权服务器不做** —— 它是一个独立产品(授权/令牌端点、四种 grant、
+  同意页、密钥轮换、客户端管理),而「给自己的前端发 token」已由内置
+  `TokenGuard` 覆盖;真要发 OAuth2 令牌时,Jaravel 骑在 Spring Boot 上
+  (ADR-001)—— 并排跑 Spring Authorization Server 再用
+  `jaravel-security-bridge` 对接,比自研一套更可信。
 - **发布前的公开 SPI 扫查**(两处改动)—— `FailedJobStore` 的 `long id` 是这么
   捞出来的,所以把用户要实现/调用的那 20 多个接口(`CacheStore` / `SessionStore` /
   `Filesystem` / `Transport` / `NotificationChannel` / `PermissionStore` /
@@ -306,7 +333,7 @@
   **★ 顺带修掉 i18n 底座的一个线程安全缺陷**:`Translator` 的当前语言此前
   是一个 JVM 级 volatile 字段,而 `Lang.withLocale` 的实现是「改全局再改回来」
   —— 两个并发请求或两个 worker 会互相串台(A 切 en,B 的中文页面里混进英文)。
-  现在是三层解析:`withLocale` 的**线程内**覆盖 > `useLocale` 写进**执行
+  现在是三层解析:`withLocale` 的**线程内**覆盖 > `overrideLocale` 写进**执行
   作用域** > 配置默认值。请求级必须是作用域而不是 try/finally:视图在中间件链
   **返回之后**才渲染,线程覆盖在模板里已经恢复了(症状是「中间件生效了,
   页面还是默认语言」)。`SetLocaleTest` 有一条两线程各设一种语言、互不串台的

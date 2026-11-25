@@ -26,6 +26,14 @@ public class CreateAuthTables implements Migration {
 
             // 存 SHA-256 的 hex(64 字符),100 够用
             t.rememberToken();
+
+            // 二步验证(docs/08 §6.4)。三列都可空 —— 没开二步验证的账号是常态。
+            // secret 与恢复码都是**凭据**:secret 等同于密码(拿到它就能
+            // 生成验证码),恢复码存的是 SHA-256
+            t.string("two_factor_secret", 64).nullable();
+            t.boolean_("two_factor_enabled").default_(false);
+            t.text("two_factor_recovery_codes").nullable();
+
             t.timestamps();
         });
 

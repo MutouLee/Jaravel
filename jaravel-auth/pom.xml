@@ -69,6 +69,24 @@
       <version>${sqlite.version}</version>
       <scope>test</scope>
     </dependency>
+
+    <!--
+      ★ 只为**验证**我们自己写的二维码编码器(QrCode),test 作用域。
+
+      手写编码器最危险的失败形态是「错得很细」:掩码罚分算错一位、
+      交织顺序差一个码字 —— 图看起来完全正常,而用户扫不出来。
+      那种缺陷不会有人报告,只会被当成「这个二维码不好扫」。
+
+      所以测试里用 zxing 把生成的码**解回来**比对原文。它不进运行时:
+      要引的话就是为一个功能引一个覆盖二十多种条码格式的库,
+      而那正是 docs/08 §6.4 当初登记「不做」的理由。
+    -->
+    <dependency>
+      <groupId>com.google.zxing</groupId>
+      <artifactId>core</artifactId>
+      <version>3.3.2</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
 </project>

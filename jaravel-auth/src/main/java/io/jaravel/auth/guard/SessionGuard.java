@@ -174,6 +174,21 @@ public class SessionGuard implements StatefulGuard {
                         name(), credentials, userExists));
     }
 
+    /**
+     * 校验凭据但**不写会话**。
+     *
+     * <h2>★ 失败同样发 Failed 事件</h2>
+     * <p>它与 {@link #attempt} 的区别只在「要不要写会话」,而不在
+     * 「这算不算一次登录尝试」。第一版漏了这一条:于是「密码对了先进二步
+     * 验证」的控制器(它必须用 once —— 那时还不能登录)把**登录失败的审计
+     * 事件整条丢了**,而那是一条安全相关的记录。
+     *
+     * <p>发现它的是 examples/auth 里一条与二步验证无关的测试
+     * ({@code failedCarriesNoPassword})—— 改用 once 之后它开始失败。
+     *
+     * <p>不发 {@code Login}:这里没有登录。真正的登录由随后的
+     * {@code Auth.login(user)} 完成,那里会发。
+     */
     @Override
     public boolean once(Map<String, Object> credentials) {
         var user = provider.retrieveByCredentials(credentials);
@@ -181,9 +196,13 @@ public class SessionGuard implements StatefulGuard {
             if (provider instanceof AbstractUserProvider base) {
                 base.burnTimeOnMissingUser(credentials);
             }
+            emitFailed(credentials, false);
             return false;
         }
-        if (!provider.validateCredentials(user.get(), credentials)) return false;
+        if (!provider.validateCredentials(user.get(), credentials)) {
+            emitFailed(credentials, true);
+            return false;
+        }
 
         // 只设内存状态,不写会话
         setUser(user.get());

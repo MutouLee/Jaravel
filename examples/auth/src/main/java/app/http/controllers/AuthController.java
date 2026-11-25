@@ -22,6 +22,7 @@ import io.jaravel.http.Redirect;
 import io.jaravel.http.Request;
 import io.jaravel.http.Response;
 import io.jaravel.session.Session;
+import io.jaravel.http.View;
 import io.jaravel.validation.Validator;
 
 /**
@@ -105,8 +106,21 @@ public class AuthController {
         // 节流的意义就是在查库 + 哈希这两件昂贵的事之前挡住洪水
         throttle.guardAttempt(email, ip);
 
-        if (Auth.attempt(form.credentials(), form.remember())) {
+        // ★ 用 once 而不是 attempt:它只校验凭据、不写会话。
+        //
+        // 开了二步验证的账号在这一步**不能登录** —— 先进挑战页。
+        // 反过来(先 login 再要求补验证码)的话,任何一个忘了挂中间件的
+        // 路由都是一个绕过口,而「忘了挂」是一定会发生的。
+        if (Auth.once(form.credentials())) {
             throttle.clear(email, ip);
+            User user = Auth.userOrFail(User.class);
+
+            if (user.twoFactorEnabled()) {
+                io.jaravel.auth.twofactor.TwoFactorChallenge.start(user, form.remember());
+                return Redirect.to("/two-factor");
+            }
+
+            Auth.login(user, form.remember());
             return Redirect.to(intendedUrl());
         }
 
@@ -251,5 +265,78 @@ public class AuthController {
         String url = request.url();
         String path = request.path();
         return url.endsWith(path) ? url.substring(0, url.length() - path.length()) : url;
+    }
+
+    // ================= 二步验证(docs/08 §6.4)=================
+
+    /**
+     * GET /settings/two-factor —— 开启流程的第一步:生成密钥并显示二维码。
+     *
+     * <p>⚠ 每次打开这个页面都会**换一个新密钥**(enableTwoFactor 的语义)。
+     * 真实项目里这一步该是 POST(用户点「开启」)并要求先确认密码
+     * ({@code middleware("password.confirm")})—— 这个示例把它放在 GET 上
+     * 是为了少一个表单,而这句话写在这里,免得被照抄。
+     */
+    public Object twoFactorSetup() {
+        User user = Auth.userOrFail(User.class);
+        var setup = user.enableTwoFactor("Jaravel 示例", user.email);
+        user.save();
+
+        return View.of("two-factor.setup")
+                // SVG 内联 —— 不需要一条返回图片的路由,而那条路由必须鉴权
+                // (二维码里是 TOTP 密钥,等同于密码)
+                .with("qr", user.twoFactorQrCodeSvg("Jaravel 示例"))
+                .with("secret", setup.secret())
+                .with("codes", setup.recoveryCodes());
+    }
+
+    /** POST /settings/two-factor —— 输一次验证码,确认验证器配好了 */
+    public Response confirmTwoFactor(Request request) {
+        User user = Auth.userOrFail(User.class);
+
+        if (!user.confirmTwoFactor(request.input("code", ""))) {
+            return Redirect.to("/settings/two-factor")
+                    .withErrors(Map.of("code", "验证码不对 —— 确认验证器里的账号与时间"));
+        }
+        user.save();
+        return Redirect.to("/dashboard").with("status", "二步验证已开启");
+    }
+
+    /** GET /two-factor —— 挑战页。此刻**还没登录** */
+    public Object twoFactorChallengePage() {
+        if (!io.jaravel.auth.twofactor.TwoFactorChallenge.pending()) {
+            return Redirect.to("/login");
+        }
+        return View.of("two-factor.challenge");
+    }
+
+    /**
+     * POST /two-factor —— 验一次。
+     *
+     * <p>⚠ 路由上挂了 {@code throttle:5,1}:6 位数字只有一百万种,
+     * 不挂节流的话这个接口就是一个可暴破的登录接口。
+     */
+    public Response twoFactorChallenge(Request request) {
+        String code = request.input("code", "");
+        var challenge = io.jaravel.auth.twofactor.TwoFactorChallenge.complete(code);
+
+        if (challenge.isEmpty()) {
+            // 再试一次恢复码 —— 用户手机丢了的那条路。
+            // 恢复码是一次性的,用掉之后**必须落库**
+            var recovered = io.jaravel.auth.twofactor.TwoFactorChallenge
+                    .completeWithRecoveryCode(code);
+            if (recovered.isEmpty()) {
+                return Redirect.to("/two-factor")
+                        .withErrors(Map.of("code", "验证码或恢复码不正确"));
+            }
+            // ★ 不能强转:guard 里的主体是 provider **包装**过的
+            // Authenticatable,不是 User(@AuthModel 的设计 ——
+            // 模型不必实现那个接口)。强转的结果是一个 500,
+            // 而那个 ClassCastException 指向框架内部的类名
+            recovered.get().as(User.class).orElseThrow().save();
+            return Redirect.to(intendedUrl()).with("status", "恢复码已使用,请重新配置验证器");
+        }
+
+        return Redirect.to(intendedUrl());
     }
 }

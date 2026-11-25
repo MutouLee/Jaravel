@@ -1,0 +1,16 @@
+{{-- 挑战页:密码已经对过,但还没登录(docs/08 §6.4) --}}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>二步验证</title></head>
+<body>
+  <h1>再验一步</h1>
+  <p>输入验证器里的 6 位码。手机不在手上就用恢复码。</p>
+
+  <form method="POST" action="/two-factor">
+    @csrf
+    <label>验证码 <input name="code" autocomplete="one-time-code" autofocus></label>
+    @error('code') <strong id="error">{{ message }}</strong> @enderror
+    <button type="submit">验证</button>
+  </form>
+</body>
+</html>

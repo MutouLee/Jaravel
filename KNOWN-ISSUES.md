@@ -31,7 +31,6 @@
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| 二步验证二维码 / 登录挑战页 | 未实现 | TOTP 原语与用户侧默认方法已有(docs/08 §6.4) |
 | CSP / HSTS 默认值 | **不做** | `X-Content-Type-Options` / `X-Frame-Options` / `Referrer-Policy` 已默认发(`SecurityHeadersFilter`)。CSP 与 HSTS 必须显式配:框架猜的 CSP 会挡掉应用自己的脚本,而 HSTS 是粘的 —— 开错了用户浏览器会记住(docs/03 §2.6)|
 | 第三方安全审计 | 不做 | 当前范围外 |
 | OSV / SBOM 扫描 | 不做 | 当前范围外 |

@@ -115,6 +115,40 @@ public interface TwoFactorAuthenticatable {
         return used;
     }
 
+    /**
+     * 当前密钥的二维码(内联 SVG,docs/08 §6.4)。
+     *
+     * <pre>{@code
+     * // 控制器
+     * var setup = user.enableTwoFactor("记账本", user.email);
+     * return View.of("settings.two-factor")
+     *         .with("qr", user.twoFactorQrCodeSvg("记账本"))
+     *         .with("codes", setup.recoveryCodes());
+     *
+     * // 模板:SVG 直接内联,不需要图片路由
+     * {{!! qr !!}}
+     * }</pre>
+     *
+     * <p>★ **返回 SVG 而不是 PNG/data-URI**:SVG 内联进 HTML 就不需要一条
+     * 返回图片的路由 —— 而那条路由必须做鉴权(二维码里是 TOTP 密钥,
+     * 等同于密码),一条忘了鉴权的图片路由是一个密钥泄露接口。
+     * 内联的东西不可能忘。
+     *
+     * <p>⚠ 它渲染的是**当前**密钥。密钥还没生成({@code enableTwoFactor}
+     * 之前)时报错而不是返回一张空图 —— 一张扫不出东西的二维码会被当成
+     * 「这个二维码不好扫」,而真正的原因是没有密钥。
+     */
+    default String twoFactorQrCodeSvg(String issuer) {
+        String secret = twoFactorSecret();
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalStateException("""
+                    还没有二步验证密钥,画不出二维码。
+                      先调 enableTwoFactor()(它生成密钥与恢复码),
+                      再把返回值里的 otpauthUri 或这个方法的 SVG 给用户扫。""");
+        }
+        return QrCode.svg(Totp.otpauthUri(issuer, twoFactorAccount(), secret));
+    }
+
     /** 关掉并清空 —— 调用方应当先验证密码或当前验证码 */
     default void disableTwoFactor() {
         twoFactorSecret(null);

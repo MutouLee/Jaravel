@@ -1,0 +1,31 @@
+{{-- 开启二步验证:扫码 + 输一次验证码确认(docs/08 §6.4) --}}
+@params(String qr, String secret, java.util.List<String> codes)
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>开启二步验证</title></head>
+<body>
+  <h1>开启二步验证</h1>
+
+  {{-- SVG 内联。不走图片路由 —— 那条路由必须鉴权,
+       因为二维码里是 TOTP 密钥,等同于密码 --}}
+  <div id="qr">{{!! qr !!}}</div>
+
+  <p>验证器扫不了码时手输这串:<code id="secret">{{ secret }}</code></p>
+
+  <h2>恢复码</h2>
+  {{-- 明文只在这一次出现 —— 库里存的是 SHA-256 --}}
+  <ul id="codes">
+    @foreach (codes as code)
+      <li>{{ code }}</li>
+    @endforeach
+  </ul>
+  <p>把它们抄下来。手机丢了的时候,恢复码是唯一的入口。</p>
+
+  <form method="POST" action="/settings/two-factor">
+    @csrf
+    <label>验证器里的 6 位码 <input name="code" autocomplete="one-time-code"></label>
+    @error('code') <strong id="error">{{ message }}</strong> @enderror
+    <button type="submit">确认并开启</button>
+  </form>
+</body>
+</html>

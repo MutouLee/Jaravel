@@ -28,11 +28,29 @@ import io.jaravel.eloquent.annotations.Model;
 @MustVerifyEmail
 @Fillable({"name", "email"})
 @HasMany(name = "notes", target = Note.class)
-public class User extends UserBase implements io.jaravel.notifications.Notifiable {
+public class User extends UserBase
+        implements io.jaravel.notifications.Notifiable,
+                   io.jaravel.auth.twofactor.TwoFactorAuthenticatable {
 
     @Id public Long id;
     public String name;
     public String email;
+
+    // ================= 二步验证(docs/08 §6.4)=================
+    //
+    // 七个访问器在下面。存储形状由应用决定(与 Authenticatable 同一个取舍):
+    // 框架不规定「密钥存哪一列、恢复码怎么序列化」—— 它只认这七个方法。
+    //
+    // 两个 @Hidden 的理由与 password 完全一样,而且更要紧:
+    // secret 等同于密码(拿到它就能生成验证码),恢复码是绕过二步验证的后门
+
+    @Hidden public String twoFactorSecret;
+    public boolean twoFactorEnabled;
+
+    /** 存 JSON 数组 —— 恢复码是十个哈希,一列装得下 */
+    @Hidden
+    @io.jaravel.eloquent.meta.Cast.Use(io.jaravel.eloquent.cast.AsList.class)
+    public java.util.List<String> twoFactorRecoveryCodes = java.util.List.of();
 
     // ================= Notifiable(docs/11 §2.3)=================
     //
@@ -80,4 +98,24 @@ public class User extends UserBase implements io.jaravel.notifications.Notifiabl
     public boolean hasVerifiedEmail() {
         return emailVerifiedAt != null;
     }
+
+    // ================= TwoFactorAuthenticatable =================
+
+    @Override public String twoFactorSecret()                { return twoFactorSecret; }
+    @Override public void twoFactorSecret(String secret)     { twoFactorSecret = secret; }
+    @Override public boolean twoFactorEnabled()              { return twoFactorEnabled; }
+    @Override public void twoFactorEnabled(boolean enabled)  { twoFactorEnabled = enabled; }
+
+    @Override
+    public java.util.List<String> twoFactorRecoveryCodes() {
+        return twoFactorRecoveryCodes == null ? java.util.List.of() : twoFactorRecoveryCodes;
+    }
+
+    @Override
+    public void twoFactorRecoveryCodes(java.util.List<String> hashedCodes) {
+        twoFactorRecoveryCodes = hashedCodes;
+    }
+
+    /** 二维码里显示的账号 —— 用邮箱,验证器里就能分清是哪个账号 */
+    @Override public String twoFactorAccount() { return email; }
 }

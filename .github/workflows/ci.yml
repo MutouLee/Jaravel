@@ -117,6 +117,83 @@ jobs:
             **/target/*.dumpstream
             target/ci-test.log
 
+  brokers:
+    name: broker contract tests (redis / rabbitmq / sqs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # 默认 test 作业按开关跳过这些类(见那里的注释)。
+    #
+    # ★ 为什么要单独一个作业:跳过的测试不是绿色,是**没测**。
+    # 这三个驱动的正确性全在「与真 broker 的那一层接线」上
+    # (ack 的时机、可见性超时、broker 自己的投递计数),
+    # 而那些在内存替身上一条都测不出来 —— 在这个作业出现之前,
+    # 它们只在有人记得本地起容器时跑过。
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+      rabbitmq:
+        # quorum 队列(x-delivery-count)要 3.8+
+        image: rabbitmq:3-management
+        ports: ["5672:5672"]
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping" --health-interval 10s
+          --health-timeout 5s --health-retries 12
+      elasticmq:
+        # SQS 兼容;LocalStack 太重,而这里只用到队列那部分
+        image: softwaremill/elasticmq-native
+        ports: ["9324:9324"]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: install framework artifacts
+        run: >
+          mvn -B -ntp -Dmaven.test.skip=true install
+          -pl '!examples/todo,!examples/blog,!examples/auth,!examples/queue,!examples/api-only,!examples/multi-tenant,!jaravel-coverage'
+
+      # ElasticMQ 没有 health-cmd(镜像里没有 shell 工具),所以在这里等端口
+      - name: wait for elasticmq
+        run: |
+          for i in $(seq 1 30); do
+            if (echo > /dev/tcp/127.0.0.1/9324) 2>/dev/null; then
+              echo "elasticmq ready"; exit 0
+            fi
+            sleep 2
+          done
+          echo "elasticmq 没起来"; exit 1
+
+      # ★ 不是 -Dtest=...:那样漏掉新加的 broker 测试类时没人会发现。
+      # 整个 jaravel-queue + jaravel-cache 跑一遍,开关一开,
+      # 原本 skip 的那些类自己就醒了。
+      - name: broker contract tests
+        env:
+          JARAVEL_TEST_REDIS_URI: redis://127.0.0.1:6379/15
+          JARAVEL_TEST_RABBITMQ_URI: amqp://guest:guest@127.0.0.1:5672/%2f
+          JARAVEL_TEST_SQS_ENDPOINT: http://127.0.0.1:9324
+        run: |
+          set -o pipefail
+          mkdir -p target
+          mvn -B -ntp test -pl jaravel-queue,jaravel-cache             2>&1 | tee target/ci-brokers.log
+
+      - name: upload surefire reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: surefire-reports-brokers
+          if-no-files-found: ignore
+          path: |
+            **/target/surefire-reports/
+            target/ci-brokers.log
+
   parity:
     name: parity gate (≤ 1.30)
     runs-on: ubuntu-latest

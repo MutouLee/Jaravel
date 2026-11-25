@@ -705,12 +705,18 @@ class QueueWorkerTest {
 
         @Test
         @DisplayName("prune 清理旧记录")
-        void prune() {
+        void prune() throws InterruptedException {
             Queue.dispatch(new FailsAlways(1));
             drainOnce(base());
 
             assertThat(failedJobs.prune(Duration.ofDays(7)))
                     .as("刚失败的不该被清掉").isZero();
+
+            // ★ 等一下再 prune:条件是 `failed_at < now - olderThan`(**严格小于**),
+            // 而在够快的机器上「记下来」与「清理」可能落在同一毫秒 ——
+            // 那时 failed_at == cutoff,一条都不会被删。
+            // 这是测试的时间假设,不是 prune 的 bug:CI 上红过一次,本地从不复现。
+            Thread.sleep(5);
             assertThat(failedJobs.prune(Duration.ZERO)).isEqualTo(1);
         }
 

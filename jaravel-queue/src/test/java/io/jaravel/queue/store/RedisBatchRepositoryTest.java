@@ -72,8 +72,10 @@ class RedisBatchRepositoryTest {
 
     private static String create() {
         String id = UUID.randomUUID().toString();
-        store.create(id, "月度报表", 3, true, callback("Then"), callback("Catch"),
-                callback("Finally"));
+        store.create(id, "月度报表", 3, true, Map.of(
+                BatchRepository.Kind.THEN, callback("Then"),
+                BatchRepository.Kind.CATCH, callback("Catch"),
+                BatchRepository.Kind.FINALLY, callback("Finally")));
         return id;
     }
 

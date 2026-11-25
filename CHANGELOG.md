@@ -6,6 +6,27 @@
 
 ### Added
 
+- **发布前的公开 SPI 扫查**(两处改动)—— `FailedJobStore` 的 `long id` 是这么
+  捞出来的,所以把用户要实现/调用的那 20 多个接口(`CacheStore` / `SessionStore` /
+  `Filesystem` / `Transport` / `NotificationChannel` / `PermissionStore` /
+  `QueueStore` / `UserProvider` / `Guard` / `ViewEngine` / `Observer` /
+  `Connection` / `Rule` …)照同一个标尺过了一遍:有没有「一个类型锁死了某种
+  合理实现」、有没有裸的毫秒参数、有没有返回具体集合类型、同一个概念有没有
+  两种拼法。绝大多数是干净的(`PermissionStore` 的 subjectId 本来就是 String、
+  `UserProvider.retrieveById(Object)` 本来就是松的、时间全是 `Duration`),
+  只动了两处:
+  **① `BatchRepository.create` 的三个回调参数换成 `Map<Kind, QueuedJob>`。**
+  原来是 `create(..., QueuedJob then, QueuedJob catch, QueuedJob finally)` ——
+  三个相邻的同类型参数,**把 then 与 catch 写反了没有任何人会报错**,
+  而症状是「成功时跑了失败回调」,看起来像业务逻辑写错了。
+  换成按 `Kind` 的 map 之后读写对称(`callback(id, kind)` 本来就按 Kind 取),
+  将来多一种回调也不必改签名。
+  **② `@Id(name = ...)` 改名为 `@Id(column = ...)`。**
+  这套注解里 `name` 已经是**关联名**的意思(`@HasMany(name = "notes")`),
+  而列名在 `@SoftDeletes(column = ...)` 上叫 column —— 同一个词在两处指不同的
+  东西是个没人记得住的规则。现在三个词各管一件事:`name` = 关联名、
+  `column` = 列名、`value` = 单属性注解的那个值(`@Column("post_id")`)。
+  两处都是**发到 Central 之后就改不动**的东西,所以趁现在改。
 - **失败归档的 id 改成 `String` + DynamoDB 归档**(docs/10 §1.7)——
   `FailedJobStore` 的 id 原本是 `long`,而那让任何以 uuid 为主键的存储都进不来:
   要么在 KV 上额外维护一个自增序列(每条失败记录多一次往返、多一个会漂的

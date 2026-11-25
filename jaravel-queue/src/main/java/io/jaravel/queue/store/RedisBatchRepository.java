@@ -77,8 +77,7 @@ public class RedisBatchRepository implements BatchRepository, AutoCloseable {
 
     @Override
     public Batch create(String id, String name, int totalJobs, boolean allowsFailures,
-                        QueuedJob thenCallback, QueuedJob catchCallback,
-                        QueuedJob finallyCallback) {
+                        java.util.Map<Kind, QueuedJob> callbacks) {
         if (commands().exists(key(id)) > 0) {
             throw new IllegalStateException("批次 id 重复:" + id);
         }
@@ -92,9 +91,9 @@ public class RedisBatchRepository implements BatchRepository, AutoCloseable {
         fields.put("failed_jobs", "0");
         fields.put("failed_job_ids", "");
         fields.put("allows_failures", allowsFailures ? "1" : "0");
-        fields.put("then_callback", encode(thenCallback));
-        fields.put("catch_callback", encode(catchCallback));
-        fields.put("finally_callback", encode(finallyCallback));
+        fields.put("then_callback", encode(callbacks.get(Kind.THEN)));
+        fields.put("catch_callback", encode(callbacks.get(Kind.CATCH)));
+        fields.put("finally_callback", encode(callbacks.get(Kind.FINALLY)));
         fields.put("created_at", String.valueOf(now.toEpochMilli()));
         fields.put("cancelled_at", "");
         fields.put("finished_at", "");

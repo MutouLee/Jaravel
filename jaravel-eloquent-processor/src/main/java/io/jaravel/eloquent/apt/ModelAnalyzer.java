@@ -232,7 +232,7 @@ final class ModelAnalyzer {
                     ? columnAnn.value() : Naming.column(fieldName);
 
             var idAnn = field.getAnnotation(Id.class);
-            if (idAnn != null && !idAnn.name().isBlank()) columnName = idAnn.name();
+            if (idAnn != null && !idAnn.column().isBlank()) columnName = idAnn.column();
 
             String castType = null;
             List<String> castArgs = List.of();

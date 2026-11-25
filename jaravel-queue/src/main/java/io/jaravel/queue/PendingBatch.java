@@ -155,10 +155,15 @@ public final class PendingBatch {
 
         var repository = queues.requireBatches();
 
-        Batch batch = repository.create(id, name, jobs.size(), allowFailures,
-                envelopeFor(thenCallback, now),
-                envelopeFor(catchCallback, now),
-                envelopeFor(finallyCallback, now));
+        // 按 Kind 装:没配的那种不放进来。三个位置参数的版本里
+        // 「把 then 与 catch 写反」是编译期看不见的
+        var callbacks = new java.util.EnumMap<BatchRepository.Kind, QueuedJob>(
+                BatchRepository.Kind.class);
+        putIfPresent(callbacks, BatchRepository.Kind.THEN, envelopeFor(thenCallback, now));
+        putIfPresent(callbacks, BatchRepository.Kind.CATCH, envelopeFor(catchCallback, now));
+        putIfPresent(callbacks, BatchRepository.Kind.FINALLY, envelopeFor(finallyCallback, now));
+
+        Batch batch = repository.create(id, name, jobs.size(), allowFailures, callbacks);
 
         // 空批次:没有任务可投,它当场就该是「已完成」。
         // 不特殊处理的话 pending_jobs 从 0 开始,而没有任何
@@ -192,6 +197,12 @@ public final class PendingBatch {
         repository.callback(id, kind)
                 .map(callback -> callback.withContext(JobContext.BATCH_ID, id))
                 .ifPresent(store::push);
+    }
+
+    /** 没配的回调不进 map —— 缺键与 null 值同义,但缺键让实现少一个判断 */
+    private static void putIfPresent(java.util.Map<BatchRepository.Kind, QueuedJob> into,
+                                     BatchRepository.Kind kind, QueuedJob envelope) {
+        if (envelope != null) into.put(kind, envelope);
     }
 
     private QueuedJob envelopeFor(ShouldQueue callback, Instant now) {

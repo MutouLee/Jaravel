@@ -81,8 +81,7 @@ public class DatabaseBatchRepository implements BatchRepository {
 
     @Override
     public Batch create(String id, String name, int totalJobs, boolean allowsFailures,
-                        QueuedJob thenCallback, QueuedJob catchCallback,
-                        QueuedJob finallyCallback) {
+                        java.util.Map<Kind, QueuedJob> callbacks) {
         Instant now = Clock.now();
 
         var row = new LinkedHashMap<String, Object>();
@@ -93,9 +92,9 @@ public class DatabaseBatchRepository implements BatchRepository {
         row.put("failed_jobs", 0);
         row.put("failed_job_ids", "");
         row.put("allows_failures", allowsFailures ? 1 : 0);
-        row.put("then_callback", encode(thenCallback));
-        row.put("catch_callback", encode(catchCallback));
-        row.put("finally_callback", encode(finallyCallback));
+        row.put("then_callback", encode(callbacks.get(Kind.THEN)));
+        row.put("catch_callback", encode(callbacks.get(Kind.CATCH)));
+        row.put("finally_callback", encode(callbacks.get(Kind.FINALLY)));
         row.put("created_at", now);
         row.put("cancelled_at", null);
         row.put("finished_at", null);

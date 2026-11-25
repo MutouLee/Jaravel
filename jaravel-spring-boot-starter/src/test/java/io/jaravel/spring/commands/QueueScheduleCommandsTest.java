@@ -546,7 +546,7 @@ class QueueScheduleCommandsTest {
         @Test
         @DisplayName("★ 未结束的批次不清 —— 删了它的回调就永远不执行")
         void keepsUnfinishedBatches() {
-            batches.create("batch-1", "导入", 3, false, null, null, null);
+            batches.create("batch-1", "导入", 3, false, java.util.Map.of());
 
             assertThat(Artisan.call("queue:prune-batches", "--hours=0")).isZero();
             assertThat(batches.find("batch-1"))

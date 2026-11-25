@@ -78,7 +78,7 @@ public class User extends Model<User> {
 | 约定 | 规则 | 覆盖方式 |
 |---|---|---|
 | 表名 | 类名 snake_case 复数:`User` → `users` | `@Model(table = "...")` |
-| 主键 | `id`,`Long`,自增 | `@Id(name = "uuid", incrementing = false)` |
+| 主键 | `id`,`Long`,自增 | `@Id(column = "uuid", incrementing = false)` |
 | 时间戳 | `created_at` / `updated_at` 自动维护 | `@Model(timestamps = false)` |
 | 列名 | 字段名 snake_case:`emailVerifiedAt` → `email_verified_at` | `@Column("custom_name")` |
 | 外键 | `{model}_id`:`Post.user_id` | 注解参数显式指定 |

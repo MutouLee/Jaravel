@@ -226,8 +226,7 @@ class DashboardServiceTest {
         FakeBatches add(Batch batch) { batches.add(batch); return this; }
 
         @Override public Batch create(String id, String name, int totalJobs, boolean allowsFailures,
-                                      QueuedJob thenCallback, QueuedJob catchCallback,
-                                      QueuedJob finallyCallback) {
+                                      Map<Kind, QueuedJob> callbacks) {
             throw new UnsupportedOperationException();
         }
         @Override public Optional<Batch> find(String id) { return batches.stream().filter(b -> b.id().equals(id)).findFirst(); }
@@ -242,8 +241,7 @@ class DashboardServiceTest {
 
     static class ThrowingBatches implements BatchRepository {
         @Override public Batch create(String id, String name, int totalJobs, boolean allowsFailures,
-                                      QueuedJob thenCallback, QueuedJob catchCallback,
-                                      QueuedJob finallyCallback) {
+                                      Map<Kind, QueuedJob> callbacks) {
             throw new UnsupportedOperationException();
         }
         @Override public Optional<Batch> find(String id) { return Optional.empty(); }

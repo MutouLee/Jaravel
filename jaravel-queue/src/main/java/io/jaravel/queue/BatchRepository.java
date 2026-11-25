@@ -2,6 +2,7 @@ package io.jaravel.queue;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -22,9 +23,21 @@ import java.util.Optional;
  */
 public interface BatchRepository {
 
-    /** 建一个批次。回调以**信封**形式存着 —— 理由见 {@link PendingChain} 的类注释 */
+    /**
+     * 建一个批次。回调以**信封**形式存着 —— 理由见 {@link PendingChain} 的类注释。
+     *
+     * <h2>★ 回调按 {@link Kind} 传,而不是三个位置参数</h2>
+     * <p>第一版是 {@code create(..., QueuedJob then, QueuedJob catch, QueuedJob finally)}:
+     * 三个相邻的同类型参数,**把 then 与 catch 写反了没有任何人会报错** ——
+     * 症状是「成功时跑了失败回调」,而那看起来像业务逻辑写错了。
+     *
+     * <p>一张 map 还让读写对称({@link #callback(String, Kind)} 本来就按
+     * Kind 取),并且将来多一种回调不必改签名。
+     *
+     * @param callbacks 没配的那种**不要放进来**(null 值与缺键同义)
+     */
     Batch create(String id, String name, int totalJobs, boolean allowsFailures,
-                 QueuedJob thenCallback, QueuedJob catchCallback, QueuedJob finallyCallback);
+                 Map<Kind, QueuedJob> callbacks);
 
     Optional<Batch> find(String id);
 

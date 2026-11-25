@@ -1,0 +1,28 @@
+# API(docs/12)。这份文件就是 install:api 生成的东西。
+
+api:
+  # OpenAPI 文档里的版本号(jaravel openapi:generate 读它)
+  version: 1.0.0
+
+  # 错误响应的形状。两种:
+  #   laravel  —— {"message": "...", "errors": {"email": ["..."]}}
+  #               与 Laravel 一致,前端照抄得过来
+  #   problem  —— RFC 9457 的 application/problem+json
+  #               {"type": "...", "title": "...", "status": 422, "detail": "..."}
+  #
+  # 选哪个取决于**谁来消费**:自家前端选 laravel(生态里的 axios 拦截器、
+  # 表单库都认那个形状),对外开放的 API 选 problem(它是标准,
+  # 而「我们自己定义的 JSON」要写一页文档去解释)。
+  #
+  # ⚠ 换这个值会改变**所有**错误响应 —— 上线后再换等于一次破坏性变更。
+  error-format: laravel
+
+  # 幂等性(docs/12 §6.5)。给支付这类「重复执行有后果」的接口用:
+  #   r.post("/payments", ...).middleware("idempotent")
+  # 客户端带 Idempotency-Key,同一个 key 的重试返回第一次的响应。
+  idempotency:
+    header: Idempotency-Key
+    # 响应缓存多久 —— 客户端的重试窗口要在这之内
+    ttl: PT24H
+    # 「处理中」占位的存活时间。它只需要盖住一次请求的处理时长
+    in-flight-ttl: PT1M

@@ -1,0 +1,49 @@
+package routes;
+
+import org.springframework.stereotype.Component;
+
+import app.http.controllers.ApiTokenController;
+import io.jaravel.routing.RouteDefinition;
+import io.jaravel.routing.Router;
+
+/**
+ * API 路由(docs/03 §1、docs/12)。
+ *
+ * <p>放在独立的文件里,不动你的 {@code WebRoutes} —— 两边的中间件组不同,
+ * 混在一起时「这条路由到底有没有会话」要靠读组名猜。
+ */
+@Component
+public class ApiRoutes implements RouteDefinition {
+
+    @Override
+    public void define(Router r) {
+        // api 组**不含 StartSession** —— 无状态接口不该下发会话 cookie。
+        // 它含 SubstituteBindings(隐式模型绑定),所以 can:update,post 能工作
+        r.prefix("/api").middleware("api").group(api -> {
+
+            // 签发 token:公开路由(此时还没有 token 可带),
+            // 但一定要节流 —— 它是一个可以反复试密码的接口
+            api.post("/tokens", ApiTokenController::issue)
+               .middleware("throttle:10,1")
+               .name("api.tokens.store");
+
+            // 以下都要 Bearer token。auth:api 指的是 config/auth.yml 里
+            // 那个 driver: token 的 guard
+            api.get("/me", ApiTokenController::me)
+               .middleware("auth:api").name("api.me");
+
+            api.delete("/tokens", ApiTokenController::revokeAll)
+               .middleware("auth:api").name("api.tokens.destroy");
+
+            // 你自己的接口写在这里。举例:
+            //
+            // api.get("/posts", PostController::index).name("api.posts.index");
+            // api.post("/posts", PostController::store)
+            //    .middleware("auth:api").name("api.posts.store");
+            //
+            // 「重复执行有后果」的接口加 idempotent(docs/12 §6.5):
+            // api.post("/payments", PaymentController::store)
+            //    .middleware("auth:api", "idempotent");
+        });
+    }
+}

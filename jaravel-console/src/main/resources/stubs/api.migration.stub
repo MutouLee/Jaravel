@@ -1,0 +1,42 @@
+package {{migrationPackage}};
+
+import io.jaravel.migration.Migration;
+import io.jaravel.migration.schema.Schema;
+
+/**
+ * API token 表(docs/08 §4)。
+ *
+ * <p>{@code install:auth} 只建 users 与 password_reset_tokens ——
+ * token 表跟着 {@code install:api} 走,因为一个纯浏览器应用不需要它。
+ */
+public class CreateApiTokensTable implements Migration {
+
+    @Override
+    public void up() {
+        Schema.create("personal_access_tokens", t -> {
+            t.id();
+            t.string("name", 100);
+            t.foreignId("user_id").constrained("users").cascadeOnDelete();
+
+            // ★ 存的是 SHA-256 hex,不是明文。
+            //
+            // 明文存库的话,一次数据库泄露 = 所有 API token 泄露,
+            // 而 token 往往比密码权限更大(它们被配进 CI、脚本、第三方集成)。
+            //
+            // unique:同一个哈希不该出现两次,而唯一索引顺便让
+            // 「按哈希查」变成索引查找 —— 每个带 Bearer 的请求都要查一次
+            t.string("token_hash", 64).unique();
+
+            // null = 永不过期。给 CI 用的 token 适合设过期,
+            // 过期的行由 TokenGuard.purgeExpired() 清理
+            t.timestamp("expires_at").nullable();
+            t.timestamp("last_used_at").nullable();
+            t.timestamps();
+        });
+    }
+
+    @Override
+    public void down() {
+        Schema.dropIfExists("personal_access_tokens");
+    }
+}

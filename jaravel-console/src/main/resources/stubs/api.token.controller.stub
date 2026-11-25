@@ -1,0 +1,98 @@
+package app.http.controllers;
+
+import java.util.Map;
+
+import org.springframework.stereotype.Component;
+
+import app.models.User;
+import io.jaravel.auth.Auth;
+import io.jaravel.auth.guard.TokenGuard;
+import io.jaravel.http.Request;
+import io.jaravel.http.Response;
+import io.jaravel.validation.Validator;
+
+/**
+ * API token 的签发与撤销(docs/08 §4)。
+ *
+ * <pre>
+ * POST   /api/tokens     邮箱 + 密码 → 明文 token(只在这里出现一次)
+ * DELETE /api/tokens     撤销当前用户的全部 token(「退出所有设备」)
+ * GET    /api/me         拿当前 token 对应的用户 —— 接通了没有,看这个
+ * </pre>
+ */
+@Component
+public class ApiTokenController {
+
+    /**
+     * 签发。
+     *
+     * <h2>★ 为什么不用 Auth.attempt</h2>
+     * <p>{@code attempt} 是**会话型** guard 的方法:它会写会话、换 session id、
+     * 下发 cookie。而这条路由在 {@code api} 组里,那一组刻意不含 StartSession
+     * (无状态接口不该下发会话 cookie)。
+     *
+     * <p>所以这里直接用 provider 的两步:按凭据找人、校验密码 ——
+     * 那正是 {@code SessionGuard.attempt} 内部做的事,只是不碰会话。
+     * 在一个纯 API 应用里(根本没有 web guard)这是唯一能工作的写法。
+     */
+    public Object issue(Request request) {
+        var data = Validator.make(request.all(), Map.of(
+                "email", "required|email",
+                "password", "required|string",
+                "name", "nullable|string|max:100"))
+                .validate();            // 失败自动变 422 JSON
+
+        var guard = (TokenGuard) Auth.guard("api");
+        var credentials = Map.<String, Object>of(
+                "email", data.string("email"),
+                "password", data.string("password"));
+
+        var user = guard.provider().retrieveByCredentials(credentials);
+        if (user.isEmpty() || !guard.provider().validateCredentials(user.get(), credentials)) {
+            // 401 而不是 422:凭据的**格式**没问题,是不对。
+            // 也不区分「没这个邮箱」与「密码错」—— 那个区别是一个用户枚举接口
+            return Response.json(Map.of("message", "凭据不正确")).status(401);
+        }
+
+        var token = guard.issue(user.get(), data.string("name", "default"));
+
+        // plainText 只在这里出现一次 —— 库里存的是它的 SHA-256。
+        // 客户端没存住就只能重新签发一个,这是刻意的
+        return Response.json(Map.of(
+                "token", token.plainText(),
+                "id", token.id(),
+                "name", token.name())).status(201);
+    }
+
+    /**
+     * 撤销当前用户的全部 token —— 「退出所有设备」。
+     *
+     * <h2>为什么没有「撤销其中一条」</h2>
+     * <p>那需要先回答「这条 token 属于谁」,而框架的 {@code TokenGuard}
+     * 没有暴露按 id 查 token 的接口({@code revoke(id)} 不做归属校验)。
+     * 直接把它接成路由会得到一个**越权删除**:带着自己 token 的用户可以
+     * 撤销别人的。
+     *
+     * <p>要做单条撤销,自己查一下归属(两行):
+     *
+     * <pre>{@code
+     * long count = db.table("personal_access_tokens")
+     *         .where("id", id)
+     *         .where("user_id", Auth.userOrFail(User.class).id)
+     *         .delete();
+     * if (count == 0) return Response.json(Map.of("message", "没有这个 token")).status(404);
+     * }</pre>
+     */
+    public Object revokeAll() {
+        var guard = (TokenGuard) Auth.guard("api");
+        int revoked = guard.revokeAll(Auth.user().orElseThrow());
+
+        return Map.of("revoked", revoked);
+    }
+
+    /** 当前 token 对应的用户 —— 用它确认 Bearer 接通了 */
+    public Object me() {
+        User user = Auth.userOrFail(User.class);
+        return Map.of("id", user.id, "name", user.name, "email", user.email);
+    }
+}

@@ -12,7 +12,9 @@ import io.jaravel.console.generators.MakeListener;
 import io.jaravel.console.generators.MakeMail;
 import io.jaravel.console.generators.MakeMiddleware;
 import io.jaravel.console.generators.MakeMigration;
+import io.jaravel.console.generators.InstallApiCommand;
 import io.jaravel.console.generators.InstallAuthCommand;
+import io.jaravel.console.generators.InstallBroadcastingCommand;
 import io.jaravel.console.generators.MakeModel;
 import io.jaravel.console.generators.MakeNotification;
 import io.jaravel.console.generators.MakePolicy;
@@ -79,6 +81,7 @@ public final class BuiltInCommands {
             MakeView.class, MakeComponent.class,
             KeyGenerateCommand.class, WrapperInstallCommand.class,
             NewProjectCommand.class, InstallAuthCommand.class,
+            InstallApiCommand.class, InstallBroadcastingCommand.class,
             OpenApiDiffCommand.class, TestCommand.class);
 
     /**

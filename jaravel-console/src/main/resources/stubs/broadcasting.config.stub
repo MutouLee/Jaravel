@@ -1,0 +1,19 @@
+# 广播(docs/19)。这份文件就是 install:broadcasting 生成的东西。
+
+broadcast:
+  # ws = 框架内置的 WebSocket 端点(/app/<app-key>),不需要外部服务。
+  # 另外两个:log(只打日志,开发期看「发了什么」)/ null(什么都不做)
+  driver: ws
+
+  # 客户端连接时带的 key:ws://host/app/<app-key>。
+  # ⚠ 它**不是密钥** —— 频道的鉴权在 Channels.java 里,它只是端点的一段路径。
+  app-key: ${BROADCAST_APP_KEY:jaravel}
+
+  # 允许的 Origin。空 = **仅同源**。
+  # 浏览器的 WebSocket 不受同源策略限制(没有 CORS 那一层),
+  # 所以这里留空是刻意的默认值:要开放给别的站点必须显式列出来
+  origins: []
+
+  # 客户端多久没动静就断开。它要大于前端的心跳间隔,
+  # 小于的话正常连接会被不断踢掉,而症状是「每两分钟掉线一次」
+  activity-timeout: 120s

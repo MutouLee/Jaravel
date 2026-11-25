@@ -1,0 +1,47 @@
+package app.channels;
+
+import java.util.Map;
+
+import org.springframework.stereotype.Component;
+
+import app.models.User;
+import io.jaravel.broadcasting.BroadcastChannels;
+import io.jaravel.broadcasting.ChannelRegistry;
+
+/**
+ * 频道的鉴权规则(docs/19 §3)。
+ *
+ * <h2>★ 没有在这里注册的私有频道,一律拒绝订阅</h2>
+ * <p>默认拒绝,不是默认允许 —— 一个忘了注册的频道的正确行为是「订阅不上」,
+ * 而不是「谁都能订阅」。后者在上线后表现为**别人的数据推到了你的浏览器里**,
+ * 而那种缺陷不会有人报告。
+ *
+ * <p>公开频道({@code 不带 private-/presence- 前缀})不需要注册,
+ * 它的内容就是公开的 —— 所以**不要往公开频道上推用户数据**。
+ */
+@Component
+public class Channels implements BroadcastChannels {
+
+    @Override
+    public void define(ChannelRegistry channels) {
+        channels
+                // 私有频道:只有本人能订阅自己的。
+                // {userId} 捕获一段(非空、不含点),回调里从 params 取
+                .channel("private-users.{userId}",
+                        (User user, Map<String, String> params) ->
+                                user.id.equals(Long.parseLong(params.get("userId"))));
+
+        // 存在频道(谁在线):鉴权 + 成员信息两个回调。
+        // 成员信息会**发给该频道的其他成员**,所以不要放邮箱、手机号
+        //
+        // channels.presence("presence-room.{room}",
+        //         (User user, Map<String, String> params) -> memberOf(user, params.get("room")),
+        //         (User user) -> Map.of("name", user.name));
+
+        // 允许该频道上的 client-* 事件(「正在输入」这类)。
+        // ⚠ 客户端事件是**客户端发的**,服务端不校验内容 ——
+        // 只在「内容无关紧要」的频道上开
+        //
+        // channels.whisper("presence-room.{room}");
+    }
+}

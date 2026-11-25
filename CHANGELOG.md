@@ -47,6 +47,29 @@
   端到端:`examples/auth` 的演示页加了一个真的
   `DELETE /notes/{id}` 路由与 POST + `@method('DELETE')` 的表单,
   并钉住「伪装后仍要 CSRF(少令牌 419)」与「伪装不绕过授权(别人的 403)」。
+- **`install:api` 与 `install:broadcasting`**(docs/13 §2.1)——
+  `install:api` 生成四个文件:`personal_access_tokens` 的迁移、
+  `ApiTokenController`(签发 / 撤销全部 / `GET /api/me`)、独立的 `ApiRoutes`、
+  `config/api.yml`(`error-format` 与幂等性)。
+  **没有 `config/auth.yml` 时它拒绝生成**并给出那条命令:token 认证需要一个
+  user provider,少了它生成的代码引用 `app.models.User` 与 `auth:api`,
+  编译不过或启动即失败 —— 半套脚手架比没有脚手架糟。拒绝时一个文件都不写。
+  几处刻意的选择:签发**不走 `Auth.attempt`**(那是会话型 guard 的方法,而
+  `api` 组不含 `StartSession`),直接用 provider 的两步 —— 在纯 API 应用里
+  那是唯一能工作的写法;凭据不对回 401 而不区分「没这个邮箱」与「密码错」
+  (那个区别会把接口变成用户枚举工具);签发路由带 `throttle:10,1`;
+  **不生成「撤销其中一条 token」** —— `TokenGuard.revoke(id)` 不做归属校验,
+  直接接成路由就是越权删除,单条撤销的两行写法写在注释里;token 表跟着
+  `install:api` 走(纯浏览器应用不需要它)。
+  `install:broadcasting` 生成 `broadcasting.yml` 与 `app/channels/Channels.java`。
+  它存在的理由不是省那两个文件,而是里面的默认值:`origins: []`(仅同源 ——
+  WebSocket 不走 CORS 那一层)与「没注册的私有频道一律拒绝订阅」(忘了注册
+  的正确行为是订阅不上,而谁都能订阅上线后表现为别人的数据推进了你的浏览器,
+  那种缺陷不会有人报告)。它不要求 `install:auth`:只推公开频道是成立的用法,
+  没看到 `User` 时照样生成但提醒一句。
+  新增一条验收:**install:* 生成的每个 `.java` 都过 javac 的语法检查** ——
+  一个编译不过的 stub 比没有这条命令更糟(用户第一件事会是修框架给他的报错),
+  而此前只有 `make:*` 的产物有这道检查。
 - **`queue:restart` / `queue:forget` / `queue:monitor` / `queue:prune-batches`**
   (docs/13 §2.4、docs/10 §2)—— v0.7 起登记在 KNOWN-ISSUES 的那四条。
   **`queue:restart` 是一个信号,不是一次 kill**:往缓存里写一个时间戳,

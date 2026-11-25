@@ -51,7 +51,7 @@
 > 其余 `make:*`(见下面那条注记)、
 > `@Command` 的 APT 索引(理由见 §3.2 —— 它真正的用处是 native 的
 > reflect-config,排在 v0.9)、§4.3 的生成后处理、
-> `stub:publish`、§2.1 的 `jaravel new` / `install:*` 整组、
+> `stub:publish`、`install:*` 里除 auth / api / broadcasting 之外的那些、
 > §7 的 `jaravel-maven-plugin` 整节、
 > §3.1 的 `spinner` 与 `components().task`、`Artisan.queue`。
 >
@@ -369,24 +369,60 @@ jaravel migrate        # 终端 B:检测到通道存在 → 发给那个进程�
 jaravel new <name>                      # 新项目(web 默认;--preset=api/minimal)
 jaravel new <name> --preset=api         # 预设:api / web / minimal
 jaravel install:auth                    # 在已有项目中加认证脚手架(登录/注册/重置)
+jaravel install:api                     # 加 API 脚手架(token 签发 + ApiRoutes + api.yml)
+jaravel install:broadcasting            # 加广播配置与频道鉴权骨架
 ```
 
-> **v1.0 已实现**:`new` 与 `install:auth` 已落地,另有
-> `examples/api-only` / `examples/multi-tenant` 两个 v1.0 示例。
-> 其余 `install:*` 仍未实现,见 [KNOWN-ISSUES.md](../KNOWN-ISSUES.md)。
+> **已实现**:`new`(`--preset` 支持 web / api / minimal,模板内嵌在 CLI 里、
+> 离线可用)、`install:auth`、`install:api`、`install:broadcasting`。
+> 另有 `examples/api-only` / `examples/multi-tenant` 两个 v1.0 示例。
 
-```text
-jaravel install:api                     # 加 API 脚手架(token 认证 + 异常格式)
-jaravel install:broadcasting            # v0.6 计划 —— 仍未实现(见下)
-```
-
-> ### v1.0:`new` / `install:auth` 已实现
+> ### install:api —— 它要求先有 install:auth
 >
-> 模板内嵌在 CLI 里(`project.*` / `auth.*` stubs),离线可用;
-> `--preset` 支持 web / api / minimal。`install:api` /
-> `install:broadcasting` 等仍未实现,见 [KNOWN-ISSUES.md](../KNOWN-ISSUES.md)。
-> 广播功能本身在 v0.6 已落地(docs/19),应用侧只差一个
-> `config/broadcasting.yml` 与 `Channels.java`,照 `examples/queue` 抄即可。
+> 生成四个文件:`personal_access_tokens` 的迁移、`ApiTokenController`
+> (签发 / 撤销全部 / `GET /api/me`)、独立的 `ApiRoutes`、
+> 以及 `config/api.yml`(`error-format` 与幂等性)。
+>
+> **没有 `config/auth.yml` 时它拒绝生成**(退出码 1,并给出那条命令)。
+> token 认证需要一个 user provider,而那是 `install:auth` 的产物 ——
+> 少了它,生成的控制器与路由引用 `app.models.User` 与 `auth:api`,
+> 编译不过或启动即失败。**半套脚手架比没有脚手架糟**:用户要先读懂生成的
+> 代码才知道缺了什么。拒绝时一个文件都不写。
+>
+> 几处值得记的:
+>
+> - **签发不走 `Auth.attempt`。** 那是会话型 guard 的方法(写会话、换
+>   session id、下发 cookie),而 `api` 组刻意不含 `StartSession`。
+>   生成的代码直接用 provider 的两步(按凭据找人、校验密码)——
+>   那正是 `SessionGuard.attempt` 内部做的事,只是不碰会话;
+>   在一个纯 API 应用里(根本没有 web guard)这是唯一能工作的写法;
+> - 凭据不对回 **401 而不是 422**,且不区分「没这个邮箱」与「密码错」——
+>   那个区别会把这个接口变成一个用户枚举工具;
+> - 签发路由带 `throttle:10,1` —— 它是一个可以反复试密码的公开接口;
+> - **没有「撤销其中一条 token」**。那需要先回答「这条 token 属于谁」,
+>   而 `TokenGuard.revoke(id)` 不做归属校验,直接接成路由就是一个越权删除。
+>   生成的是 `revokeAll`(「退出所有设备」),单条撤销的两行写法写在
+>   控制器的注释里;
+> - token 表跟着 `install:api` 走,不在 `install:auth` 的迁移里 ——
+>   一个纯浏览器应用不需要它;
+> - 过期 token 不会自己消失,输出里给了那条调度任务(`purgeExpired`)。
+>
+> ### install:broadcasting —— 为的是那两个默认值
+>
+> 广播本身 v0.6 就落地了(docs/19),应用侧要写的只有
+> `config/broadcasting.yml` 与 `app/channels/Channels.java`。
+> 这条命令存在的理由不是省那两个文件,而是它们里面的默认值:
+>
+> - `origins: []` —— **仅同源**。浏览器的 WebSocket 不走 CORS 那一层,
+>   所以「允许谁连」必须显式列出来;
+> - **没在 `Channels` 里注册的私有频道一律拒绝订阅**。忘了注册的正确行为是
+>   「订阅不上」,而不是「谁都能订阅」—— 后者上线后表现为别人的数据推进了
+>   你的浏览器,而那种缺陷不会有人报告。
+>
+> 照文档手写时,这两件事最容易写成「先打开再说」。
+>
+> 它**不要求** `install:auth`:只推公开频道(大盘、公告)是成立的用法。
+> 没看到 `User` 模型时生成照做,但会提醒一句。
 
 ### 2.2 代码生成
 

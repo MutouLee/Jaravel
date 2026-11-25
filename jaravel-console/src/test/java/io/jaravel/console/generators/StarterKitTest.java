@@ -13,7 +13,7 @@ import org.junit.jupiter.api.io.TempDir;
 import io.jaravel.console.CommandRegistry;
 import io.jaravel.console.ConsoleIo;
 
-@DisplayName("jaravel new + install:auth(v1.0)")
+@DisplayName("jaravel new + install:auth / install:api / install:broadcasting")
 class StarterKitTest {
 
     private CommandRegistry registry(Path cwd, Class<?> command) {
@@ -79,6 +79,173 @@ class StarterKitTest {
                 .contains("@old('email')")
                 .doesNotContain("name=\"_token\"")
                 .doesNotContain("\\{{");
+    }
+
+    /** 起一个已经跑过 new + install:auth 的项目 */
+    private Path projectWithAuth(Path tmp, ConsoleIo.Recording io) {
+        assertThat(registry(tmp, NewProjectCommand.class).run("new", List.of("demo"), io))
+                .isZero();
+        Path root = tmp.resolve("demo");
+        assertThat(registry(root, InstallAuthCommand.class).run("install:auth", List.of(), io))
+                .isZero();
+        return root;
+    }
+
+    @Test
+    @DisplayName("install:api 生成 token 表、控制器、ApiRoutes 与 api.yml")
+    void installApi(@TempDir Path tmp) throws Exception {
+        var io = new ConsoleIo.Recording();
+        Path root = projectWithAuth(tmp, io);
+
+        int code = registry(root, InstallApiCommand.class).run("install:api", List.of(), io);
+
+        assertThat(code).isZero();
+        assertThat(root.resolve("src/main/java/app/http/controllers/ApiTokenController.java"))
+                .exists();
+        assertThat(root.resolve("src/main/java/routes/ApiRoutes.java")).exists();
+        assertThat(root.resolve("src/main/resources/config/api.yml")).exists();
+
+        try (var walk = Files.walk(root.resolve("src/main/java/database/migrations"))) {
+            assertThat(walk.filter(p -> p.getFileName().toString()
+                            .equals("CreateApiTokensTable.java")).findFirst())
+                    .as("token 表跟着 install:api 走 —— 纯浏览器应用不需要它")
+                    .isPresent();
+        }
+
+        assertThat(Files.readString(
+                root.resolve("src/main/java/app/http/controllers/ApiTokenController.java")))
+                .as("""
+                        签发不能走 Auth.attempt —— 那是会话型 guard 的方法,
+                        而 api 组刻意不含 StartSession。""")
+                .contains("retrieveByCredentials")
+                .contains("validateCredentials")
+                .as("javadoc 里会解释「为什么不用 Auth.attempt」,但代码里不该调它")
+                .doesNotContain("Auth.attempt(")
+                .doesNotContain("{{");
+        assertThat(Files.readString(root.resolve("src/main/java/routes/ApiRoutes.java")))
+                .contains("middleware(\"api\")")
+                .contains("auth:api")
+                .as("签发是一个可以反复试密码的公开接口").contains("throttle:10,1");
+        assertThat(Files.readString(root.resolve("src/main/resources/config/api.yml")))
+                .contains("error-format")
+                .contains("idempotency");
+    }
+
+    @Test
+    @DisplayName("★ 没有 auth.yml 时 install:api 拒绝生成,并给出那条命令")
+    void installApiRequiresAuth(@TempDir Path tmp) throws Exception {
+        var io = new ConsoleIo.Recording();
+        assertThat(registry(tmp, NewProjectCommand.class).run("new", List.of("demo"), io))
+                .isZero();
+        Path root = tmp.resolve("demo");
+
+        int code = registry(root, InstallApiCommand.class).run("install:api", List.of(), io);
+
+        assertThat(code).isEqualTo(1);
+        assertThat(io.errors())
+                .as("半套脚手架比没有脚手架糟:用户要先读懂生成的代码才知道缺了什么")
+                .contains("install:auth");
+        assertThat(root.resolve("src/main/java/routes/ApiRoutes.java"))
+                .as("拒绝就要一个文件都不写")
+                .doesNotExist();
+    }
+
+    @Test
+    @DisplayName("install:broadcasting 生成配置与频道鉴权骨架")
+    void installBroadcasting(@TempDir Path tmp) throws Exception {
+        var io = new ConsoleIo.Recording();
+        Path root = projectWithAuth(tmp, io);
+
+        int code = registry(root, InstallBroadcastingCommand.class)
+                .run("install:broadcasting", List.of(), io);
+
+        assertThat(code).isZero();
+        assertThat(root.resolve("src/main/resources/config/broadcasting.yml")).exists();
+        assertThat(root.resolve("src/main/java/app/channels/Channels.java")).exists();
+
+        assertThat(Files.readString(root.resolve("src/main/resources/config/broadcasting.yml")))
+                .as("WebSocket 不走 CORS 那一层,所以「允许谁连」必须显式列出来")
+                .contains("origins: []");
+        assertThat(Files.readString(root.resolve("src/main/java/app/channels/Channels.java")))
+                .contains("BroadcastChannels")
+                .contains("private-users.{userId}")
+                .doesNotContain("{{");
+    }
+
+    @Test
+    @DisplayName("没有 User 模型时 install:broadcasting 仍然生成,但会提醒")
+    void installBroadcastingWithoutUser(@TempDir Path tmp) throws Exception {
+        var io = new ConsoleIo.Recording();
+        assertThat(registry(tmp, NewProjectCommand.class).run("new", List.of("demo"), io))
+                .isZero();
+        Path root = tmp.resolve("demo");
+
+        int code = registry(root, InstallBroadcastingCommand.class)
+                .run("install:broadcasting", List.of(), io);
+
+        assertThat(code).isZero();
+        assertThat(root.resolve("src/main/resources/config/broadcasting.yml"))
+                .as("只推公开频道(大盘、公告)是成立的用法")
+                .exists();
+        assertThat(io.output() + io.errors()).contains("install:auth");
+    }
+
+    @Test
+    @DisplayName("★ install:* 生成的每个 .java 都过语法检查")
+    void everyInstalledFileParses(@TempDir Path tmp) throws Exception {
+        var io = new ConsoleIo.Recording();
+        Path root = projectWithAuth(tmp, io);
+        assertThat(registry(root, InstallApiCommand.class).run("install:api", List.of(), io))
+                .isZero();
+        assertThat(registry(root, InstallBroadcastingCommand.class)
+                .run("install:broadcasting", List.of(), io)).isZero();
+
+        try (var walk = Files.walk(root.resolve("src/main/java"))) {
+            var sources = walk.filter(p -> p.toString().endsWith(".java")).toList();
+            assertThat(sources).hasSizeGreaterThanOrEqualTo(8);
+
+            for (Path file : sources) {
+                String source = Files.readString(file);
+                assertThat(parses(source))
+                        .as("""
+                                %s 的语法不对。一个教错 API 的 stub 比没有这条命令更糟,
+                                而一个**编译不过**的 stub 更糟:用户第一件事是修框架给他的报错。
+                                %n%s""", file.getFileName(), source)
+                        .isTrue();
+            }
+        }
+    }
+
+    /**
+     * 只做**语法**检查,不做符号解析。
+     *
+     * <p>生成的代码引用应用自己的类(app.models.User)与框架的类,在这个模块的
+     * classpath 上一个都没有 —— 真编译只会得到一堆与 stub 对不对无关的
+     * 「找不到符号」。(与 GeneratorsTest 里同名的那个 helper 是同一招。)
+     */
+    private boolean parses(String source) {
+        var compiler = javax.tools.ToolProvider.getSystemJavaCompiler();
+        var diagnostics = new javax.tools.DiagnosticCollector<javax.tools.JavaFileObject>();
+        var files = compiler.getStandardFileManager(
+                diagnostics, null, java.nio.charset.StandardCharsets.UTF_8);
+
+        var unit = new javax.tools.SimpleJavaFileObject(
+                java.net.URI.create("string:///Probe.java"),
+                javax.tools.JavaFileObject.Kind.SOURCE) {
+            @Override public CharSequence getCharContent(boolean ignoreEncodingErrors) {
+                return source;
+            }
+        };
+
+        var task = (com.sun.source.util.JavacTask) compiler.getTask(
+                java.io.Writer.nullWriter(), files, diagnostics, null, null, List.of(unit));
+        try {
+            task.parse();
+        } catch (Exception e) {
+            return false;
+        }
+        return diagnostics.getDiagnostics().stream()
+                .noneMatch(d -> d.getKind() == javax.tools.Diagnostic.Kind.ERROR);
     }
 
     @Test

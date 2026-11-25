@@ -6,6 +6,19 @@
 
 ### Added
 
+- **批次/链的回调投递也走有界重试**(docs/10 §2)——
+  `then` / `finally` / `catch` 与链的下一环此前是**一次 push,失败就吞掉**,
+  而它旁边那个同样「丢一次就不可恢复」的批次计数早就有三次重试了。
+  不一致的那一侧正好是更难查的那一侧:`then` 与 `finally` 是连着两次 push,
+  第二次撞上写锁的概率更高,于是表现成「then 跑了、finally 没跑」——
+  CI 上真的出现过一次(`QueueFeatureTest.batchCompletes`,现场里批次
+  succeeded=4、队列空、failed_jobs 空,只缺那条 finally)。
+  三次都失败时仍然只打告警(库真挂了重试一百次也没用),但那行告警
+  现在会出现在 CI 的注解里 —— 见下。
+- **CI:失败时把 `[jaravel]` 开头的框架告警发成注解** ——
+  这类失败的断言消息毫无道理(「list 里没有 finally:…」),
+  而真正的原因就在那一行被吞掉的告警里。artifact 要登录才能下载,
+  注解不用,所以把它发成注解。
 - **broker 队列的 attempts 不再只信 payload**(docs/10 §1.5)——
   SQS 取 payload 与 `ApproximateReceiveCount` 的较大值;RabbitMQ 新增
   `queue-type: quorum`,取 payload 与 `x-delivery-count` 的较大值。

@@ -709,7 +709,12 @@ public final class QueueWorker {
         envelope.nextInChain(Clock.now()).ifPresent(next -> {
             // 下一环可能指定了别的队列,但**连接**与当前相同 ——
             // 跨连接的链会让「链断在哪」变成一个要查两个存储的问题
-            store.push(next);
+            //
+            // 有界重试的理由与批次计数一样(见 withRetry):这一次 push 丢了,
+            // 这条链就停在这里,而前一环**已经执行成功**了 ——
+            // 没有任何东西会把它重新推进去。三次仍然失败时异常往上抛,
+            // 由「已经成功但记账失败」那条路径报出来
+            withRetry("链的下一环 " + next.displayName() + " 投递", () -> store.push(next));
             listeners.forEach(l -> l.onChainAdvanced(envelope, next));
         });
     }
@@ -732,12 +737,14 @@ public final class QueueWorker {
         // 见 ChainFailure 的类注释
         var failure = ChainFailure.of(envelope, cause);
         try {
-            store.push(handler.withChain(java.util.List.of(), null)
-                    .withContext(JobContext.CHAIN_FAILURE, failure));
+            // 同上:丢一次就不可恢复,所以有界重试
+            withRetry("链中断回调 " + handler.displayName() + " 投递", () ->
+                    store.push(handler.withChain(java.util.List.of(), null)
+                            .withContext(JobContext.CHAIN_FAILURE, failure)));
         } catch (RuntimeException e) {
             // 回调投不进去时不能让它静默消失:那条链断了而没人知道
             System.err.printf(
-                    "[jaravel] 链中断回调 %s 投递失败:%s%n          原始失败:%s%n",
+                    "[jaravel] 链中断回调 %s 投递失败(重试 3 次):%s%n          原始失败:%s%n",
                     handler.displayName(), e.getMessage(), failure);
         }
     }
@@ -873,14 +880,23 @@ public final class QueueWorker {
                                   BatchRepository.Kind kind) {
         repository.callback(batchId, kind).ifPresent(callback -> {
             try {
-                // 批次 id 放在 **context** 而不是 batchId 字段里:
-                // batchId 的语义是「这条任务计入该批次的计数」,
-                // 而回调不该被计数(它不在 total_jobs 里)。
-                // 两者分开才能让 handle(Batch batch) 拿到批次
-                // 而不会把 pending_jobs 减成负数
-                store.push(callback.withContext(JobContext.BATCH_ID, batchId));
+                // ★ 投递也要**有界重试**,理由与批次计数完全一样(见 withRetry):
+                // 这一次 push 丢了,这个回调就**永不触发**,而症状是
+                // 「报表跑完了但没收到汇总邮件」—— 没人会联想到一次瞬时锁竞争。
+                //
+                // 这里本来没有重试,而它旁边那个同样「丢一次就不可恢复」的
+                // 批次计数有 —— 不一致的那一侧正好是更难查的那一侧:
+                // then 与 finally 是**连着**两次 push,第二次撞上写锁的
+                // 概率比第一次高,于是表现成「then 跑了、finally 没跑」。
+                withRetry("批次 " + batchId + " 的 " + kind + " 回调投递", () ->
+                        // 批次 id 放在 **context** 而不是 batchId 字段里:
+                        // batchId 的语义是「这条任务计入该批次的计数」,
+                        // 而回调不该被计数(它不在 total_jobs 里)。
+                        // 两者分开才能让 handle(Batch batch) 拿到批次
+                        // 而不会把 pending_jobs 减成负数
+                        store.push(callback.withContext(JobContext.BATCH_ID, batchId)));
             } catch (RuntimeException e) {
-                System.err.printf("[jaravel] 批次 %s 的 %s 回调投递失败:%s%n",
+                System.err.printf("[jaravel] 批次 %s 的 %s 回调投递失败(重试 3 次):%s%n",
                         batchId, kind, e.getMessage());
             }
         });

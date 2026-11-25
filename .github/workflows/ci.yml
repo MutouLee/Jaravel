@@ -97,6 +97,22 @@ jobs:
             done <<< "$files"
           fi
 
+          # 框架自己打的告警行(丢失的批次回调、重试过的批次计数、
+          # 驱动层的异常)。它们解释的正是那种「断言看起来毫无道理」的失败:
+          # 测试只会说「list 里没有 finally:…」,而原因是一次 push 撞上写锁
+          # 之后被吞掉了 —— 那行字在日志里,却从来没人看得到(下载 artifact
+          # 要登录,而注解不要)。
+          warnings=$(grep -E '^\[jaravel\]' target/ci-test.log | head -n 40 || true)
+          if [ -n "$warnings" ]; then
+            emit "jaravel-warnings" "$warnings"
+            {
+              echo "### 框架告警([jaravel] 开头的行)"
+              echo '```'
+              echo "$warnings"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
           body=$(grep -E -B 1 -A 25 '<<< (FAILURE|ERROR)!' target/ci-test.log \
                  | head -n 250 || true)
           if [ -n "$body" ]; then

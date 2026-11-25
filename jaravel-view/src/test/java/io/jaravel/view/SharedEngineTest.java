@@ -88,6 +88,32 @@ class SharedEngineTest {
     }
 
     @Test
+    @DisplayName("★ 判据只认匿名内部类,不碰编译错误的消息")
+    void onlyAnonymousInnerClassesAreTreatedAsMissingClasses() {
+        // 真正要认的:NoClassDefFoundError 的消息就是一个斜杠形式的内部类名
+        assertThat(JbladeEngine.missingGeneratedClass(
+                new NoClassDefFoundError("gg/jte/generated/ondemand/notes/JtepageGenerated$1"), null))
+                .isEqualTo("gg/jte/generated/ondemand/notes/JtepageGenerated$1");
+
+        // 异常类型被包掉时也能从消息里认出来
+        assertThat(JbladeEngine.missingGeneratedClass(new RuntimeException("boom"),
+                "gg.jte.generated.ondemand.JtepageGenerated$2"))
+                .isEqualTo("gg.jte.generated.ondemand.JtepageGenerated$2");
+
+        // ★ 编译错误的消息里也有生成文件的路径,但那是「模板写错了」,不能动它。
+        // 第一版的判据把这条也吞了 —— 而且只在 Linux 上吞(Windows 是反斜杠),
+        // 于是本地 154 条全绿、CI 上三条红
+        assertThat(JbladeEngine.missingGeneratedClass(new RuntimeException("compile failed"),
+                "模板编译失败:gg/jte/generated/ondemand/JtetGenerated.java\n  是否想写 title"))
+                .as("带 .java 的是编译错误,不是类加载失败")
+                .isNull();
+        assertThat(JbladeEngine.missingGeneratedClass(new RuntimeException("compile failed"),
+                "模板编译失败:gg\\jte\\generated\\ondemand\\JtetGenerated.java"))
+                .as("Windows 的反斜杠路径同样不该被认成类加载失败")
+                .isNull();
+    }
+
+    @Test
     @DisplayName("共享的引擎照常渲染,片段也照常")
     void theSharedEngineStillWorks(@TempDir Path tmp) throws Exception {
         var engine = JbladeEngine.sharedForDirectory(views(tmp), tmp.resolve("classes"),

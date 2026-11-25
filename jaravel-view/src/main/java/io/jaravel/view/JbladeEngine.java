@@ -49,9 +49,17 @@ public final class JbladeEngine implements ViewEngine {
 
     public static final String SUFFIX = ".jblade.html";
 
-    /** 「生成类加载不到」的消息:只有一个类名,斜杠或点号形式,通常带 {@code $1} */
+    /**
+     * 「生成类加载不到」的消息 —— 一个**匿名内部类**的名字,斜杠或点号形式。
+     *
+     * <p>必须以 {@code $数字} 结尾:jte 的**编译错误**消息里也带着生成文件的
+     * 路径({@code gg/jte/generated/ondemand/JtetGenerated.java}),一个宽松的
+     * 模式会把「模板里写错了字段名」的报错也换成那条内部类提示 ——
+     * 那正是第一版干的事,而它只在 Linux 上暴露:Windows 上那个路径是
+     * 反斜杠,压根没被匹配上,于是本地全绿、CI 全红。
+     */
     private static final Pattern MISSING_GENERATED =
-            Pattern.compile("gg[./]jte[./]generated[./][\\w./$]+");
+            Pattern.compile("gg[./]jte[./]generated[./][\\w./]*\\$\\d+");
 
     /** jte 报错里的位置,形如 {@code error at posts/index.jte:6} */
     private static final Pattern JTE_LOCATION =
@@ -356,7 +364,9 @@ public final class JbladeEngine implements ViewEngine {
      * 没有任何别的信息。不认出来的话,用户看到的错误页标题是 JbladeException、
      * 正文是一行类名,而真正该做的事(清掉编译目录 / 共享引擎)无从得知。
      */
-    private static String missingGeneratedClass(Throwable error, String assembledMessage) {
+    // 包可见:这条判据只在 Linux 上出过问题(路径分隔符不同),
+    // 所以它必须能被直接测,而不是只能通过一次真实的渲染失败观察到
+    static String missingGeneratedClass(Throwable error, String assembledMessage) {
         for (Throwable t = error; t != null; t = t.getCause()) {
             if (!(t instanceof NoClassDefFoundError) && !(t instanceof ClassNotFoundException)) {
                 continue;
@@ -368,9 +378,9 @@ public final class JbladeEngine implements ViewEngine {
             }
         }
 
-        // 异常类型被包掉时退一步看消息本身:jte 的 TemplateException 有时
-        // 只带着那个类名,而我们要认的恰好是「消息里只有一个生成类的名字」
-        if (assembledMessage != null) {
+        // 异常类型被包掉时退一步看消息本身 —— 但只认匿名内部类的名字,
+        // 不认带 .java 的编译错误(见 MISSING_GENERATED 的注释)
+        if (assembledMessage != null && !assembledMessage.contains("Generated.java")) {
             var matcher = MISSING_GENERATED.matcher(assembledMessage);
             if (matcher.find()) return matcher.group();
         }

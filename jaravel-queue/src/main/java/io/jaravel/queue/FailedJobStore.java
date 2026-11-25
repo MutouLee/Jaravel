@@ -17,6 +17,22 @@ import java.util.Optional;
  * <p>更实际的一点:失败记录要存 {@code exception} 的完整堆栈,
  * 那是个大字段。把它放进队列表会让每次 pop 都可能读到它
  * (取决于数据库的行存储),而 pop 根本不需要它。
+ *
+ * <h2>★ id 是 {@code String},形状由存储决定</h2>
+ * <p>{@code database} / {@code redis} 返回自增编号的字符串({@code "3"}),
+ * 于是 {@code queue:retry 3} 照常能用;KV 型的存储(DynamoDB,或任何
+ * 以 uuid 为主键的实现)返回**任务的 uuid**,{@code queue:retry 9f8c…}
+ * 同样能用。
+ *
+ * <p>**为什么不是 {@code long}**:第一版是 long,而那让任何以 uuid 为
+ * 主键的存储都进不来 —— 要么在 KV 上额外维护一个自增序列(每条失败记录
+ * 多一次往返,而 uuid 本来就在记录上、天生唯一),要么就不支持。
+ * 为了迁就一个 Java 的 {@code long} 去给 KV 造序列,方向是反的。
+ * Laravel 这里本来也是松的({@code queue:retry} 既吃 id 也吃 uuid,
+ * 取决于驱动)。
+ *
+ * <p>⚠ 所以**调用方不要解析它**。它是一个句柄,不是一个数;
+ * 排序要用 {@link FailedJob#failedAt()},不是 id。
  */
 public interface FailedJobStore {
 
@@ -25,14 +41,14 @@ public interface FailedJobStore {
      *
      * @return 失败记录的 id,用于 {@code queue:retry <id>}
      */
-    long record(QueuedJob job, String connection, Throwable cause);
+    String record(QueuedJob job, String connection, Throwable cause);
 
-    Optional<FailedJob> find(long id);
+    Optional<FailedJob> find(String id);
 
     List<FailedJob> all();
 
     /** 删掉一条。{@code queue:forget}。 */
-    boolean forget(long id);
+    boolean forget(String id);
 
     /** 全删。{@code queue:flush}。 */
     int flush();
@@ -49,14 +65,14 @@ public interface FailedJobStore {
     /**
      * 一条失败记录。
      *
-     * @param id         自增 id
+     * @param id         这条记录的句柄,**形状由存储决定**(见接口注释)
      * @param uuid       任务的 uuid —— 与日志里的那个相同,这是把
      *                   「失败记录」和「执行日志」串起来的唯一线索
      * @param connection 来自哪个队列连接。retry 时要放回同一个地方
      * @param payload    原始信封的 JSON。retry 靠它还原任务
      * @param exception  完整堆栈
      */
-    record FailedJob(long id, String uuid, String connection, String queue,
+    record FailedJob(String id, String uuid, String connection, String queue,
                      String displayName, String payload, String exception,
                      Instant failedAt) {
 

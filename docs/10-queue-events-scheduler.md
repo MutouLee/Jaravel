@@ -503,12 +503,17 @@ queue:
       queue: default
       retry-after: 90s
   failed:
-    driver: database                 # database | redis | log(不保留)
+    driver: database                 # database | redis | dynamodb | log(不保留)
     table: failed_jobs
     prune-after: 7d
     # redis:
     #   uri: redis://localhost:6379/0
     #   prefix: jaravel:failed:
+    # dynamodb:(AWS 上没有关系库的部署)
+    #   table: jaravel_failed_jobs
+    #   region: us-east-1
+    #   endpoint: ${AWS_ENDPOINT:}   # 空 = AWS 默认端点;本地 http://127.0.0.1:8000
+    #   access-key / secret-key
   batching:
     driver: database                 # database | redis | none
     table: job_batches
@@ -565,6 +570,54 @@ create table failed_jobs (
 // AppServiceProvider#boot
 Queue.failing(event -> Notification.route("slack", OPS).notify(new JobFailedAlert(event)));
 ```
+
+> ### 归档存储与队列驱动**无关**
+>
+> `queue.failed.driver` 是独立的一条配置(与 Laravel 一样):rabbitmq / sqs
+> 的队列连接照常把失败记录写进 `database` 或 `redis`。
+> 「rabbitmq 版本的 failed_jobs」是个范畴错误 —— 归档不是 broker 的事
+> (这个组合由 `BrokerArchiveTest` 钉住)。
+>
+> | driver | 用在哪 |
+> |---|---|
+> | `database` | 默认(有 DataSource 时)。`failed_jobs` 表 |
+> | `redis` | 无库但有 redis 的部署 |
+> | `dynamodb` | **AWS 上没有关系库的部署**(Lambda/Fargate + SQS,没有 RDS 也没有 ElastiCache)|
+> | `log` | 兜底:只打日志,**不保留** —— `queue:retry` 看不到它 |
+>
+> ### ★ id 是一个句柄,不是一个数
+>
+> `queue:retry <id>` / `queue:forget <id>` 里那个 id 由**存储**决定形状:
+> `database` / `redis` 给自增编号(`queue:retry 3`),
+> `dynamodb` 给**任务的 uuid**(`queue:retry 9f8c…`)。两种都能直接粘。
+>
+> 第一版的 `FailedJobStore` 用 `long`,而那让任何以 uuid 为主键的存储都进不来:
+> 要么在 KV 上额外维护一个自增序列(每条失败记录多一次往返、多一个会漂的
+> 计数器 item),要么就不支持。为了迁就一个 Java 的 `long` 去给 KV 造序列,
+> 方向是反的 —— uuid 本来就在每条记录上、天生唯一。
+> Laravel 这里也是松的(`queue:retry` 既吃 id 也吃 uuid,取决于驱动)。
+>
+> 所以**调用方不要解析它**;排序用 `failedAt`,不是 id。
+>
+> ### DynamoDB 归档的语义差异
+>
+> - 主键是 **uuid**,`find` / `forget` 是单条 `GetItem` / `DeleteItem`;
+>   同一个 uuid 再失败就覆盖(`PutItem` 的天然语义,与另两个存储一致);
+> - `all` / `count` / `prune` / `flush` 都是 **Scan**(DynamoDB 没有
+>   「按时间排序扫一张表」的索引型读法)。失败记录本来低频、只增、量小 ——
+>   一张堆了几十万条的表说明有个任务一直在炸,那时该修任务;
+> - `count` 用 `Select: COUNT` 的 Scan,**不是**表的 `ItemCount`
+>   (后者每六小时才更新,于是「删完了但面板还显示 37 条」);
+> - 排序在内存里按 `failed_at` 倒序 —— Scan 给的是分区顺序;
+> - **不做 TTL**:自动过期要额外的 IAM 权限,而且删除是**静默**的 ——
+>   「上周的失败记录自己不见了」比「表大了点」难查。清理走
+>   `queue:prune-failed`,那是显式的;
+> - 表**自动创建**(按请求计费),与 sqs 自动建队列同一个取舍;
+>   已存在就直接用,不去改它的容量模式。
+>
+> **测试**:`DynamoFailedJobStoreTest` 9 条,对着
+> `amazon/dynamodb-local` 跑(`-Djaravel.test.dynamodb.endpoint=http://127.0.0.1:8000`),
+> 含「超过一批 25 条也要删干净」与「BatchWriteItem 的部分成功要重发」。
 
 ### 1.8 Horizon 等价物(v0.7)
 

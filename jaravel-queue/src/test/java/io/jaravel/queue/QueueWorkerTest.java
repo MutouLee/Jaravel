@@ -676,7 +676,7 @@ class QueueWorkerTest {
             var all = failedJobs.all();
             assertThat(all).hasSize(1);
 
-            long id = all.get(0).id();
+            String id = all.get(0).id();
             assertThat(failedJobs.find(id)).isPresent();
             assertThat(failedJobs.forget(id)).isTrue();
             assertThat(failedJobs.count()).isZero();
@@ -690,9 +690,9 @@ class QueueWorkerTest {
                     serializer.toData(new Succeeds(1)),
                     java.time.Instant.now(), null);
 
-            long first = failedJobs.record(envelope, "database",
+            String first = failedJobs.record(envelope, "database",
                     new IllegalStateException("第一次"));
-            long second = failedJobs.record(envelope, "database",
+            String second = failedJobs.record(envelope, "database",
                     new IllegalStateException("第二次"));
 
             // 追加会让 failed_jobs 里同一个 uuid 出现十几条,

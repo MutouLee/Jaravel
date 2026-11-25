@@ -65,6 +65,20 @@
       <version>${aws-sdk.version}</version>
       <optional>true</optional>
     </dependency>
+    <!--
+      dynamodb 失败归档(queue.failed.driver: dynamodb)。
+
+      它存在的场景只有一个:AWS 上**没有关系库**的部署
+      (Lambda/Fargate + SQS,没有 RDS 也没有 ElastiCache)。
+      那种应用否则只能退到 log 驱动 —— 失败任务只剩日志里一行,
+      queue:retry 用不了,也就是说任务丢了之后没有补救手段。
+    -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>dynamodb</artifactId>
+      <version>${aws-sdk.version}</version>
+      <optional>true</optional>
+    </dependency>
     <!-- SDK 需要一个同步 HTTP 客户端实现;URLConnection 最轻 -->
     <dependency>
       <groupId>software.amazon.awssdk</groupId>

@@ -134,7 +134,7 @@ jobs:
             target/ci-test.log
 
   brokers:
-    name: broker contract tests (redis / rabbitmq / sqs)
+    name: broker contract tests (redis / rabbitmq / sqs / dynamodb)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     # 默认 test 作业按开关跳过这些类(见那里的注释)。
@@ -162,6 +162,10 @@ jobs:
         # SQS 兼容;LocalStack 太重,而这里只用到队列那部分
         image: softwaremill/elasticmq-native
         ports: ["9324:9324"]
+      dynamodb:
+        # queue.failed.driver: dynamodb 的契约测试
+        image: amazon/dynamodb-local
+        ports: ["8000:8000"]
     steps:
       - uses: actions/checkout@v7
 
@@ -177,15 +181,20 @@ jobs:
           -pl '!examples/todo,!examples/blog,!examples/auth,!examples/queue,!examples/api-only,!examples/multi-tenant,!jaravel-coverage'
 
       # ElasticMQ 没有 health-cmd(镜像里没有 shell 工具),所以在这里等端口
-      - name: wait for elasticmq
+      # 这两个镜像里没有 shell 工具,给不了 health-cmd,所以在这里等端口
+      - name: wait for elasticmq / dynamodb
         run: |
-          for i in $(seq 1 30); do
-            if (echo > /dev/tcp/127.0.0.1/9324) 2>/dev/null; then
-              echo "elasticmq ready"; exit 0
-            fi
-            sleep 2
-          done
-          echo "elasticmq 没起来"; exit 1
+          wait_for() {
+            for i in $(seq 1 30); do
+              if (echo > /dev/tcp/127.0.0.1/"$2") 2>/dev/null; then
+                echo "$1 ready"; return 0
+              fi
+              sleep 2
+            done
+            echo "$1 没起来"; return 1
+          }
+          wait_for elasticmq 9324
+          wait_for dynamodb 8000
 
       # ★ 不是 -Dtest=...:那样漏掉新加的 broker 测试类时没人会发现。
       # 整个 jaravel-queue + jaravel-cache 跑一遍,开关一开,
@@ -195,6 +204,7 @@ jobs:
           JARAVEL_TEST_REDIS_URI: redis://127.0.0.1:6379/15
           JARAVEL_TEST_RABBITMQ_URI: amqp://guest:guest@127.0.0.1:5672/%2f
           JARAVEL_TEST_SQS_ENDPOINT: http://127.0.0.1:9324
+          JARAVEL_TEST_DYNAMODB_ENDPOINT: http://127.0.0.1:8000
         run: |
           set -o pipefail
           mkdir -p target

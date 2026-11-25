@@ -32,7 +32,7 @@ public final class QueueForgetCommand extends RuntimeCommand {
 
     @Override
     public int handle() {
-        long target = parseId();
+        String target = requireId();
         FailedJobStore store = failedJobs.get();
 
         var failed = store.find(target);
@@ -59,15 +59,28 @@ public final class QueueForgetCommand extends RuntimeCommand {
         return 0;
     }
 
-    private long parseId() {
-        try {
-            return Long.parseLong(id.trim());
-        } catch (NumberFormatException | NullPointerException e) {
+    /**
+     * ★ 不校验 id 的形状 —— 它是存储给出的**句柄**:
+     * database / redis 是自增编号("3"),KV 型存储(dynamodb)是任务 uuid。
+     * 在这里要求「必须是数字」会让 uuid 句柄得到一条指着用户输入、
+     * 而原因在存储选型的报错。
+     */
+    private String requireId() {
+        if (id == null || id.isBlank()) {
             throw new ConsoleException("""
-                    "%s" 不是一个失败记录的 id。
-                      id 是 queue:failed 第一列的那个数字。
-                      要全删用 queue:flush,要重试用 queue:retry <id|all>。"""
-                    .formatted(id));
+                    要给一个失败记录的 id。
+                      id 是 queue:failed 的第一列。
+                      要全删用 queue:flush,要重试用 queue:retry <id|all>。""");
         }
+
+        // ★ "all" 单独挡一下。它是一个会犯的错 —— queue:retry 收 all,
+        // 而这条不收。不挡的话用户得到的是「没有 id 为 all 的失败记录」,
+        // 那句话正确但没用:他要的是「全删」,而那条命令叫 queue:flush
+        if (id.trim().equalsIgnoreCase("all")) {
+            throw new ConsoleException("""
+                    queue:forget 不收 all —— 要全删用 queue:flush。
+                      (queue:retry 收 all,两条命令在这一点上不同。)""");
+        }
+        return id.trim();
     }
 }

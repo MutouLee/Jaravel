@@ -65,14 +65,16 @@ public final class QueueRetryCommand extends RuntimeCommand {
     private List<FailedJobStore.FailedJob> resolve(FailedJobStore store) {
         if ("all".equalsIgnoreCase(target.trim())) return store.all();
 
-        long id;
-        try {
-            id = Long.parseLong(target.trim());
-        } catch (NumberFormatException e) {
+        // ★ 不解析 id 的形状。它是存储给出的**句柄**:
+        // database / redis 是自增编号("3"),KV 型存储(dynamodb)是任务 uuid。
+        // 第一版在这里 Long.parseLong,于是 uuid 句柄会得到
+        // 「既不是 id 也不是 all」—— 一条指着用户输入、而原因在存储选型的报错
+        String id = target.trim();
+        if (id.isEmpty()) {
             throw new ConsoleException("""
-                    "%s" 既不是 id 也不是 all。
+                    要给一个 id,或者 all。
 
-                      id 来自 queue:failed 的第一列。""".formatted(target));
+                      id 来自 queue:failed 的第一列。""");
         }
         return store.find(id)
                 .map(List::of)

@@ -58,7 +58,7 @@ public class DatabaseFailedJobStore implements FailedJobStore {
     }
 
     @Override
-    public long record(QueuedJob job, String connectionName, Throwable cause) {
+    public String record(QueuedJob job, String connectionName, Throwable cause) {
         var row = new LinkedHashMap<String, Object>();
         row.put("uuid", job.uuid());
         row.put("connection", connectionName);
@@ -72,16 +72,17 @@ public class DatabaseFailedJobStore implements FailedJobStore {
         var existing = connection.table(table).where("uuid", job.uuid()).get().first();
         if (existing.isPresent()) {
             connection.table(table).where("uuid", job.uuid()).update(row);
-            return ((Number) existing.get().get("id")).longValue();
+            return String.valueOf(((Number) existing.get().get("id")).longValue());
         }
 
-        return connection.table(table).insertGetId(row).orElse(-1L);
+        return String.valueOf(connection.table(table).insertGetId(row).orElse(-1L));
     }
 
     @Override
-    public Optional<FailedJob> find(long id) {
-        return connection.table(table).where("id", id).get().first()
-                .map(DatabaseFailedJobStore::toFailedJob);
+    public Optional<FailedJob> find(String id) {
+        return rowId(id).flatMap(numeric ->
+                connection.table(table).where("id", numeric).get().first()
+                        .map(DatabaseFailedJobStore::toFailedJob));
     }
 
     @Override
@@ -92,8 +93,29 @@ public class DatabaseFailedJobStore implements FailedJobStore {
     }
 
     @Override
-    public boolean forget(long id) {
-        return connection.table(table).where("id", id).delete() > 0;
+    public boolean forget(String id) {
+        return rowId(id)
+                .map(numeric -> connection.table(table).where("id", numeric).delete() > 0)
+                .orElse(false);
+    }
+
+    /**
+     * 这张表的 id 是自增**数字**,所以字符串句柄要转回来。
+     *
+     * <p>★ 这里**绑定数字而不是原字符串**:Postgres 把一个 varchar 参数
+     * 与 integer 列比较会直接报类型错误(SQLite / MySQL 会悄悄转换)——
+     * 一个只在 Postgres 上出现的「queue:retry 报 SQL 异常」。
+     *
+     * <p>不是数字时返回空,而不是抛 —— 调用方拿到的是「没有这条记录」,
+     * 而那正是实话:在这个存储里不存在这样的 id。
+     * (uuid 形状的句柄属于别的存储,见 {@link FailedJobStore} 的注释。)
+     */
+    private static Optional<Long> rowId(String id) {
+        try {
+            return Optional.of(Long.parseLong(id == null ? "" : id.trim()));
+        } catch (NumberFormatException e) {
+            return Optional.empty();
+        }
     }
 
     /**
@@ -124,7 +146,7 @@ public class DatabaseFailedJobStore implements FailedJobStore {
 
     private static FailedJob toFailedJob(Row row) {
         return new FailedJob(
-                ((Number) row.get("id")).longValue(),
+                String.valueOf(((Number) row.get("id")).longValue()),
                 String.valueOf(row.get("uuid")),
                 String.valueOf(row.get("connection")),
                 String.valueOf(row.get("queue")),

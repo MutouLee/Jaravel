@@ -24,6 +24,7 @@ import io.jaravel.cache.CacheManager;
 import io.jaravel.queue.store.DatabaseBatchRepository;
 import io.jaravel.queue.store.DatabaseFailedJobStore;
 import io.jaravel.queue.store.DatabaseQueue;
+import io.jaravel.queue.store.DynamoFailedJobStore;
 import io.jaravel.queue.store.NullQueue;
 import io.jaravel.queue.store.RabbitQueue;
 import io.jaravel.queue.store.RedisBatchRepository;
@@ -89,6 +90,11 @@ public class JaravelQueueAutoConfiguration {
             .isPresent("software.amazon.awssdk.services.sqs.SqsClient",
                        JaravelQueueAutoConfiguration.class.getClassLoader());
 
+    /** dynamodb 失败归档是否可用 —— 与 sqs 分开判:两个 artifact 是分开的 */
+    private static final boolean DYNAMO_PRESENT = org.springframework.util.ClassUtils
+            .isPresent("software.amazon.awssdk.services.dynamodb.DynamoDbClient",
+                       JaravelQueueAutoConfiguration.class.getClassLoader());
+
     @Bean
     @ConditionalOnMissingBean
     public JobSerializer jaravelJobSerializer() {
@@ -138,11 +144,36 @@ public class JaravelQueueAutoConfiguration {
                         config.string("queue.failed.prefix",
                                 RedisFailedJobStore.DEFAULT_PREFIX));
             }
+            // AWS 上没有关系库的部署(Lambda/Fargate + SQS)。
+            // 它们否则只能退到 log —— 失败任务只剩日志里一行,retry 用不了
+            case "dynamodb" -> {
+                if (!DYNAMO_PRESENT) {
+                    throw new IllegalStateException("""
+                            queue.failed.driver = "dynamodb" 但 AWS SDK 的 dynamodb
+                              不在 classpath 上。加这段到 pom:
+                                <dependency>
+                                  <groupId>software.amazon.awssdk</groupId>
+                                  <artifactId>dynamodb</artifactId>
+                                </dependency>
+                                <dependency>
+                                  <groupId>software.amazon.awssdk</groupId>
+                                  <artifactId>url-connection-client</artifactId>
+                                </dependency>
+                              或把 driver 改成 database / redis / log。""");
+                }
+                yield DynamoFailedJobStore.connect(
+                        config.string("queue.failed.endpoint", ""),
+                        config.string("queue.failed.region", "us-east-1"),
+                        config.string("queue.failed.access-key", ""),
+                        config.string("queue.failed.secret-key", ""),
+                        config.string("queue.failed.table", DynamoFailedJobStore.DEFAULT_TABLE),
+                        serializer);
+            }
             // 无库应用的兜底:只打日志,不保留 —— 消息里必须说清楚
             case "log" -> new LoggingFailedJobStore();
             default -> throw new IllegalStateException("""
                     未知的 queue.failed.driver "%s"。
-                      可选:database / redis / log(不保留)"""
+                      可选:database / redis / dynamodb / log(不保留)"""
                     .formatted(driver));
         };
     }
@@ -487,8 +518,8 @@ public class JaravelQueueAutoConfiguration {
                 new java.util.concurrent.atomic.AtomicLong();
 
         @Override
-        public long record(io.jaravel.queue.QueuedJob job, String connection,
-                           Throwable cause) {
+        public String record(io.jaravel.queue.QueuedJob job, String connection,
+                             Throwable cause) {
             long id = counter.incrementAndGet();
             System.err.printf("""
                     [jaravel] 任务最终失败:%s(%s)
@@ -497,15 +528,15 @@ public class JaravelQueueAutoConfiguration {
                                 queue:failed / queue:retry 看不到它。
                                 要保留失败任务请配置 spring.datasource.url。
                     %n""", job.displayName(), job.uuid(), cause);
-            return id;
+            return String.valueOf(id);
         }
 
-        @Override public java.util.Optional<FailedJob> find(long id) {
+        @Override public java.util.Optional<FailedJob> find(String id) {
             return java.util.Optional.empty();
         }
 
         @Override public List<FailedJob> all()        { return List.of(); }
-        @Override public boolean forget(long id)      { return false; }
+        @Override public boolean forget(String id)    { return false; }
         @Override public int flush()                  { return 0; }
         @Override public int prune(Duration olderThan) { return 0; }
         @Override public long count()                 { return 0; }

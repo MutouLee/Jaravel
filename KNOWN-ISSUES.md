@@ -14,7 +14,13 @@
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| `install:*`(除 auth / api / broadcasting) | 未实现 | Laravel 那边还有 `install:horizon` / `install:telescope` 之类,对应的东西 Jaravel 没有(队列面板是内置的 `/_jaravel/dashboard`) |
+| `install:*`(除 auth / api / broadcasting / vite) | **按设计** | Laravel **核心**只有 `install:api` 与 `install:broadcasting` 两条 —— 都已实现。其余 `install` 都来自第一方**包**,逐条见下 |
+| `horizon:install` / `reverb:install` 的对应物 | **不需要** | 两样都是**内置**的:队列面板 `/_jaravel/dashboard`(docs/10 §1.8)、WS 端点嵌在应用进程里(ADR-014/015)。没有要装的东西 |
+| `breeze:install` / `jetstream:install` 的对应物 | **已有** | `install:auth` + `install:vite` 覆盖了脚手架那部分 |
+| `telescope:install` 的对应物 | 未实现 | 请求/查询/任务的录制与回看面板。`jaravel-devtools` 是热重载,不是这个。它是一个功能模块,不是一条 install 命令 |
+| `passport:install` 的对应物 | 未实现 | OAuth2 授权服务器(docs/08 §7 列在 v1.1)。`SanctumGuard` 等价物已内置,缺的是「给第三方发 token」那一套 |
+| `octane:install` / `sail:install` 的对应物 | **不适用** | Octane 解决的是 PHP 的「每请求重建世界」,JVM 上没有这个问题;Sail 是 Docker 开发环境,与框架无关 |
+| `scout` / `cashier` / `nova` 的对应物 | 不做 | 搜索 / 订阅计费 / 管理后台,都在 v1.0 范围外 |
 | `optimize` 的四种缓存 | **不做** | 那四种缓存里三种在 Jaravel 已经是**构建期产物**(view 由 `compile-views` 预编译成 class、event 由 APT 生成索引、config 就是启动时读几个 YAML),第四种 route **做不到** —— Laravel 能序列化路由是因为 handler 是 `"Ctrl@index"` 字符串,而这里是方法引用。于是 `optimize` 只会是一条什么都没做的命令(docs/13 §10) |
 | `analyze:*` | **不做** | N+1 由 `preventLazyLoading`(开发期直接报错)+ `assertQueryCount`(CI 回归)覆盖,边界由 `jaravel-archunit-rules` 覆盖,运行期误配由 `doctor` 覆盖 —— 三者都是阻断式的,而静态扫描器给出的清单会被忽略(docs/13 §10) |
 
@@ -45,7 +51,7 @@
 | RabbitMQ / SQS 的 failed_jobs / job_batches | **按设计(问错了问题)** | 归档与批次账本**不属于队列驱动** —— 它们是独立的 `queue.failed.driver` / `queue.batching.driver`(与 Laravel 一样),任何队列驱动都能配 database / redis。此前确实没有测试证明这个组合能跑,现在有:`BrokerArchiveTest`(broker 队列 + 库里的 failed_jobs/job_batches,含「归档之后消息必须从 broker 上消失」)|
 | RabbitMQ / SQS 的 attempts 持久化 | **已实现** | SQS 取 payload 与 `ApproximateReceiveCount` 的较大值;RabbitMQ 取 payload 与 `x-delivery-count` 的较大值(**要 quorum 队列**,配 `queue-type: quorum`)。于是「worker 崩了之后的重投」也算一次尝试,重试上限成立 |
 | RabbitMQ classic 队列的 attempts | **不做** | classic 队列没有 `x-delivery-count`,broker 侧拿不到投递次数,而消息又不能原地改 —— 只能退回 payload 里的旧计数(崩溃循环会永远重投)。要严格计数就用 quorum 队列;额外挂一个 Redis/DB 计数器等于要求 SQS/Rabbit 用户再配一套存储,代价比换队列类型大 |
-| DynamoDB 的 failed_jobs | 未实现 | Laravel 有 `dynamodb` 失败存储(给无库的 serverless 部署)。挡在这里的是**接口的 id 类型**:`FailedJobStore` 用 `long id`(`queue:retry <id>` 也是),而 Dynamo 侧的自然主键是 uuid —— 要先决定「把 id 改成 String」还是「在 Dynamo 上维护一个计数器」,那是个会动 CLI 表面的设计决定 |
+| DynamoDB 的 failed_jobs | **已实现** | `queue.failed.driver: dynamodb`(docs/10 §1.7)。连带把 `FailedJobStore` 的 id 从 `long` 改成 `String` —— 句柄的形状由存储决定(database/redis 给自增编号、dynamodb 给 uuid),`queue:retry` 两种都能粘。**不做 TTL**:自动过期要额外 IAM 权限且删除是静默的,清理走 `queue:prune-failed` |
 
 ## native
 

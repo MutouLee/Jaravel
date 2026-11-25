@@ -44,9 +44,9 @@ class DashboardServiceTest {
                 .defaultConnection("db");
 
         var failed = new FakeFailedJobs()
-                .add(failed(1, "db", "default", "发发票"))
-                .add(failed(2, "db", "default", "发发票"))
-                .add(failed(3, "redis", "mail", "发邮件"));
+                .add(failed("1", "db", "default", "发发票"))
+                .add(failed("2", "db", "default", "发发票"))
+                .add(failed("3", "redis", "mail", "发邮件"));
 
         var batches = new FakeBatches().add(batch("b1", "月度报表", 10, 3, false));
 
@@ -116,18 +116,18 @@ class DashboardServiceTest {
                 .register("db", db).register("redis", redis).defaultConnection("db");
 
         var failed = new FakeFailedJobs().add(new FailedJobStore.FailedJob(
-                7, "u1", "redis", "mail", "TestJob",
+                "7", "u1", "redis", "mail", "TestJob",
                 serializer.encode(original), "boom", Instant.now()));
 
         var service = new DashboardService(queues, failed, null,
                 List.of("mail"), null);
 
-        assertThat(service.retry(7)).isTrue();
+        assertThat(service.retry("7")).isTrue();
 
         assertThat(redis.pushed).extracting(QueuedJob::uuid).containsExactly("u1");
         assertThat(db.pushed).isEmpty();
-        assertThat(failed.find(7)).isEmpty();
-        assertThat(service.retry(999)).isFalse();
+        assertThat(failed.find("7")).isEmpty();
+        assertThat(service.retry("999")).isFalse();
     }
 
     @Test
@@ -137,17 +137,17 @@ class DashboardServiceTest {
                 new QueueManager(new JobSerializer())
                         .register("db", new FakeQueue("db", Map.of())).defaultConnection("db"),
                 new FakeFailedJobs()
-                        .add(failed(1, "db", "default", "a"))
-                        .add(failed(2, "db", "default", "b")),
+                        .add(failed("1", "db", "default", "a"))
+                        .add(failed("2", "db", "default", "b")),
                 null, List.of("default"), null);
 
-        assertThat(service.forget(1)).isTrue();
+        assertThat(service.forget("1")).isTrue();
         assertThat(service.flushFailed()).isEqualTo(1);
     }
 
     // ================= 夹具 =================
 
-    private static FailedJobStore.FailedJob failed(long id, String connection,
+    private static FailedJobStore.FailedJob failed(String id, String connection,
                                                    String queue, String name) {
         return new FailedJobStore.FailedJob(id, "u" + id, connection, queue, name,
                 "{}", """
@@ -192,31 +192,30 @@ class DashboardServiceTest {
 
         FakeFailedJobs add(FailedJob job) {
             all.add(job);
-            nextId = Math.max(nextId, job.id() + 1);
             return this;
         }
 
-        @Override public long record(QueuedJob job, String connection, Throwable cause) {
-            long id = nextId++;
+        @Override public String record(QueuedJob job, String connection, Throwable cause) {
+            String id = String.valueOf(nextId++);
             all.add(new FailedJob(id, job.uuid(), connection, job.queue(),
                     job.displayName(), "{}", String.valueOf(cause), Instant.now()));
             return id;
         }
-        @Override public Optional<FailedJob> find(long id) {
-            return all.stream().filter(j -> j.id() == id).findFirst();
+        @Override public Optional<FailedJob> find(String id) {
+            return all.stream().filter(j -> j.id().equals(id)).findFirst();
         }
         @Override public List<FailedJob> all() { return List.copyOf(all); }
-        @Override public boolean forget(long id) { return all.removeIf(j -> j.id() == id); }
+        @Override public boolean forget(String id) { return all.removeIf(j -> j.id().equals(id)); }
         @Override public int flush() { int n = all.size(); all.clear(); return n; }
         @Override public int prune(Duration olderThan) { return 0; }
         @Override public long count() { return all.size(); }
     }
 
     static class ThrowingFailedJobs implements FailedJobStore {
-        @Override public long record(QueuedJob job, String connection, Throwable cause) { return 0; }
-        @Override public Optional<FailedJob> find(long id) { return Optional.empty(); }
+        @Override public String record(QueuedJob job, String connection, Throwable cause) { return "0"; }
+        @Override public Optional<FailedJob> find(String id) { return Optional.empty(); }
         @Override public List<FailedJob> all() { throw new IllegalStateException("failed_jobs 表不存在"); }
-        @Override public boolean forget(long id) { return false; }
+        @Override public boolean forget(String id) { return false; }
         @Override public int flush() { return 0; }
         @Override public int prune(Duration olderThan) { return 0; }
         @Override public long count() { return 0; }

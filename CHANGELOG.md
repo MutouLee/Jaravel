@@ -6,6 +6,34 @@
 
 ### Added
 
+- **失败归档的 id 改成 `String` + DynamoDB 归档**(docs/10 §1.7)——
+  `FailedJobStore` 的 id 原本是 `long`,而那让任何以 uuid 为主键的存储都进不来:
+  要么在 KV 上额外维护一个自增序列(每条失败记录多一次往返、多一个会漂的
+  计数器 item),要么就不支持。为了迁就一个 Java 的 `long` 去给 KV 造序列,
+  方向是反的 —— uuid 本来就在每条记录上、天生唯一。
+  **现在 id 是一个句柄,形状由存储决定**:`database` / `redis` 给自增编号
+  (`queue:retry 3` 照旧),`dynamodb` 给任务 uuid(`queue:retry 9f8c…`)。
+  `queue:retry` / `queue:forget` 与面板都不再校验它的形状 ——
+  校验了的话 uuid 句柄会得到一条指着用户输入、而原因在存储选型的报错。
+  `queue:failed` 在 id 与 uuid 相同时**合成一列**,免得同一个 36 字符的
+  字符串在一行里出现两次。
+  **发布前改掉是刻意的**:这是公开 SPI 与 CLI 参数的形状,发到 Central
+  之后就是破坏性变更。
+  新增 `queue.failed.driver: dynamodb` —— 它只为一个场景存在:
+  **AWS 上没有关系库的部署**(Lambda/Fargate + SQS,没有 RDS 也没有
+  ElastiCache)。那种应用否则只能退到 `log`,失败任务只剩日志里一行、
+  `queue:retry` 用不了,也就是任务丢了之后没有补救手段。
+  主键是 uuid(单条 GetItem/DeleteItem,同 uuid 覆盖);`count` 用
+  `Select: COUNT` 的 Scan 而**不是**表的 `ItemCount`(后者每六小时才更新,
+  于是「删完了但面板还显示 37 条」);`forget` 要 `ReturnValue.ALL_OLD`
+  才能回答「真的删掉了吗」(DeleteItem 删不存在的 key 也返回成功);
+  删除分 25 条一批并**重发 unprocessedItems**(BatchWriteItem 的部分成功是
+  正常返回,不看它会在限流时静默少删几条);Scan 翻页(不翻页的实现在表小时
+  一切正常、在表大时静默只处理第一页 —— 而那正是最需要它正确的时候)。
+  **不做 TTL**:自动过期要额外 IAM 权限且删除是静默的,
+  「上周的失败记录自己不见了」比「表大了点」难查,清理走 `queue:prune-failed`。
+  验收:`DynamoFailedJobStoreTest` 9 条,对着 `amazon/dynamodb-local` 跑,
+  并挂进 CI 的 brokers 作业。
 - **`@vite` 与 `install:vite`**(docs/04 §1.9、ADR-020)—— KNOWN-ISSUES 里
   剩下最大的那块。难的不是指令本身(读一个 manifest、吐两个标签),
   而是**它会锁死用户的构建脚本形状**,所以先写了 ADR-020 定四条约定:

@@ -70,12 +70,12 @@ public class RedisFailedJobStore implements FailedJobStore, AutoCloseable {
     private String uuids() { return prefix + "uuids"; }
     private String order() { return prefix + "order"; }
     private String counter() { return prefix + "id"; }
-    private String jobKey(long id) { return prefix + "job:" + id; }
+    private String jobKey(String id) { return prefix + "job:" + id; }
 
     // ================= 记录 =================
 
     @Override
-    public long record(QueuedJob job, String connectionName, Throwable cause) {
+    public String record(QueuedJob job, String connectionName, Throwable cause) {
         long failedAt = Clock.millis();
 
         Long id = (Long) commands().eval(RECORD, ScriptOutputType.INTEGER,
@@ -87,7 +87,8 @@ public class RedisFailedJobStore implements FailedJobStore, AutoCloseable {
                 String.valueOf(failedAt),
                 prefix + "job:");
 
-        return id == null ? -1 : id;
+        // 句柄是自增编号的字符串 —— queue:retry 3 照常能用
+        return id == null ? "-1" : String.valueOf(id);
     }
 
     private static final String RECORD = """
@@ -115,7 +116,7 @@ public class RedisFailedJobStore implements FailedJobStore, AutoCloseable {
     // ================= 查询 =================
 
     @Override
-    public Optional<FailedJob> find(long id) {
+    public Optional<FailedJob> find(String id) {
         return read(id);
     }
 
@@ -124,11 +125,7 @@ public class RedisFailedJobStore implements FailedJobStore, AutoCloseable {
         List<String> ids = commands().zrevrange(order(), 0, -1);
         var out = new ArrayList<FailedJob>(ids.size());
         for (String raw : ids) {
-            try {
-                read(Long.parseLong(raw)).ifPresent(out::add);
-            } catch (NumberFormatException ignored) {
-                // 坏成员 = 跳过,不让一条脏数据阻断整个列表
-            }
+            read(raw).ifPresent(out::add);      // 读不到 = 跳过,一条脏数据不阻断整个列表
         }
         return out;
     }
@@ -141,13 +138,13 @@ public class RedisFailedJobStore implements FailedJobStore, AutoCloseable {
     // ================= 删除 =================
 
     @Override
-    public boolean forget(long id) {
+    public boolean forget(String id) {
         Map<String, String> fields = commands().hgetall(jobKey(id));
         if (fields.isEmpty()) return false;
 
         String uuid = fields.get("uuid");
         commands().del(jobKey(id));
-        commands().zrem(order(), String.valueOf(id));
+        commands().zrem(order(), id);
         if (uuid != null) commands().hdel(uuids(), uuid);
         return true;
     }
@@ -166,18 +163,14 @@ public class RedisFailedJobStore implements FailedJobStore, AutoCloseable {
 
         int removed = 0;
         for (String raw : ids) {
-            try {
-                if (forget(Long.parseLong(raw))) removed++;
-            } catch (NumberFormatException ignored) {
-                // 同上
-            }
+            if (forget(raw)) removed++;
         }
         return removed;
     }
 
     // ================= 内部 =================
 
-    private Optional<FailedJob> read(long id) {
+    private Optional<FailedJob> read(String id) {
         Map<String, String> fields = commands().hgetall(jobKey(id));
         if (fields.isEmpty() || !fields.containsKey("uuid")) return Optional.empty();
 

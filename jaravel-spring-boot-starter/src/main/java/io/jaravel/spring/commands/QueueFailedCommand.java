@@ -35,25 +35,41 @@ public final class QueueFailedCommand extends ConsoleCommand {
     @Override
     public int handle() {
         List<FailedJobStore.FailedJob> all = failedJobs.get().all();
-        var rows = new ArrayList<List<Object>>();
-
+        var matched = new ArrayList<io.jaravel.queue.FailedJobStore.FailedJob>();
         for (var job : all) {
             if (queue != null && !queue.isBlank() && !job.queue().equals(queue.trim())) {
                 continue;
             }
-            rows.add(List.of(job.id(),
-                    fullUuid ? job.uuid() : job.uuid().substring(0, Math.min(8, job.uuid().length())),
-                    job.queue(),
-                    job.displayName(),
-                    reasonOf(job.exception())));
+            matched.add(job);
         }
 
-        if (rows.isEmpty()) {
+        if (matched.isEmpty()) {
             comment(all.isEmpty() ? "没有失败的任务。" : "没有匹配的失败任务(共 " + all.size() + " 条)。");
             return 0;
         }
 
-        table(List.of("id", "uuid", "队列", "任务", "原因"), rows);
+        // ★ KV 型的归档存储(dynamodb)里 id **就是** uuid。
+        // 照原样排两列的话,同一个 36 字符的字符串在一行里出现两次,
+        // 把表挤到换行 —— 而那两列里有一列是纯噪音
+        boolean idIsUuid = matched.stream().allMatch(job -> job.id().equals(job.uuid()));
+
+        var rows = new ArrayList<List<Object>>();
+        for (var job : matched) {
+            String shortUuid = fullUuid
+                    ? job.uuid()
+                    : job.uuid().substring(0, Math.min(8, job.uuid().length()));
+
+            rows.add(idIsUuid
+                    ? List.of(job.id(), job.queue(), job.displayName(),
+                              reasonOf(job.exception()))
+                    : List.of(job.id(), shortUuid, job.queue(), job.displayName(),
+                              reasonOf(job.exception())));
+        }
+
+        table(idIsUuid
+                        ? List.of("id(= uuid)", "队列", "任务", "原因")
+                        : List.of("id", "uuid", "队列", "任务", "原因"),
+                rows);
         newLine();
         line("重试:queue:retry <id> 或 queue:retry all");
         return 0;

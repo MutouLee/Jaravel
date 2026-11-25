@@ -68,9 +68,9 @@ class RedisFailedJobStoreTest {
     @Test
     @DisplayName("record → find / all / count,字段完整")
     void recordAndFind() {
-        long id = store.record(job("u1"), "redis", new IllegalStateException("boom"));
+        String id = store.record(job("u1"), "redis", new IllegalStateException("boom"));
 
-        assertThat(id).isPositive();
+        assertThat(id).as("句柄是自增编号的字符串 —— queue:retry 3 照常能用").isEqualTo("1");
         assertThat(store.count()).isEqualTo(1);
 
         var found = store.find(id).orElseThrow();
@@ -89,8 +89,8 @@ class RedisFailedJobStoreTest {
     @Test
     @DisplayName("★ 同一个 uuid 再失败:覆盖,不追加")
     void sameUuidOverwrites() {
-        long first = store.record(job("dup"), "redis", new IllegalStateException("first"));
-        long second = store.record(job("dup"), "database", new IllegalStateException("second"));
+        String first = store.record(job("dup"), "redis", new IllegalStateException("first"));
+        String second = store.record(job("dup"), "database", new IllegalStateException("second"));
 
         assertThat(second).isEqualTo(first);
         assertThat(store.count()).isEqualTo(1);
@@ -101,7 +101,7 @@ class RedisFailedJobStoreTest {
     @Test
     @DisplayName("forget / flush")
     void forgetAndFlush() {
-        long id = store.record(job("f1"), "redis", new IllegalStateException("x"));
+        String id = store.record(job("f1"), "redis", new IllegalStateException("x"));
 
         assertThat(store.forget(id)).isTrue();
         assertThat(store.forget(id)).isFalse();

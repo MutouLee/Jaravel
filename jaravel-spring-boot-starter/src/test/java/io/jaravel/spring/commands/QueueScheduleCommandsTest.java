@@ -303,9 +303,9 @@ class QueueScheduleCommandsTest {
         @DisplayName("★ retry 把任务放回原来的连接,并删掉失败记录")
         void retryPutsItBack() {
             produceOneFailure();
-            long id = failedJobs.all().get(0).id();
+            String id = failedJobs.all().get(0).id();
 
-            assertThat(Artisan.call("queue:retry", String.valueOf(id))).isZero();
+            assertThat(Artisan.call("queue:retry", id)).isZero();
 
             assertThat(failedJobs.count())
                     .as("""
@@ -330,13 +330,19 @@ class QueueScheduleCommandsTest {
         }
 
         @Test
-        @DisplayName("retry 给了一个不存在的 id,或者给了别的东西 —— 都说清")
+        @DisplayName("retry 给了一个不存在的 id —— 说清并指路")
         void retryBadTarget() {
             assertThat(Artisan.call("queue:retry", "999")).isEqualTo(1);
             assertThat(Artisan.output()).contains("没有 id 为 999");
 
+            // ★ 不校验 id 的「形状」。它是归档存储给出的句柄:
+            // database / redis 是自增编号,KV 型存储(dynamodb)是任务 uuid。
+            // 这里要求「必须是数字」会让 uuid 句柄得到一条
+            // 指着用户输入、而原因在存储选型的报错
             assertThat(Artisan.call("queue:retry", "蓝色")).isEqualTo(1);
-            assertThat(Artisan.output()).contains("既不是 id 也不是 all");
+            assertThat(Artisan.output())
+                    .contains("没有 id 为 蓝色")
+                    .contains("queue:failed");
         }
 
         @Test
@@ -371,7 +377,7 @@ class QueueScheduleCommandsTest {
     @DisplayName("queue:forget")
     class Forget {
 
-        private long recordOneFailure() {
+        private String recordOneFailure() {
             Queue.dispatch(new FailsAlways());
             Artisan.call("queue:work", "--stop-when-empty");
             return failedJobs.all().get(0).id();
@@ -380,9 +386,9 @@ class QueueScheduleCommandsTest {
         @Test
         @DisplayName("删掉指定的那一条,并先把它是什么打出来")
         void forgetsOne() {
-            long id = recordOneFailure();
+            String id = recordOneFailure();
 
-            assertThat(Artisan.call("queue:forget", String.valueOf(id))).isZero();
+            assertThat(Artisan.call("queue:forget", id)).isZero();
             assertThat(Artisan.output())
                     .as("id 是从表上抄的,抄错一位就删错一条 —— 所以先显示要删的是什么")
                     .contains("将删掉")
@@ -398,8 +404,8 @@ class QueueScheduleCommandsTest {
         }
 
         @Test
-        @DisplayName("id 不是数字时说清它该是什么")
-        void notANumber() {
+        @DisplayName("★ 收到 all 时指向 queue:flush —— 而不是「没有 id 为 all 的记录」")
+        void allIsNotAnId() {
             assertThat(Artisan.call("queue:forget", "all")).isEqualTo(1);
             assertThat(Artisan.output())
                     .as("queue:retry 收 all,queue:forget 不收 —— 那是 queue:flush")

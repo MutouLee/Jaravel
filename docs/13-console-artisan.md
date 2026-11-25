@@ -750,7 +750,14 @@ jaravel up
 >
 > **`queue:forget <id>` 删之前先把那条记录打出来**:id 是从 `queue:failed`
 > 的表上抄的,抄错一位就删错一条,而失败记录是重试的唯一依据。
-> 它只收数字 —— `all` 是 `queue:flush` 的事,这一点写在报错里。
+> `all` 是 `queue:flush` 的事,这一点写在报错里。
+>
+> **★ `<id>` 是一个句柄,不校验形状**:它由归档存储决定 ——
+> `database` / `redis` 给自增编号(`queue:retry 3`),`dynamodb` 给**任务的
+> uuid**(`queue:retry 9f8c…`)。两条命令都不再要求「必须是数字」:
+> 要求了的话 uuid 句柄会得到一条指着用户输入、而原因在存储选型的报错
+> (docs/10 §1.7)。`queue:failed` 在 id 与 uuid 相同时**合成一列**,
+> 免得同一个 36 字符的字符串在一行里出现两次。
 >
 > **`schedule:list` 把「乐观估计」标出来**:下次运行时间只按 cron 算,
 > 约束要到那一刻才判。不标的话一个 `weekdays()` 的任务会显示一个周六的

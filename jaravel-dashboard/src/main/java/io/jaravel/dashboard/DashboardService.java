@@ -41,7 +41,7 @@ public final class DashboardService {
     }
 
     /** 失败任务的一行(不含完整堆栈) */
-    public record FailedJobView(long id, String uuid, String queue, String displayName,
+    public record FailedJobView(String id, String uuid, String queue, String displayName,
                                 String reason, Instant failedAt) {
     }
 
@@ -161,7 +161,7 @@ public final class DashboardService {
      *
      * @return false = 没有这个 id
      */
-    public boolean retry(long id) {
+    public boolean retry(String id) {
         var failed = failedJobs.find(id);
         if (failed.isEmpty()) return false;
 
@@ -171,7 +171,7 @@ public final class DashboardService {
         return true;
     }
 
-    public boolean forget(long id) {
+    public boolean forget(String id) {
         return failedJobs.forget(id);
     }
 

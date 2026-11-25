@@ -1,0 +1,31 @@
+{
+  "resources/css/app.css": {
+    "file": "assets/app-1111.css",
+    "src": "resources/css/app.css",
+    "isEntry": true
+  },
+  "resources/js/app.js": {
+    "file": "assets/app-2222.js",
+    "src": "resources/js/app.js",
+    "isEntry": true,
+    "css": ["assets/app-chunk-3333.css"],
+    "imports": ["_shared-4444.js"]
+  },
+  "_shared-4444.js": {
+    "file": "assets/shared-4444.js",
+    "imports": ["_deep-5555.js"]
+  },
+  "_deep-5555.js": {
+    "file": "assets/deep-5555.js"
+  },
+  "resources/js/cyclic.js": {
+    "file": "assets/cyclic-6666.js",
+    "src": "resources/js/cyclic.js",
+    "isEntry": true,
+    "imports": ["_loop-7777.js"]
+  },
+  "_loop-7777.js": {
+    "file": "assets/loop-7777.js",
+    "imports": ["_loop-7777.js"]
+  }
+}

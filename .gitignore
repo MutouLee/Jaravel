@@ -7,6 +7,16 @@ build/
 *.jar
 *.war
 
+# ★ 例外:ViteTest 的 manifest 夹具。
+#
+# 它的路径里有一个 build/(那正是 @vite 的默认产物目录,见 ADR-020),
+# 于是上面那条 build/ 把它一起挡掉了 —— 而本地有这个文件、CI 没有,
+# 症状是「本地全绿、CI 上 ViteTest 全红」。实打实踩到过一次。
+#
+# 目录本身要先反排除:git 不会进入一个被忽略的目录,
+# 只写文件级的例外不生效。
+!jaravel-view/src/test/resources/public/build/
+
 # 本地命令通道与冷启动缓存(.jaravel/):
 # dev.sock 是进程地址,classpath / main-class 是这台机器上的绝对路径 ——
 # 三样都不该跟着仓库走

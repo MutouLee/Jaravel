@@ -90,7 +90,8 @@ public class RollbackExtension implements InvocationInterceptor {
     }
 
     /**
-     * 这个测试声明了 {@link WithoutRollback} 吗。
+     * 这个测试要绕过回滚吗 —— 隔离策略不是事务,或显式标了
+     * {@link WithoutRollback}。
      *
      * <p>方法上与类上都看 —— 类上一个注解关掉整个类是常见需求
      * (队列测试整类都需要真提交),而逐个方法标会漏。
@@ -102,6 +103,10 @@ public class RollbackExtension implements InvocationInterceptor {
      * 内部类不是外部类的子类。
      */
     private boolean optedOut(ExtensionContext context) {
+        // 迁移型策略(@RefreshDatabase / @DatabaseMigrations)自己管结构与数据,
+        // 而且刻意不在事务里 —— 理由写在那两个注解上
+        if (!DatabaseStrategy.of(context).rollsBack()) return true;
+
         var method = context.getTestMethod();
         if (method.isPresent() && method.get().isAnnotationPresent(WithoutRollback.class)) {
             return true;

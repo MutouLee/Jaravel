@@ -47,6 +47,30 @@
   端到端:`examples/auth` 的演示页加了一个真的
   `DELETE /notes/{id}` 路由与 POST + `@method('DELETE')` 的表单,
   并钉住「伪装后仍要 CSRF(少令牌 419)」与「伪装不绕过授权(别人的 403)」。
+- **`AppTest` 与数据库隔离策略注解**(docs/14 §2.1、§5)——
+  `AppTest` 是三层测试基类中间的那一层:容器 + 数据库 + 执行作用域,
+  **没有发请求的方法**。它的分层在 API 面上而不是启动成本上 ——
+  `@SpringBootTest` 配置与 `FeatureTest` 一致,于是 Spring 的上下文缓存
+  命中同一个上下文,整个测试 JVM 只启动一次(用 `webEnvironment = NONE`
+  省那个 mock servlet 环境会换来第二个缓存键,省毫秒花秒)。
+  它值得存在的理由是让一次失败只有一种原因:同一条授权规则,
+  `FeatureTest` 版本的失败可能来自路由、中间件、认证或 Policy,
+  而 `examples/auth` 新增的 `NoteAuthorizationAppTest` 只剩 Policy 一种。
+  `ScopeExtension` 把测试方法包进 `ExecutionScope`,于是
+  `actingAs(user)` → `Auth.user()` / `Gate` 与请求里一致(此前 docs/14 §10
+  的开放项)。两条边界是刻意的:**不造合成会话**(服务层用 `Session`
+  本身就是缺陷,让它在测试里能跑的代价是上线后在 worker 里炸),
+  作用域只覆盖测试方法本身(在 `@BeforeEach` 里 `actingAs` 直接报错,
+  而不是静默设进一个随即丢弃的 guard)。
+  隔离策略注解三个:`@DatabaseTransactions`(默认,显式声明)/
+  `@RefreshDatabase`(每个测试前 reset + migrate)/ `@DatabaseMigrations`
+  (前 migrate、后 reset)。方法压过类,`@Nested` 外层类与自写基类上
+  标了也算,同一层标两个在测试开始前报错。两个迁移型策略**不在事务里**
+  —— DDL 在一部分数据库里不参与事务,而迁移测试要断言「表真的建出来了」。
+  `@WithoutDatabase` **不做**:它表达的「纯单元测试」已有更快的写法
+  (不继承基类),理由记在 `KNOWN-ISSUES.md`。
+  数据库断言提到 `DatabaseTestSupport` 接口,`FeatureTest` 与 `AppTest`
+  共用同一份实现。
 - **i18n 底座 + `@lang` / `@choice`**(docs/02 §2.3、docs/04 §1.8)——
   `Translator` / `Lang` / `LangLoader` 落在 `jaravel-core`;消息放
   `resources/lang/<locale>/<group>.yml`,**键的第一段永远是文件名**

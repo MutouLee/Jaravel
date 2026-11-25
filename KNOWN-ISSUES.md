@@ -7,8 +7,7 @@
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| `@RefreshDatabase` 等隔离注解 | 未实现 | 当前只有默认事务回滚与 `@WithoutRollback` |
-| `AppTest`(容器 + 数据库,无 HTTP) | 未实现 | 用 `@SpringBootTest` 或 `FeatureTest` 代替 |
+| `@WithoutDatabase` | **不做** | 它表达的「纯单元测试」已有更快的写法:不继承基类(docs/14 §5 第一层)。而「有上下文但没有库」要求每个子系统都补无库降级路径 —— `Connection` bean 刻意是启动即失败的 |
 | 工厂 `Post.factory()` APT / `make:factory` | 未实现 | 现有 `Factory.of(ModelMeta, ...)` 手写 |
 | `Factory.Faker` 的 `datafaker` / locale | 未实现 | 内置最小 Faker |
 
@@ -32,7 +31,6 @@
 | `Mail.to(user).locale(...)` | 未实现 | 原语已有:`Lang.withLocale(...)` |
 | 按请求切 locale 的中间件 | 未实现 | 手写:读 `Accept-Language` 后 `Lang.setLocale(...)` |
 | `@aware` | 未实现 | |
-| 具名 slot / 属性袋 | 未实现 | 匿名组件与类组件已落地 |
 
 ## 安全 / 账户
 

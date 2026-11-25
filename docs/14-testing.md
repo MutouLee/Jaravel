@@ -24,8 +24,8 @@ Laravel 的测试体验是其被低估的优势:一行 `$this->get('/users')->as
 | 并行测试(`jaravel test --parallel` + 每进程测试库) | ✅ v0.8(见 §6.3) |
 | 模型工厂(§3) | ⏳ 只有 `Factory` 基类;`Post.factory()` 的 APT 生成与 `make:factory` **仍未实现** |
 | Fake(§4) | ✅ Mail / Event / Storage / Notifications / Broadcast / Http / Queue / Cache + `Clock` 时间控制 + `UploadedFile.fake()`;`Event.fakeExcept` 不提供(用 `Event.fake(types)`) |
-| `@RefreshDatabase` 等隔离策略注解 | ⏳ 未实现;当前只有默认事务回滚与 `@WithoutRollback` |
-| `AppTest`(容器 + 数据库,无 HTTP,§5) | ⏳ 未实现;当前只有 `JaravelTestApplication` + `FeatureTest` |
+| 隔离策略注解 `@DatabaseTransactions` / `@RefreshDatabase` / `@DatabaseMigrations` | ✅(`@WithoutDatabase` 不做,理由见 §2.1) |
+| `AppTest`(容器 + 数据库,无 HTTP,§5) | ✅(与 `FeatureTest` 共用同一个上下文,见 §5) |
 
 ### 写出来之后发现的三件事
 
@@ -239,15 +239,27 @@ class PostTest extends FeatureTest {
 
 @RefreshDatabase            // 每个测试前 migrate:fresh(慢,用于迁移本身的测试)
 @DatabaseTransactions       // 默认,显式声明
-@DatabaseMigrations         // 每个测试前 migrate,后 rollback
-@WithoutDatabase            // 不连数据库(纯单元测试)
+@DatabaseMigrations         // 每个测试前 migrate,后 reset
 ```
 
 事务回滚是默认策略——**测试不需要写任何清理代码**。
 
-> ⚠ **上面四个注解尚不存在。** 当前只有默认的每测试事务回滚与
-> `@WithoutRollback`;`@RefreshDatabase` / `@DatabaseTransactions` /
-> `@DatabaseMigrations` / `@WithoutDatabase` 是待实现设计,见 §10。
+三个注解标在类上或方法上都行,**方法压过类**(于是「整类 fresh,只有这个
+不用」不必另开一个类);`@Nested` 的外层类与自己写的测试基类上标了也算。
+同一层标了两个会在测试开始前报错,而不是让其中一个静默胜出。
+
+**★ 两个迁移型策略刻意不在事务里。** DDL 在一部分数据库里不参与事务
+(MySQL 会隐式提交),而迁移测试要断言的恰恰是「表真的建出来了」——
+在一个永不提交的事务里断言这件事,断言的是幻觉。于是数据是真写进去的,
+清理靠下一个测试前那次 fresh(`@RefreshDatabase`)或这个测试后那次 reset
+(`@DatabaseMigrations`)。
+
+> **`@WithoutDatabase` 不做。** 它要表达的是「纯单元测试」,而那在 Jaravel
+> 里已经有更直接的写法:**不继承任何基类**(§5 的第一层,~1ms,连 Spring
+> 上下文都不启动)。做成注解反而更差 —— 框架的 `Connection` bean 在没有
+> `DataSource` 时是启动即失败的(那个设计是对的:缺配置要在启动时暴露),
+> 于是「有上下文但没有库」需要每个子系统都补一条无库降级路径,换来的
+> 只是把一个本来更快的写法包装成注解。登记在 `KNOWN-ISSUES.md`。
 
 ### 2.2 测试数据库:Testcontainers 自动注入 ✅ v0.8
 
@@ -637,22 +649,47 @@ class PriceCalculatorTest {        // 不继承 FeatureTest,无容器,极快
 需要容器但不需要 HTTP:
 
 ```java
-class InventoryServiceTest extends AppTest {     // 启动容器,不启动 HTTP
-    @Inject InventoryService service;
-    @Test void reserves_stock() { ... }
+class InventoryServiceTest extends AppTest {     // 容器 + 数据库,没有 HTTP 的 API
+    @Autowired InventoryService service;
+
+    @Test void reserves_stock() {
+        service.reserve(sku, 3);
+        assertDatabaseHas("reservations", Map.of("sku", sku, "quantity", 3));
+    }
 }
 ```
 
-> ⚠ **`AppTest` 尚未实现。** 当前可用的只有不继承基类的单元测试与
-> `FeatureTest`(容器 + 数据库 + 进程内 HTTP)。
-
 三层测试基类:
 
-| 基类 | 启动内容 | 速度 | 用途 |
-|---|---|---|---|
-| (无) | 什么都不启动 | ~1ms | 纯逻辑单元测试 |
-| `AppTest` ⏳ | 容器 + 数据库 | ~50ms/测试类 | 服务层、仓储、作业 |
-| `FeatureTest` | 容器 + 数据库 + HTTP 内核 | ~60ms/测试类 | 端到端功能 |
+| 基类 | 能做什么 | 用途 |
+|---|---|---|
+| (无) | 什么都不启动,~1ms | 纯逻辑单元测试 |
+| `AppTest` | 容器 + 数据库 + 执行作用域,**没有发请求的方法** | 服务层、仓储、作业、Policy |
+| `FeatureTest` | 以上 + 请求构造与 HTTP 断言 | 端到端功能 |
+
+**★ `AppTest` 的分层在 API 面上,不在启动成本上。** 它与 `FeatureTest` 的
+`@SpringBootTest` 配置完全一致,于是 Spring 的上下文缓存命中**同一个
+上下文**,整个测试 JVM 只启动一次。刻意没用 `webEnvironment = NONE` 去省
+那个 mock servlet 环境:那会得到第二个缓存键,于是一个同时有服务层测试
+与功能测试的项目要启动两个上下文 —— 省下的是毫秒,花掉的是秒。
+
+那么它为什么还值得存在:**让测试说清自己测什么**。服务层逻辑用
+`FeatureTest` 写,会得到一个带着 `get("/…")` 与会话断言的 API 面,于是
+一次失败有四种可能的原因(路由、中间件、认证、被测逻辑),而且很容易
+顺手加一个 HTTP 断言把它变成端到端测试。`examples/auth` 的
+`NoteAuthorizationAppTest` 与 `AuthFeatureTest` 是这组对照的实例:
+同一条授权规则,前者只有一种失败原因。
+
+它有执行作用域(`ScopeExtension`),所以 `actingAs(user)` → `Auth.user()` /
+`Gate` 的行为与请求里一致。两点边界:
+
+- **没有会话。** 会话型 guard 读不到登录态 —— `actingAs` 走的是
+  `guard.setUser(...)`(等价于 `Auth.once(...)` 成功后的状态)。
+  这与队列任务里的情况一致,是刻意的:服务层代码用 `Session` 本身就是
+  缺陷,让它在测试里能跑的代价是上线后在 worker 里炸;
+- **作用域只覆盖测试方法本身。** JUnit 没有跨生命周期回调的绑定点,
+  所以在 `@BeforeEach` 里 `actingAs` 会直接报错(而不是静默无效);
+  造数据放 `@BeforeEach` 不受影响 —— 那只需要连接。
 
 ---
 
@@ -800,10 +837,13 @@ jaravel test --parallel --offline             # 依赖已缓存的 CI
 ## 7. 内部架构
 
 > ⚠ **这是目标结构,不是当前实现。** 当前 `jaravel-testing` 的类是平铺的
-> (`FeatureTest`、`BrowserTest`、`RollbackExtension`、`TestcontainersSupport`、
+> (`FeatureTest`、`AppTest`、`BrowserTest`、`RollbackExtension`、
+> `DatabaseStrategyExtension`、`ScopeExtension`、`TestcontainersSupport`、
 > `testcontainers/` 等),没有 `bases/` / `fakes/` / `time/` 这些包;
-> `AppTest`、`QueueFake`、`CacheFake`、`TestClock`、`JaravelExtension` 也都
-> 不存在 —— 当前是 `RollbackExtension` + Spring 的 `SpringExtension`。
+> `TestClock`、`JaravelExtension` 不存在 —— 时间控制是 `support` 的
+> `Clock`,扩展是三个各管一件事的小扩展 + Spring 的 `SpringExtension`。
+> 各个 fake 住在自己的模块里(`QueueFake` 在 jaravel-queue 等),
+> 而不是集中在 testing 里 —— 那样 testing 会反向依赖全部模块。
 
 ```
 jaravel-testing
@@ -871,11 +911,17 @@ public class JaravelExtension implements BeforeAllCallback, BeforeEachCallback,
   `jaravel-testing` 的 `ParallelTestDatabase`(SQLite / PostgreSQL / MySQL,
   见 §6.3、[ADR-017](18-risks-and-decisions.md))。模板库
   `CREATE DATABASE ... TEMPLATE` / dump-restore 的性能优化仍可做,但不阻塞交付。
-- [ ] 测试中的 `ScopedValue` 绑定:`AppTest` 没有 HTTP 请求,但 `Auth.user()` 需要作用域。需要 `actingAs` 在非 HTTP 测试中也能建立一个合成作用域。
+- [x] 测试中的作用域绑定:**已实现** —— `ScopeExtension` 把测试方法包进一个
+  `ExecutionScope`,于是 `AppTest` 里 `actingAs(user)` → `Auth.user()` / `Gate`
+  与请求里行为一致(§5)。两点边界也定下来了:作用域只覆盖测试方法本身
+  (在 `@BeforeEach` 里 `actingAs` 直接报错,而不是静默无效),
+  且**不造合成会话** —— 会话型 guard 在 `AppTest` 里读不到登录态,
+  与队列任务一致。
 - [ ] 工厂的 `definition()` 返回 `Map<String,Object>` 缺少类型安全。考虑生成 `PostFactory` 的类型化 setter(`.title("X").status(PUBLISHED)`)。**v0.6 / v0.7 均未做**,仍开放;等真实使用反馈再定。
-- [ ] 测试隔离注解(`@RefreshDatabase` / `@DatabaseTransactions` /
-  `@DatabaseMigrations` / `@WithoutDatabase`)与 `AppTest` 未实现;当前只有
-  默认事务回滚、`@WithoutRollback` 与 `FeatureTest`(§2.1、§5)。
+- [x] 测试隔离注解与 `AppTest`:**已实现** —— `@DatabaseTransactions`(默认,
+  显式声明)/ `@RefreshDatabase` / `@DatabaseMigrations` + `AppTest`
+  (§2.1、§5)。`@WithoutDatabase` **不做**:它要表达的「纯单元测试」已经有
+  更快更直接的写法(不继承基类),理由见 §2.1 与 `KNOWN-ISSUES.md`。
 - [ ] `Event.fakeExcept` 不提供,部分假实现用 `Event.fake(types)`(§4)。
   `Queue.fake()` / `Cache.fake()` / `Clock` / `UploadedFile.fake()`
   都已落地(边界见 `QueueFake` / `CacheFake` / `Clock` / `FakeUpload`

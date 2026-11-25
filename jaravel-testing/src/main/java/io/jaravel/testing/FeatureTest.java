@@ -78,8 +78,9 @@ import io.jaravel.spring.JaravelHandlerMapping;
 @SpringBootTest(
         classes = JaravelTestApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.MOCK)
-@org.junit.jupiter.api.extension.ExtendWith({SpringExtension.class, RollbackExtension.class})
-public abstract class FeatureTest {
+@org.junit.jupiter.api.extension.ExtendWith({
+        SpringExtension.class, DatabaseStrategyExtension.class, RollbackExtension.class})
+public abstract class FeatureTest implements DatabaseTestSupport {
 
     /*
      * 请求与断言方法都是 public,不是 protected。
@@ -636,51 +637,14 @@ public abstract class FeatureTest {
 
     // ================= 数据库断言 =================
 
-    public void assertDatabaseHas(String table, Map<String, ?> attributes) {
-        DatabaseAssertions.has(requireConnection(), table, attributes);
-    }
-
-    public void assertDatabaseMissing(String table, Map<String, ?> attributes) {
-        DatabaseAssertions.missing(requireConnection(), table, attributes);
-    }
-
-    public void assertDatabaseCount(String table, long expected) {
-        DatabaseAssertions.count(requireConnection(), table, expected);
-    }
-
-    public void assertDatabaseEmpty(String table) {
-        DatabaseAssertions.count(requireConnection(), table, 0);
-    }
-
-    public void assertSoftDeleted(io.jaravel.eloquent.Model<?> model) {
-        DatabaseAssertions.softDeleted(requireConnection(), model, true);
-    }
-
-    public void assertNotSoftDeleted(io.jaravel.eloquent.Model<?> model) {
-        DatabaseAssertions.softDeleted(requireConnection(), model, false);
-    }
-
-    public void assertModelExists(io.jaravel.eloquent.Model<?> model) {
-        DatabaseAssertions.modelExists(requireConnection(), model, true);
-    }
-
-    public void assertModelMissing(io.jaravel.eloquent.Model<?> model) {
-        DatabaseAssertions.modelExists(requireConnection(), model, false);
-    }
-
-    /**
-     * 断言这段代码只发了 N 条 SQL。
-     *
-     * <p>这是对 Laravel 的增强:**把 N+1 变成会让 CI 失败的回归测试**,
-     * 而不是靠人工 review 或上线后的数据库告警。
+    /*
+     * 断言本体在 DatabaseTestSupport 的默认方法里 —— AppTest 用的是同一份。
+     * 这里只负责「连接从哪来」。
      */
-    public void assertQueryCount(int expected, Runnable body) {
-        Queries.assertCount(requireConnection(), expected, body);
-    }
 
-    protected <T> T countingQueries(java.util.function.Supplier<T> body,
-                                    java.util.function.IntConsumer report) {
-        return Queries.counting(requireConnection(), body, report);
+    @Override
+    public io.jaravel.database.Connection testConnection() {
+        return requireConnection();
     }
 
     private io.jaravel.database.Connection requireConnection() {

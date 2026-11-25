@@ -30,6 +30,12 @@ public class EloquentUserProvider<M extends Model<M>> extends AbstractUserProvid
     private final Col<M, String> passwordColumn;       // 可为 null
     private final Col<M, String> rememberColumn;       // 可为 null
 
+    // 二步验证的四列(docs/08 §6.4)。全部可为 null = 这个模型不支持二步验证
+    private final Col<M, String> twoFactorSecretColumn;
+    private final Col<M, Boolean> twoFactorEnabledColumn;
+    private final Col<M, Object> twoFactorRecoveryColumn;
+    private final Col<M, ?> accountColumn;
+
     public EloquentUserProvider(String name, Class<M> modelType, HashManager hasher) {
         super(hasher);
         this.name = name;
@@ -45,6 +51,32 @@ public class EloquentUserProvider<M extends Model<M>> extends AbstractUserProvid
         this.rememberColumn = config.rememberToken().isBlank()
                 ? null
                 : optionalStringColumn(modelType, config.rememberToken());
+
+        // 二步验证:声明了就必须存在(与 password 同级 —— 写了列名却拼错,
+        // 症状会是「二维码扫了但验证码永远不对」,那比启动失败难查得多)
+        this.twoFactorSecretColumn = config.twoFactorSecret().isBlank()
+                ? null
+                : stringColumn(modelType, config.twoFactorSecret(), "twoFactorSecret");
+        this.twoFactorEnabledColumn = config.twoFactorEnabled().isBlank()
+                ? null
+                : booleanColumn(modelType, config.twoFactorEnabled());
+        this.twoFactorRecoveryColumn = config.twoFactorRecoveryCodes().isBlank()
+                ? null
+                : objectColumn(modelType, config.twoFactorRecoveryCodes(),
+                        "twoFactorRecoveryCodes");
+        this.accountColumn = config.account().isBlank()
+                ? null
+                : column(modelType, config.account(), "account");
+    }
+
+    @SuppressWarnings("unchecked")
+    private Col<M, Boolean> booleanColumn(Class<M> modelType, String name) {
+        return (Col<M, Boolean>) column(modelType, name, "twoFactorEnabled");
+    }
+
+    @SuppressWarnings("unchecked")
+    private Col<M, Object> objectColumn(Class<M> modelType, String name, String role) {
+        return (Col<M, Object>) column(modelType, name, role);
     }
 
     private static AuthModel resolveConfig(Class<?> modelType) {
@@ -210,8 +242,36 @@ public class EloquentUserProvider<M extends Model<M>> extends AbstractUserProvid
         return wrap(meta.type().cast(model));
     }
 
+    /**
+     * 不经过 guard 地包装一个模型。
+     *
+     * <p>给 {@code TwoFactorAuthenticatable.of(model)} 用:
+     * 「这个模型的二步验证列在哪」只取决于模型上的 {@code @AuthModel},
+     * 与当前激活的是哪个 guard 无关 —— 走 {@code Auth.guard().provider()}
+     * 的话,admin guard 激活时传进来一个 User 会报「provider 管的不是它」,
+     * 而那跟调用方想做的事毫无关系。
+     *
+     * <p>按模型类缓存:包装体本身与模型实例无关(列访问器是类级别的),
+     * 而这个方法会在控制器里被调用。
+     */
+    public static Authenticatable wrapStandalone(Model<?> model) {
+        return provider(model).wrap((Object) model);
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static EloquentUserProvider<?> provider(Model<?> model) {
+        return STANDALONE.computeIfAbsent(model.getClass(), type ->
+                new EloquentUserProvider("standalone", type,
+                        io.jaravel.auth.hash.Hash.manager()));
+    }
+
+    private static final Map<Class<?>, EloquentUserProvider<?>> STANDALONE =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     private Authenticatable wrap(M model) {
-        return new ModelUser<>(model, meta, identifierColumn, passwordColumn, rememberColumn);
+        return new ModelUser<>(model, meta, identifierColumn, passwordColumn, rememberColumn,
+                twoFactorSecretColumn, twoFactorEnabledColumn, twoFactorRecoveryColumn,
+                accountColumn);
     }
 
     @SuppressWarnings("unchecked")
@@ -233,8 +293,12 @@ public class EloquentUserProvider<M extends Model<M>> extends AbstractUserProvid
             ModelMeta<M> meta,
             Col<M, ?> identifierColumn,
             Col<M, String> passwordColumn,
-            Col<M, String> rememberColumn
-    ) implements Authenticatable {
+            Col<M, String> rememberColumn,
+            Col<M, String> twoFactorSecretColumn,
+            Col<M, Boolean> twoFactorEnabledColumn,
+            Col<M, Object> twoFactorRecoveryColumn,
+            Col<M, ?> accountColumn
+    ) implements Authenticatable, io.jaravel.auth.twofactor.TwoFactorAuthenticatable {
 
         @Override public Object getAuthIdentifier() {
             return identifierColumn.get(model);
@@ -274,6 +338,78 @@ public class EloquentUserProvider<M extends Model<M>> extends AbstractUserProvid
 
         @Override public Object unwrap() {
             return model;
+        }
+
+        // ================= 二步验证(docs/08 §6.4)=================
+        //
+        // 应用侧因此只需要三个 public 字段 + @AuthModel 里三个列名,
+        // 而不是七个纯样板的访问器。
+        //
+        // ⚠ 这些 setter 写的是**模型字段**,不落库 —— 与 setRememberToken
+        // 同一个契约(那一条由 provider 的 updateRememberToken 负责存)。
+        // 调用方在 enableTwoFactor / useRecoveryCode 之后要自己 save(),
+        // 那件事写在 TwoFactorChallenge 与 docs/08 §6.4 上。
+
+        @Override public String twoFactorSecret() {
+            return twoFactorSecretColumn == null ? null : twoFactorSecretColumn.get(model);
+        }
+
+        @Override public void twoFactorSecret(String secret) {
+            requireTwoFactor().set(model, secret);
+        }
+
+        @Override public boolean twoFactorEnabled() {
+            return twoFactorEnabledColumn != null
+                    && Boolean.TRUE.equals(twoFactorEnabledColumn.get(model));
+        }
+
+        @Override public void twoFactorEnabled(boolean enabled) {
+            requireTwoFactor();
+            if (twoFactorEnabledColumn == null) throw twoFactorNotConfigured("twoFactorEnabled");
+            twoFactorEnabledColumn.set(model, enabled);
+        }
+
+        @Override
+        @SuppressWarnings("unchecked")
+        public java.util.List<String> twoFactorRecoveryCodes() {
+            if (twoFactorRecoveryColumn == null) return java.util.List.of();
+            Object raw = twoFactorRecoveryColumn.get(model);
+            return raw instanceof java.util.List<?> list
+                    ? java.util.List.copyOf((java.util.List<String>) list)
+                    : java.util.List.of();
+        }
+
+        @Override public void twoFactorRecoveryCodes(java.util.List<String> hashedCodes) {
+            if (twoFactorRecoveryColumn == null) {
+                throw twoFactorNotConfigured("twoFactorRecoveryCodes");
+            }
+            twoFactorRecoveryColumn.set(model, hashedCodes);
+        }
+
+        /** 二维码上的账号 —— 没配 account 列时退回主键(能用,但验证器里不好认) */
+        @Override public String twoFactorAccount() {
+            Object value = accountColumn == null
+                    ? getAuthIdentifier()
+                    : accountColumn.get(model);
+            return String.valueOf(value);
+        }
+
+        private Col<M, String> requireTwoFactor() {
+            if (twoFactorSecretColumn == null) throw twoFactorNotConfigured("twoFactorSecret");
+            return twoFactorSecretColumn;
+        }
+
+        private IllegalStateException twoFactorNotConfigured(String attribute) {
+            return new IllegalStateException("""
+                    %s 的 @AuthModel 没有声明 %s 列 —— 这个模型不支持二步验证。
+                      加上三列(docs/08 §6.4):
+                        @AuthModel(password = "password",
+                                   twoFactorSecret = "two_factor_secret",
+                                   twoFactorEnabled = "two_factor_enabled",
+                                   twoFactorRecoveryCodes = "two_factor_recovery_codes")
+                      模型上对应三个 public 字段;恢复码那个配
+                      @Cast.Use(AsList.class)。"""
+                    .formatted(meta.type().getSimpleName(), attribute));
         }
 
         @Override public String toString() {

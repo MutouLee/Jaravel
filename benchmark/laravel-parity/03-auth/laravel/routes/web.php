@@ -3,6 +3,7 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\NoteController;
+use App\Http\Controllers\TwoFactorController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', [DashboardController::class, 'home'])->name('home');
@@ -35,7 +36,20 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/settings', [DashboardController::class, 'settings'])
         ->middleware(['verified', 'password.confirm'])->name('settings');
+
+    // 开启二步验证:要已登录
+    Route::get('/settings/two-factor', [TwoFactorController::class, 'setup'])
+        ->name('two-factor.setup');
+    Route::post('/settings/two-factor', [TwoFactorController::class, 'confirm'])
+        ->name('two-factor.confirm');
 });
+
+// 挑战:此刻还没登录,所以不能挂 auth;
+// throttle 不是可选的 —— 6 位数字只有一百万种
+Route::get('/two-factor', [TwoFactorController::class, 'challengePage'])
+    ->name('two-factor.challenge');
+Route::post('/two-factor', [TwoFactorController::class, 'challenge'])
+    ->middleware('throttle:5,1')->name('two-factor.verify');
 
 Route::prefix('api')->middleware('auth:sanctum')->group(function () {
     Route::get('/me', [DashboardController::class, 'me']);

@@ -182,6 +182,29 @@ public final class Auth {
                   (检查 middleware("auth:admin") 与 Auth.user(User.class) 是否匹配)。"""));
     }
 
+    /**
+     * 当前用户的二步验证入口(docs/08 §6.4)。
+     *
+     * <pre>{@code
+     * var setup = Auth.twoFactor().enableTwoFactor("记账本");
+     * Auth.userOrFail(User.class).save();     // 密钥落库
+     * }</pre>
+     *
+     * <p>★ 返回的是 provider **包装**出来的主体,不是模型 —— 所以应用的
+     * 模型不需要实现那七个访问器,只要在 {@code @AuthModel} 里写出列名
+     * (与 {@code Authenticatable} 同一套机制)。
+     *
+     * <p>包装体改的是**同一个模型实例**,所以改完照常
+     * {@code Auth.userOrFail(User.class).save()}:这里不替你落库,
+     * 因为一次设置流程往往要改好几样东西,替你 save 会多出几次写。
+     *
+     * @throws io.jaravel.http.HttpException 未登录(401)
+     */
+    public static io.jaravel.auth.twofactor.TwoFactorAuthenticatable twoFactor() {
+        return io.jaravel.auth.twofactor.TwoFactorAuthenticatable
+                .of(userOrFail(Object.class));
+    }
+
     public static Optional<Object> id() {
         return guard().id();
     }

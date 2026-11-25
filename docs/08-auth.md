@@ -245,6 +245,10 @@ public class User extends Model<User> implements Authenticatable {
 public class User extends Model<User> { ... }
 ```
 
+同一套机制也覆盖二步验证:`@AuthModel` 里写出
+`twoFactorSecret` / `twoFactorEnabled` / `twoFactorRecoveryCodes` / `account`
+四个列名,模型侧就只留字段(见 §6.4)。
+
 ### 3.2 时序攻击防护
 
 `retrieveByCredentials` 找不到用户时,**仍然执行一次哈希校验**(用一个固定的 dummy hash),使响应时间与「用户存在但密码错」一致,防止通过响应时间枚举已注册邮箱。这是 Laravel 做了的事,必须照做。
@@ -472,16 +476,48 @@ boolean ok = user.confirmTwoFactor(code);
 >   窗口边界与跨步长才测得到;
 > - 校验用常数时间比较;恢复码只存 SHA-256,输入接受大小写/连字符差异。
 >
-> 用户模型实现 `TwoFactorAuthenticatable` 的七个访问器,就得到
-> `user.enableTwoFactor()` / `user.confirmTwoFactor(code)` /
-> `user.verifyTwoFactor(code)` / `user.useRecoveryCode(code)` /
-> `user.disableTwoFactor()`。存储形状由应用决定(与 `Authenticatable`
-> 同一个取舍);`useRecoveryCode` 会**删掉用过的哈希** —— 同一个码不能用两次。
+> 用户侧的七个访问器**不用写** —— 列名写进 `@AuthModel`,provider 包装模型时
+> 就把它们补齐了(与 `Authenticatable` 同一套机制):
+>
+> ```java
+> @Model
+> @AuthModel(twoFactorSecret = "two_factor_secret",
+>            twoFactorEnabled = "two_factor_enabled",
+>            twoFactorRecoveryCodes = "two_factor_recovery_codes",
+>            account = "email")                       // 二维码里显示的账号标签
+> public class User extends UserBase {
+>     public String twoFactorSecret;                  // 模型侧只有字段
+>     public boolean twoFactorEnabled;
+>     @Cast.Use(AsList.class)
+>     public List<String> twoFactorRecoveryCodes = List.of();
+> }
+>
+> var setup = Auth.twoFactor().enableTwoFactor("记账本");   // 当前用户
+> Auth.userOrFail(User.class).save();                      // 这里不替你落库
+>
+> boolean ok = Auth.twoFactor().confirmTwoFactor(code);     // 确认后 enabled=true
+> TwoFactorAuthenticatable.of(user).verifyTwoFactor(code);  // 任意一个模型
+> ```
+>
+> 这一段是被 parity 门禁逼出来的:第一版要求模型实现那个接口,
+> 于是 `examples/auth` 的 `User` 上多了七个样板访问器 ——
+> 切片 03 的比值从 1.28 跳到 1.46,而样板正是这个框架要消灭的东西。
+>
+> 存储形状仍然由应用决定(与 `Authenticatable` 同一个取舍);
+> 形状特殊(比如密钥在另一张表)时照样可以让模型自己实现
+> `TwoFactorAuthenticatable` —— `of(...)` 优先认模型自己的实现。
+> `useRecoveryCode` 会**删掉用过的哈希** —— 同一个码不能用两次。
+>
+> `@AuthModel` 里写了列名却拼错时**启动即报错**(与 `password` 同级):
+> 症状否则会是「二维码扫了但验证码永远不对」,那比启动失败难查得多。
+> 一个列都没写、却有待验证挑战时,`TwoFactorChallenge.complete` **报错**
+> 而不是返回「验证码不对」—— 静默当成验证失败的话,用户看到的是
+> 「验证码不正确」,于是没人会去看代码。
 >
 > ### 二维码与挑战步骤:两件都做了(后补)
 >
 > ```java
-> String svg = user.twoFactorQrCodeSvg("记账本");    // 内联进模板
+> String svg = Auth.twoFactor().twoFactorQrCodeSvg("记账本");    // 内联进模板
 > ```
 >
 > **自己写了一个二维码编码器**(`QrCode`,字节模式 / 纠错 M / 版本 1–10)。
@@ -507,7 +543,7 @@ boolean ok = user.confirmTwoFactor(code);
 >
 > ```java
 > // 控制器:密码对了,但这个账号开了二步验证
-> if (user.twoFactorEnabled()) {
+> if (user.twoFactorEnabled) {
 >     TwoFactorChallenge.start(user, remember);
 >     return Redirect.to("/two-factor");          // 还没登录
 > }

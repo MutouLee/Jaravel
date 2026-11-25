@@ -134,23 +134,25 @@ public final class TwoFactorChallenge {
         var pending = pendingUser();
         if (pending.isEmpty()) return Optional.empty();
 
-        // ★ 要在**解包后**的对象上找这个接口。
-        //
-        // @AuthModel 的模型不实现 Authenticatable(provider 包装它),
-        // 所以 principal 本身通常不是 TwoFactorAuthenticatable ——
-        // 第一版只认 principal,于是示例里一上来就 ClassCastException 式的报错。
-        Object raw = pending.get().unwrap();
-        TwoFactorAuthenticatable user = raw instanceof TwoFactorAuthenticatable model
-                ? model
-                : pending.get() instanceof TwoFactorAuthenticatable principal ? principal : null;
+        // 模型自己实现了接口就用它,否则用 provider 包装出来的主体
+        // (@AuthModel 里写列名的那条路)。of(...) 两种都认
+        TwoFactorAuthenticatable user = TwoFactorAuthenticatable.of(pending.get());
 
-        if (user == null) {
+        // ★ 没有密钥时**报错**,而不是返回「验证码不对」。
+        //
+        // 走到这里说明有人对一个压根没开二步验证的账号调了 start(...),
+        // 或者 @AuthModel 里漏了那几列 —— 两种都是代码错误。
+        // 静默当成验证失败的话,用户看到的是「验证码不正确」,
+        // 于是没人会去看代码:那是一个登录彻底卡死、却指向用户的故障。
+        String secret = user.twoFactorSecret();
+        if (secret == null || secret.isBlank()) {
             throw new IllegalStateException("""
-                    用户模型 %s 没有实现 TwoFactorAuthenticatable,
-                      但会话里有一个待验证的二步验证挑战。
-                      要么让模型实现那个接口的七个访问器(docs/08 §6.4),
-                      要么不要调 TwoFactorChallenge.start(...)。"""
-                    .formatted(raw.getClass().getName()));
+                    会话里有一个待验证的二步验证挑战,但 %s 没有二步验证密钥。
+                      要么这个账号压根没开(那就不该调 TwoFactorChallenge.start(...)),
+                      要么 @AuthModel 里漏了 twoFactorSecret/twoFactorEnabled/
+                      twoFactorRecoveryCodes 那几列 —— 也可以让模型自己实现
+                      TwoFactorAuthenticatable 的七个访问器(docs/08 §6.4)。"""
+                    .formatted(pending.get().unwrap().getClass().getName()));
         }
 
         boolean ok = recovery ? user.useRecoveryCode(code) : user.verifyTwoFactor(code);

@@ -144,7 +144,7 @@ BLOG_LARAVEL = [
     ("表单页",    L2 + "resources/views/posts/form.blade.php"),
 ]
 
-# ---- 功能切片 03:认证(注册/登录/记住我/登出/密码重置/邮箱验证/Policy/API token) ----
+# ---- 功能切片 03:认证(注册/登录/记住我/登出/密码重置/邮箱验证/二步验证/Policy/API token) ----
 #
 # 这个切片**对 Jaravel 最不利**,因为认证是 Laravel 最省代码的地方:
 # 「加个登录 = 3 行」这句话在 Laravel 侧是字面意义上的真话。
@@ -166,9 +166,33 @@ BLOG_LARAVEL = [
 # 本切片没有视图:examples/auth 返回 JSON,Laravel 侧照样返回 JSON。
 # 于是比的是纯控制流 —— Java 的类型声明与 import 在这里完全没有遮掩,
 # 又是一处对 Jaravel 不利但更诚实的安排。
+#
+# 3. **二步验证两侧都算**(v0.5 加的功能面)。
+#    v0.5 给 examples/auth 加了二步验证,起初只在 Jaravel 一侧加 ——
+#    那个比值当场从 1.28 跳到 1.46,而它量的不是 API 设计,
+#    是「一边多做了一件事」。两种改法里选了这一条:
+#    Laravel 侧照样手写一份(TwoFactorController.php + web.php 的四条路由
+#    + User 的 hidden/casts + 迁移的三列),而不是把 Jaravel 侧的代码
+#    从被测清单里挪走 —— 挪走等于让门禁看不见真实成本。
+#
+#    TOTP 与二维码两侧都**不计入**:Jaravel 用框架自带的 Totp/QrCode,
+#    Laravel 用 composer 包(pragmarx/google2fa + bacon/qr-code)。
+#    计入任一侧的实现都是在比「谁把库写在仓库里」。
+#
+#    ⚠ 一笔要记下来的账:Laravel 另有 **Fortify**,装上它这一整套
+#    (含注册/登录/密码重置)几乎不用写应用代码。本切片从一开始就是
+#    「两侧都手写控制器」的口径(Laravel 侧也没用 Breeze/Fortify),
+#    二步验证照同一口径处理 —— 但这意味着本切片量的是
+#    「手写时各自要写多少」,不是「装一个首方包之后要写多少」。
+#    Jaravel 没有 Fortify 的对应物,这是一处真实差距,写在这里不藏。
+#
+# 4. **Jaravel 侧多算一个文件**:TwoFactorRoutes.java。
+#    Laravel 的四条路由写在已计入的 web.php 里,而 Jaravel 的路由
+#    要一个实现 RouteDefinition 的类 —— 那个类声明的开销照实计入。
 
 AUTH_JARAVEL = [
     ("路由",      "examples/auth/src/main/java/routes/WebRoutes.java"),
+    ("路由",      "examples/auth/src/main/java/routes/TwoFactorRoutes.java"),
     ("认证配置",  "examples/auth/src/main/resources/config/auth.yml"),
     ("模型",      "examples/auth/src/main/java/app/models/User.java"),
     ("模型",      "examples/auth/src/main/java/app/models/Note.java"),
@@ -177,6 +201,7 @@ AUTH_JARAVEL = [
     ("表单请求",  "examples/auth/src/main/java/app/http/requests/ResetPasswordRequest.java"),
     ("Policy",    "examples/auth/src/main/java/app/policies/NotePolicy.java"),
     ("控制器",    "examples/auth/src/main/java/app/http/controllers/AuthController.java"),
+    ("控制器",    "examples/auth/src/main/java/app/http/controllers/TwoFactorController.java"),
     ("控制器",    "examples/auth/src/main/java/app/http/controllers/DashboardController.java"),
     ("控制器",    "examples/auth/src/main/java/app/http/controllers/NoteController.java"),
     ("迁移",      "examples/auth/src/main/java/database/migrations/m2026_10_29_100100/CreateAuthTables.java"),
@@ -192,6 +217,7 @@ AUTH_LARAVEL = [
     ("表单请求",  L3 + "app/Http/Requests/ResetPasswordRequest.php"),
     ("Policy",    L3 + "app/Policies/NotePolicy.php"),
     ("控制器",    L3 + "app/Http/Controllers/AuthController.php"),
+    ("控制器",    L3 + "app/Http/Controllers/TwoFactorController.php"),
     ("控制器",    L3 + "app/Http/Controllers/DashboardController.php"),
     ("控制器",    L3 + "app/Http/Controllers/NoteController.php"),
     ("迁移",      L3 + "database/migrations/2026_10_29_100100_create_auth_tables.php"),

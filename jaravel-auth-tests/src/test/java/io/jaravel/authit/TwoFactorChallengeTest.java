@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import io.jaravel.auth.Auth;
 import io.jaravel.auth.twofactor.Totp;
+import io.jaravel.auth.twofactor.TwoFactorAuthenticatable;
 import io.jaravel.auth.twofactor.TwoFactorChallenge;
 import io.jaravel.authit.models.Admin;
 import io.jaravel.authit.models.User;
@@ -26,17 +27,25 @@ import io.jaravel.support.Clock;
  */
 class TwoFactorChallengeTest extends AuthTestBase {
 
+    /**
+     * 开好二步验证的用户。
+     *
+     * <p>模型上**没有**那七个访问器 —— 列名写在 {@code @AuthModel} 里,
+     * {@code TwoFactorAuthenticatable.of(model)} 取到 provider 的包装体
+     * (它改的是同一个模型实例,所以接着 save 就落库)。
+     */
     private User enabled(String email) {
         User user = createUser(email, "secret");
-        var setup = user.enableTwoFactor("Jaravel", email);
-        user.twoFactorEnabled(true);
+        var twoFactor = TwoFactorAuthenticatable.of(user);
+
+        twoFactor.enableTwoFactor("Jaravel");
+        twoFactor.twoFactorEnabled(true);
         user.save();
-        user.twoFactorSecret(setup.secret());
         return user;
     }
 
     private String code(User user) {
-        return Totp.code(user.twoFactorSecret(), Clock.now());
+        return Totp.code(TwoFactorAuthenticatable.of(user).twoFactorSecret(), Clock.now());
     }
 
     @Test
@@ -112,8 +121,9 @@ class TwoFactorChallengeTest extends AuthTestBase {
     @DisplayName("★ 恢复码能通过,而且用掉就不能再用")
     void recoveryCodeIsConsumed() {
         User user = createUser("recovery@example.com", "secret");
-        var setup = user.enableTwoFactor("Jaravel", user.email);
-        user.twoFactorEnabled(true);
+        var twoFactor = TwoFactorAuthenticatable.of(user);
+        var setup = twoFactor.enableTwoFactor("Jaravel");
+        twoFactor.twoFactorEnabled(true);
         user.save();
         String recoveryCode = setup.recoveryCodes().get(0);
 
@@ -128,7 +138,7 @@ class TwoFactorChallengeTest extends AuthTestBase {
         });
 
         assertThat(User.query().whereEmail("recovery@example.com").first()
-                        .orElseThrow().twoFactorRecoveryCodes())
+                        .orElseThrow().twoFactorRecoveryCodes)
                 .as("十个里用掉一个")
                 .hasSize(9);
 
@@ -194,20 +204,23 @@ class TwoFactorChallengeTest extends AuthTestBase {
     }
 
     @Test
-    @DisplayName("★ 模型没实现 TwoFactorAuthenticatable:报错说清要改什么")
-    void modelWithoutTheInterfaceFailsLoudly() {
+    @DisplayName("★ 模型没配二步验证的列:报错说清要改什么")
+    void modelWithoutTwoFactorColumnsFailsLoudly() {
         Admin admin = createAdmin("admin@example.com", "secret");
         var session = newSession();
 
         inRequest(session, () -> {
-            // admin guard 的 provider 查的是 admins 表
+            // admin guard 的 provider 查的是 admins 表;Admin 的 @AuthModel
+            // 里没写二步验证那几列 —— 于是「没有密钥」
             Auth.shouldUse("admin");
             TwoFactorChallenge.start(admin, false);
 
+            // 报错而不是返回「验证码不对」:静默失败的话用户看到的是
+            // 「验证码不正确」,没人会去看代码
             assertThatThrownBy(() -> TwoFactorChallenge.complete("123456"))
                     .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("TwoFactorAuthenticatable")
-                    .hasMessageContaining("七个访问器");
+                    .hasMessageContaining("没有二步验证密钥")
+                    .hasMessageContaining("@AuthModel");
         });
     }
 }

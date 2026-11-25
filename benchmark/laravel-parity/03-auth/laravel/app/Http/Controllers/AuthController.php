@@ -38,8 +38,21 @@ class AuthController extends Controller
             ]);
         }
 
-        if (Auth::attempt($request->credentials(), $request->boolean('remember'))) {
+        if (Auth::once($request->credentials())) {
             RateLimiter::clear($key);
+            $user = Auth::user();
+
+            // 开了二步验证:此刻**不登录**,只在会话里记下待验证
+            if ($user->two_factor_enabled) {
+                $request->session()->regenerate();
+                $request->session()->put('two-factor.pending', $user->getKey());
+                $request->session()->put('two-factor.remember',
+                    $request->boolean('remember'));
+
+                return redirect('/two-factor');
+            }
+
+            Auth::login($user, $request->boolean('remember'));
             $request->session()->regenerate();
 
             return redirect()->intended('/dashboard');

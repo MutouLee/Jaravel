@@ -24,13 +24,14 @@ import io.jaravel.eloquent.annotations.Model;
  * 所以这道防线放在模型上而不是靠每个控制器自觉。
  */
 @Model
-@AuthModel
+@AuthModel(twoFactorSecret = "two_factor_secret",
+           twoFactorEnabled = "two_factor_enabled",
+           twoFactorRecoveryCodes = "two_factor_recovery_codes",
+           account = "email")
 @MustVerifyEmail
 @Fillable({"name", "email"})
 @HasMany(name = "notes", target = Note.class)
-public class User extends UserBase
-        implements io.jaravel.notifications.Notifiable,
-                   io.jaravel.auth.twofactor.TwoFactorAuthenticatable {
+public class User extends UserBase implements io.jaravel.notifications.Notifiable {
 
     @Id public Long id;
     public String name;
@@ -38,8 +39,8 @@ public class User extends UserBase
 
     // ================= 二步验证(docs/08 §6.4)=================
     //
-    // 七个访问器在下面。存储形状由应用决定(与 Authenticatable 同一个取舍):
-    // 框架不规定「密钥存哪一列、恢复码怎么序列化」—— 它只认这七个方法。
+    // ★ 只有三个字段 —— 那七个访问器由 @AuthModel 的列名声明代掉了
+    // (与 Authenticatable 同一套机制:provider 包装模型)。
     //
     // 两个 @Hidden 的理由与 password 完全一样,而且更要紧:
     // secret 等同于密码(拿到它就能生成验证码),恢复码是绕过二步验证的后门
@@ -98,24 +99,4 @@ public class User extends UserBase
     public boolean hasVerifiedEmail() {
         return emailVerifiedAt != null;
     }
-
-    // ================= TwoFactorAuthenticatable =================
-
-    @Override public String twoFactorSecret()                { return twoFactorSecret; }
-    @Override public void twoFactorSecret(String secret)     { twoFactorSecret = secret; }
-    @Override public boolean twoFactorEnabled()              { return twoFactorEnabled; }
-    @Override public void twoFactorEnabled(boolean enabled)  { twoFactorEnabled = enabled; }
-
-    @Override
-    public java.util.List<String> twoFactorRecoveryCodes() {
-        return twoFactorRecoveryCodes == null ? java.util.List.of() : twoFactorRecoveryCodes;
-    }
-
-    @Override
-    public void twoFactorRecoveryCodes(java.util.List<String> hashedCodes) {
-        twoFactorRecoveryCodes = hashedCodes;
-    }
-
-    /** 二维码里显示的账号 —— 用邮箱,验证器里就能分清是哪个账号 */
-    @Override public String twoFactorAccount() { return email; }
 }

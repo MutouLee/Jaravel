@@ -73,6 +73,17 @@
   是**空的**(实现写错也会通过);改成真 HTTP 之后它立刻抓出两个真 bug:
   控制器把包装体强转成 `User`(500),以及测试助手漏刷 CSRF 令牌导致登出
   静默失败(419)。
+  **七个访问器不用写**:列名写进 `@AuthModel`
+  (`twoFactorSecret` / `twoFactorEnabled` / `twoFactorRecoveryCodes` / `account`),
+  provider 包装模型时补齐 —— 入口是 `Auth.twoFactor()` 与
+  `TwoFactorAuthenticatable.of(model)`,模型侧只留三个字段。
+  这一改是 **parity 门禁逼出来的**:第一版要求模型实现那个接口,
+  切片 03 的比值当场从 1.28 跳到 1.46,而样板正是这个框架要消灭的东西。
+  同时把二步验证加进了**切片 03 的 Laravel 侧**(手写一份
+  `TwoFactorController.php` + 四条路由 + hidden/casts + 迁移三列):
+  只在一边加功能的话,那个比值量的不再是 API 设计。
+  一个列都没配却有待验证挑战时 `complete` **报错**而不是返回「验证码不对」
+  —— 静默失败的话用户看到的是「验证码不正确」,于是没人会去看代码。
 - **`@aware`:子组件从外层组件继承 prop**(docs/04 §1.7)——
   `<x-menu color="purple">` 里的每个 `<x-menu-item>` 不用再写一遍 color。
   解析顺序是**显式 > 外层 > 默认值**,实现是「一个默认 null 的参数 + 一行解析」:

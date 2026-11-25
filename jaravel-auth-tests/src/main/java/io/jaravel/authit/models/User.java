@@ -7,10 +7,13 @@ import io.jaravel.eloquent.annotations.Id;
 import io.jaravel.eloquent.annotations.Model;
 
 @Model
-@AuthModel(password = "password", rememberToken = "remember_token")
+@AuthModel(password = "password", rememberToken = "remember_token",
+           twoFactorSecret = "two_factor_secret",
+           twoFactorEnabled = "two_factor_enabled",
+           twoFactorRecoveryCodes = "two_factor_recovery_codes",
+           account = "email")
 @MustVerifyEmail
-public class User extends UserBase
-        implements io.jaravel.auth.twofactor.TwoFactorAuthenticatable {
+public class User extends UserBase {
 
     @Id public Long id;
     public String email;
@@ -21,29 +24,12 @@ public class User extends UserBase
     public java.time.Instant createdAt;
     public java.time.Instant updatedAt;
 
-    // 二步验证(docs/08 §6.4)。两个 @Hidden 的理由与 password 一样:
-    // secret 等同于密码,恢复码是绕过二步验证的后门
+    // 二步验证(docs/08 §6.4):三个字段 + @AuthModel 里的三个列名,
+    // 访问器由 provider 的包装体提供。两个 @Hidden 的理由与 password 一样
     @Hidden public String twoFactorSecret;
     public boolean twoFactorEnabled;
 
     @Hidden
     @io.jaravel.eloquent.meta.Cast.Use(io.jaravel.eloquent.cast.AsList.class)
     public java.util.List<String> twoFactorRecoveryCodes = java.util.List.of();
-
-    @Override public String twoFactorSecret()                { return twoFactorSecret; }
-    @Override public void twoFactorSecret(String secret)     { twoFactorSecret = secret; }
-    @Override public boolean twoFactorEnabled()              { return twoFactorEnabled; }
-    @Override public void twoFactorEnabled(boolean enabled)  { twoFactorEnabled = enabled; }
-
-    @Override
-    public java.util.List<String> twoFactorRecoveryCodes() {
-        return twoFactorRecoveryCodes == null ? java.util.List.of() : twoFactorRecoveryCodes;
-    }
-
-    @Override
-    public void twoFactorRecoveryCodes(java.util.List<String> hashedCodes) {
-        twoFactorRecoveryCodes = hashedCodes;
-    }
-
-    @Override public String twoFactorAccount() { return email; }
 }

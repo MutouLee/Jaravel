@@ -15,11 +15,16 @@ class User extends Authenticatable implements MustVerifyEmailContract
 
     protected $fillable = ['name', 'email'];
 
-    protected $hidden = ['password', 'remember_token'];
+    protected $hidden = ['password', 'remember_token',
+        'two_factor_secret', 'two_factor_recovery_codes'];
 
     protected function casts(): array
     {
-        return ['email_verified_at' => 'datetime'];
+        return [
+            'email_verified_at' => 'datetime',
+            'two_factor_enabled' => 'boolean',
+            'two_factor_recovery_codes' => 'array',
+        ];
     }
 
     public function notes(): HasMany

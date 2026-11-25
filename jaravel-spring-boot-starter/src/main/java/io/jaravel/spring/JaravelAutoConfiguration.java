@@ -405,7 +405,13 @@ public class JaravelAutoConfiguration {
                 "META-INF/jaravel/jblade-precompiled") != null;
 
         if (!fromJar && java.nio.file.Files.isDirectory(viewRoot)) {
-            return JbladeEngine.forDirectory(viewRoot, classDir, getClass().getClassLoader());
+            // 共享而不是每个上下文新建一个:两个引擎共用同一个 class 目录时,
+            // 后建的会覆盖文件,而先建的那个 ClassLoader 还没加载惰性的内部类
+            // (@fragment / slot 的匿名 Content)—— 症状是一个
+            // NoClassDefFoundError,消息里只有 XxxGenerated$1。
+            // 理由全文见 JbladeEngine.sharedForDirectory
+            return JbladeEngine.sharedForDirectory(viewRoot, classDir,
+                    getClass().getClassLoader());
         }
         if (precompiled) {
             return JbladeEngine.forPrecompiled(getClass().getClassLoader());

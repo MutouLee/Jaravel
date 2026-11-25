@@ -49,6 +49,10 @@ public final class JbladeEngine implements ViewEngine {
 
     public static final String SUFFIX = ".jblade.html";
 
+    /** 「生成类加载不到」的消息:只有一个类名,斜杠或点号形式,通常带 {@code $1} */
+    private static final Pattern MISSING_GENERATED =
+            Pattern.compile("gg[./]jte[./]generated[./][\\w./$]+");
+
     /** jte 报错里的位置,形如 {@code error at posts/index.jte:6} */
     private static final Pattern JTE_LOCATION =
             Pattern.compile("(?:error at|Failed to compile template, error at)\\s+(\\S+?):(\\d+)");
@@ -80,6 +84,55 @@ public final class JbladeEngine implements ViewEngine {
     /** 开发模式:从目录读取,文件变更自动重编译 */
     public static JbladeEngine forDirectory(Path viewRoot, Path classDirectory, ClassLoader parent) {
         return new JbladeEngine(new DirectoryRepository(viewRoot, parent), classDirectory, parent, true);
+    }
+
+    /**
+     * 同一个 (视图目录, class 目录, 类加载器) 只建**一个**引擎,JVM 内共享。
+     *
+     * <h2>★ 为什么必须共享</h2>
+     * <p>运行时模式下 jte 把模板编译成 {@code .class} 文件写进 class 目录,
+     * 再用自己的 ClassLoader 从那里加载。一个 JVM 里出现**两个**引擎
+     * (两个 Spring 上下文:测试里的默认上下文 + 热重启验收那种自己起
+     * 容器的测试)时,它们共用同一个目录却各有一个 ClassLoader ——
+     * 后建的那个重新编译并覆盖文件,而先建的那个 ClassLoader 已经加载了
+     * 外层类、还没加载**惰性的内部类**。
+     *
+     * <p>于是第一次执行到 {@code @fragment} / 组件 slot 那种生成匿名
+     * {@code Content} 子类的地方,它去加载 {@code XxxGenerated$1} ——
+     * 文件刚被另一个引擎重写过,报 {@code NoClassDefFoundError},
+     * 而消息里只有一个 {@code gg/jte/generated/ondemand/…$1} 的类名,
+     * 与「模板哪里写错了」毫无关系。
+     *
+     * <p>这个故障是 CI(Linux)上出现、本地复现不了的那一类:它取决于
+     * 文件覆盖与惰性加载的相对时序,Windows 上的文件锁恰好把它盖住了。
+     * 所以修法不是重试或加锁,而是**让同一份模板在一个 JVM 里只有一个
+     * 引擎与一个 ClassLoader**。
+     *
+     * <p>顺带的好处:多上下文的测试套件不再反复编译同一批模板。
+     *
+     * <p>键里带类加载器:热重载换掉 app 类加载器之后必须重新编译
+     * (旧引擎编出来的类引用的是旧加载器里的类型)。
+     */
+    public static JbladeEngine sharedForDirectory(Path viewRoot, Path classDirectory,
+                                                  ClassLoader parent) {
+        var key = new SharedKey(viewRoot.toAbsolutePath().normalize(),
+                classDirectory.toAbsolutePath().normalize(),
+                parent == null ? JbladeEngine.class.getClassLoader() : parent);
+        return SHARED.computeIfAbsent(key,
+                k -> forDirectory(k.viewRoot(), k.classDirectory(), k.parent()));
+    }
+
+    private record SharedKey(Path viewRoot, Path classDirectory, ClassLoader parent) {}
+
+    private static final Map<SharedKey, JbladeEngine> SHARED = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * 清掉共享缓存 —— 只给测试用。
+     *
+     * <p>生产里不需要:进程退出即消失,而热重载换加载器时键本来就变了。
+     */
+    public static void clearShared() {
+        SHARED.clear();
     }
 
     /** 生产模式:从 classpath 读取 */
@@ -273,7 +326,55 @@ public final class JbladeEngine implements ViewEngine {
                 .suggestionFor(message, candidateNames(failingView, source, sourceLine))
                 .orElse(null);
 
+        String missingClass = missingGeneratedClass(e, message);
+        if (missingClass != null) {
+            // 这条消息原本只有一个类名(gg/jte/generated/ondemand/…$1),
+            // 与「模板哪里写错了」毫无关系 —— 它是模板类文件被另一个引擎
+            // 覆盖后,惰性加载内部类时炸的。见 sharedForDirectory 的注释
+            cleaned = """
+                    模板的生成类加载失败:%s
+
+                      这不是模板的语法问题。生成类的**内部类**(@fragment 与组件
+                      slot 会生成匿名 Content 子类)是惰性加载的,而它所在的
+                      .class 文件被重新编译覆盖过。
+                      常见原因:一个 JVM 里有两个视图引擎共用同一个
+                      view.compiled 目录(两个 Spring 上下文各建了一个)。
+                      修复:走 JbladeEngine.sharedForDirectory(框架默认已经这样做),
+                      或给两个上下文配不同的 view.compiled;
+                      手工恢复:删掉 %s 重跑。"""
+                    .formatted(missingClass, "target/jblade-classes");
+            suggestion = null;
+        }
+
         return new JbladeException(failingView + SUFFIX, sourceLine, cleaned, snippet, suggestion, e);
+    }
+
+    /**
+     * 这个异常是「生成类(或它的内部类)加载不到」吗 —— 返回那个类名。
+     *
+     * <p>{@code NoClassDefFoundError} 的 message 就是一个斜杠形式的类名,
+     * 没有任何别的信息。不认出来的话,用户看到的错误页标题是 JbladeException、
+     * 正文是一行类名,而真正该做的事(清掉编译目录 / 共享引擎)无从得知。
+     */
+    private static String missingGeneratedClass(Throwable error, String assembledMessage) {
+        for (Throwable t = error; t != null; t = t.getCause()) {
+            if (!(t instanceof NoClassDefFoundError) && !(t instanceof ClassNotFoundException)) {
+                continue;
+            }
+            String message = t.getMessage();
+            if (message != null && message.contains("gg.jte.generated")
+                    || message != null && message.contains("gg/jte/generated")) {
+                return message;
+            }
+        }
+
+        // 异常类型被包掉时退一步看消息本身:jte 的 TemplateException 有时
+        // 只带着那个类名,而我们要认的恰好是「消息里只有一个生成类的名字」
+        if (assembledMessage != null) {
+            var matcher = MISSING_GENERATED.matcher(assembledMessage);
+            if (matcher.find()) return matcher.group();
+        }
+        return null;
     }
 
     /**

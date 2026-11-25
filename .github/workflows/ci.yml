@@ -210,6 +210,42 @@ jobs:
           mkdir -p target
           mvn -B -ntp test -pl jaravel-queue,jaravel-cache             2>&1 | tee target/ci-brokers.log
 
+      # 与 test 作业同一套:注解可以匿名读,artifact 要登录。
+      # ★ 这个作业此前**没有**这一步,于是它失败时能看到的只有
+      # 「Process completed with exit code 1」—— 一条什么都没说的注解,
+      # 而本地又没有这些服务可以复现。实打实踩到过一次。
+      - name: broker failures summary
+        if: failure()
+        run: |
+          emit() {
+            local title="$1" body="$2"
+            body=${body//\%/%25}
+            body=${body//$'\r'/}
+            body=${body//$'\n'/%0A}
+            echo "::error title=${title}::${body}"
+          }
+
+          files=$(grep -rlE 'Failures: [1-9]|Errors: [1-9]' --include='*.txt' . 2>/dev/null | head -n 8 || true)
+          if [ -n "$files" ]; then
+            while IFS= read -r f; do
+              emit "$(basename "$f")" "$(head -n 120 "$f")"
+            done <<< "$files"
+          fi
+
+          if [ -f target/ci-brokers.log ]; then
+            body=$(grep -E -B 1 -A 25 '<<< (FAILURE|ERROR)!' target/ci-brokers.log | head -n 250 || true)
+            if [ -n "$body" ]; then
+              emit "maven-failures" "$body"
+            else
+              emit "maven" "$(tail -n 120 target/ci-brokers.log)"
+            fi
+
+            warnings=$(grep -E '^\[jaravel\]' target/ci-brokers.log | head -n 40 || true)
+            if [ -n "$warnings" ]; then emit "jaravel-warnings" "$warnings"; fi
+          else
+            emit "no-log" "target/ci-brokers.log 不存在 —— 失败发生在跑测试之前(等端口/安装构件那几步)"
+          fi
+
       - name: upload surefire reports
         if: failure()
         uses: actions/upload-artifact@v7

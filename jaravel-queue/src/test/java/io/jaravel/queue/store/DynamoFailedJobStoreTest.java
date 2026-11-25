@@ -89,7 +89,7 @@ class DynamoFailedJobStoreTest {
         assertThat(found.uuid()).isEqualTo("u1");
         assertThat(found.connection()).isEqualTo("sqs");
         assertThat(found.queue()).isEqualTo("default");
-        assertThat(found.displayName()).isEqualTo("app.jobs.TestJob");
+        assertThat(found.displayName()).isEqualTo("test");   // forTest 的 displayName
         assertThat(found.payload()).contains("u1");
         assertThat(found.exception()).contains("boom").contains("IllegalStateException");
         assertThat(found.failedAt()).isNotNull();

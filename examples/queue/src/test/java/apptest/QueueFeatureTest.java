@@ -130,9 +130,13 @@ class QueueFeatureTest extends FeatureTest {
         var worker = new QueueWorker(queues, failedJobs, invoker,
                 WorkerOptions.onQueues(queueNames)
                         .withConcurrency(1)
-                        // 比任务执行时间长 —— 小于的话任务会在还在跑的时候
-                        // 被再取一遍
-                        .withRetryAfter(Duration.ofSeconds(30))
+                        // 比任务执行时间长(这些任务是毫秒级),又**远小于
+                        // DRAIN_BUDGET** —— 两者相等是一个真陷阱:
+                        // 一条被预留住却没跑完的任务(worker 在它在飞的时候
+                        // 退出了)要等保留超时才能被第二次取到,而那时
+                        // drainUntil 的预算也刚好用完,于是失败消息是
+                        // 「回调没触发」,看起来像批次回调坏了
+                        .withRetryAfter(Duration.ofSeconds(5))
                         .withSleep(Duration.ofMillis(5))
                         .withStopWhenEmpty(true)
                         .withMaxJobs(50));
@@ -187,10 +191,13 @@ class QueueFeatureTest extends FeatureTest {
         var failed = db.table("failed_jobs").get();
 
         return "jobs=" + rows.stream()
-                    .map(row -> "%s@%s attempts=%s available_at=%s".formatted(
+                    // reserved_at 必须在这里:一条「待取」与一条「被某个
+                    // worker 预留住了」的任务,在其它列上长得完全一样,
+                    // 而修法毫不相干(前者是没人消费,后者是要等保留超时)
+                    .map(row -> "%s@%s attempts=%s available_at=%s reserved_at=%s".formatted(
                             displayNameIn(String.valueOf(row.get("payload"))),
                             row.get("queue"), row.get("attempts"),
-                            row.get("available_at")))
+                            row.get("available_at"), row.get("reserved_at")))
                     .toList()
              + " · sizes=" + java.util.Arrays.stream(queueNames)
                     .map(q -> q + "=" + Queue.size(q)).toList()
@@ -234,6 +241,15 @@ class QueueFeatureTest extends FeatureTest {
                 return;
             }
             drain(queueName);
+        }
+
+        // 预算用完还没成立:**把现场打出来**,但仍然让调用方的断言去失败
+        // (断言不放松 —— 那条注释在上面)。不打的话 CI 上看到的只有
+        // 「list 里没有 finally:…」,而「队列里还剩什么、是不是被预留住了」
+        // 这两个唯一有用的信息都不在日志里
+        if (!done.getAsBoolean()) {
+            System.err.printf("[test] drainUntil(%s) %s 内没等到条件成立。现场:%s%n",
+                    queueName, DRAIN_BUDGET, queueDiagnostics(queueName));
         }
     }
 
@@ -949,7 +965,9 @@ class QueueFeatureTest extends FeatureTest {
             assertThat(ledger.countStartingWith("then:"))
                     .as("「给所有人发汇总邮件」的回调跑两遍是用户可见的事故")
                     .isEqualTo(1);
-            assertThat(ledger.entries()).contains("then:4/4:失败0", "finally:4/4:失败0");
+            assertThat(ledger.entries())
+                    .as("现场:%s", batchDiagnostics(batchId))
+                    .contains("then:4/4:失败0", "finally:4/4:失败0");
         }
 
         @Test

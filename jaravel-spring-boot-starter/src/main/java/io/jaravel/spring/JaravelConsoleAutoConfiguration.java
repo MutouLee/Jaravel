@@ -47,6 +47,10 @@ import io.jaravel.spring.commands.MigrateFreshCommand;
 import io.jaravel.spring.commands.MigrateRollbackCommand;
 import io.jaravel.spring.commands.MigrateStatusCommand;
 import io.jaravel.spring.commands.QueueFailedCommand;
+import io.jaravel.spring.commands.QueueForgetCommand;
+import io.jaravel.spring.commands.QueueMonitorCommand;
+import io.jaravel.spring.commands.QueuePruneBatchesCommand;
+import io.jaravel.spring.commands.QueueRestartCommand;
 import io.jaravel.spring.commands.QueueFlushCommand;
 import io.jaravel.spring.commands.QueueRetryCommand;
 import io.jaravel.spring.commands.QueueWorkCommand;
@@ -215,12 +219,22 @@ public class JaravelConsoleAutoConfiguration {
         Supplier<JobSerializer> serializer = () -> beans.getBean(JobSerializer.class);
         Supplier<Scheduler> scheduler = () -> beans.getBean(Scheduler.class);
 
+        Supplier<io.jaravel.cache.Repository> cache =
+                () -> beans.getBean(io.jaravel.cache.CacheManager.class).store();
+        Supplier<io.jaravel.queue.BatchRepository> batches =
+                () -> beans.getBean(io.jaravel.queue.BatchRepository.class);
+
         registry.register(QueueWorkCommand.class,
-                        () -> new QueueWorkCommand(queues, failedJobs, invoker))
+                        () -> new QueueWorkCommand(queues, failedJobs, invoker, cache))
                 .register(QueueFailedCommand.class, () -> new QueueFailedCommand(failedJobs))
                 .register(QueueRetryCommand.class,
                         () -> new QueueRetryCommand(queues, failedJobs, serializer))
                 .register(QueueFlushCommand.class, () -> new QueueFlushCommand(failedJobs))
+                .register(QueueForgetCommand.class, () -> new QueueForgetCommand(failedJobs))
+                .register(QueueRestartCommand.class, () -> new QueueRestartCommand(cache))
+                .register(QueueMonitorCommand.class, () -> new QueueMonitorCommand(queues))
+                .register(QueuePruneBatchesCommand.class,
+                        () -> new QueuePruneBatchesCommand(batches))
                 .register(ScheduleListCommand.class, () -> new ScheduleListCommand(scheduler))
                 .register(ScheduleRunCommand.class, () -> new ScheduleRunCommand(scheduler))
                 .register(ScheduleTestCommand.class, () -> new ScheduleTestCommand(scheduler))

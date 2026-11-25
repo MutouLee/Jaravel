@@ -15,10 +15,9 @@
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| `queue:restart` / `queue:monitor` / `queue:prune-batches` / `queue:forget` | 未实现 | v0.7 起登记 |
 | `install:*`(除 `install:auth`) | 未实现 | 只有 auth |
-| `optimize` 的四种缓存 | 未实现 | |
-| `analyze:*` | 未实现 | |
+| `optimize` 的四种缓存 | **不做** | 那四种缓存里三种在 Jaravel 已经是**构建期产物**(view 由 `compile-views` 预编译成 class、event 由 APT 生成索引、config 就是启动时读几个 YAML),第四种 route **做不到** —— Laravel 能序列化路由是因为 handler 是 `"Ctrl@index"` 字符串,而这里是方法引用。于是 `optimize` 只会是一条什么都没做的命令(docs/13 §10) |
+| `analyze:*` | **不做** | N+1 由 `preventLazyLoading`(开发期直接报错)+ `assertQueryCount`(CI 回归)覆盖,边界由 `jaravel-archunit-rules` 覆盖,运行期误配由 `doctor` 覆盖 —— 三者都是阻断式的,而静态扫描器给出的清单会被忽略(docs/13 §10) |
 
 ## 视图 / 前端
 

@@ -98,6 +98,9 @@ public final class QueueWorker {
 
     private final List<Listener> listeners = new CopyOnWriteArrayList<>();
 
+    /** {@code queue:restart} 的信号来源。null = 不看(默认) */
+    private RestartSignal restartSignal;
+
     public QueueWorker(QueueManager queues, FailedJobStore failedJobs,
                        JobInvoker invoker, WorkerOptions options) {
         this(queues, failedJobs, invoker, options, queues.defaultConnectionName());
@@ -127,6 +130,21 @@ public final class QueueWorker {
         return this;
     }
 
+    /**
+     * 盯住 {@code jaravel queue:restart} 的信号(docs/13 §2.4)。
+     *
+     * <p>每处理完一个任务回到主循环时看一眼:信号比自己启动的时刻新就
+     * **优雅退出** —— 等在跑的任务做完,不再取新的。
+     *
+     * <p>默认**不看**:它要一个共享缓存,而一个 {@code Queue.fake()} 的测试
+     * 或者没配 redis 的单机应用不该因此多一次缓存读。
+     * starter 的 {@code queue:work} 接上它(见 {@link RestartSignal})。
+     */
+    public QueueWorker watchingRestartSignal(RestartSignal signal) {
+        this.restartSignal = signal;
+        return this;
+    }
+
     // ================= 主循环 =================
 
     /**
@@ -145,9 +163,21 @@ public final class QueueWorker {
                 ? Clock.realNow().plus(options.maxTime())
                 : null;
 
+        // 启动时刻:只有比它更新的重启请求才算(一次部署里发的信号不该
+        // 把这次部署之后起来的 worker 又重启一遍)。用真实时间,与 deadline 同理
+        Instant startedAt = Clock.realNow();
+
         try {
             while (!stopping.get()) {
                 if (reachedLimits(deadline)) break;
+
+                // ★ 在**任务之间**退出 —— 这是唯一的安全点。
+                // 在任务中途退出会让一条已经取走的任务等到保留超时才被
+                // 别人接手,用户看到的是「提交了但什么都没发生」
+                if (restartSignal != null && restartSignal.requestedAfter(startedAt)) {
+                    listeners.forEach(Listener::onRestartRequested);
+                    break;
+                }
 
                 var job = nextJob();
                 if (job.isEmpty()) {
@@ -1024,6 +1054,15 @@ public final class QueueWorker {
 
         /** 批次全部有结果了。这个回调**只会被调一次**,见 markFinished */
         default void onBatchFinished(Batch batch) {}
+
+        /**
+         * 收到 {@code queue:restart} 的信号,这个 worker 即将优雅退出。
+         *
+         * <p>给的是「要退出了」而不是「已退出」:在跑的任务还要等它们做完。
+         * {@code queue:work} 用它打一行字 —— 否则终端上只会看到命令突然
+         * 结束,看起来像崩了。
+         */
+        default void onRestartRequested() {}
     }
 
     /** 超时。见 {@link QueueWorker} 类注释里的语义限制。 */

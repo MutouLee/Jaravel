@@ -60,6 +60,8 @@ class QueueScheduleCommandsTest {
     private Connection connection;
     private QueueManager queues;
     private FailedJobStore failedJobs;
+    private io.jaravel.cache.Repository cache;
+    private io.jaravel.queue.BatchRepository batches;
     private JobSerializer serializer;
     private Schedule schedule;
     private Scheduler scheduler;
@@ -93,6 +95,18 @@ class QueueScheduleCommandsTest {
                         exception text not null,
                         failed_at text not null)
                     """);
+            st.execute("""
+                    create table job_batches (
+                        id text primary key, name text null,
+                        total_jobs integer not null, pending_jobs integer not null,
+                        failed_jobs integer not null default 0,
+                        failed_job_ids text not null default '',
+                        allows_failures integer not null default 0,
+                        then_callback text null, catch_callback text null,
+                        finally_callback text null,
+                        created_at text not null, cancelled_at text null,
+                        finished_at text null)
+                    """);
         }
 
         connection = new JdbcConnection(nonClosing(jdbc), new SqliteGrammar());
@@ -114,9 +128,19 @@ class QueueScheduleCommandsTest {
         scheduler = new Scheduler(schedule);
 
         var invoker = new JobInvoker(Application::make);
+        // 共享缓存的替身:queue:restart 的信号与 worker 要看同一个 store
+        cache = new io.jaravel.cache.Repository(new io.jaravel.cache.store.ArrayStore());
+        batches = new io.jaravel.queue.store.DatabaseBatchRepository(connection, serializer);
+
         Artisan.use(new CommandRegistry()
                 .register(QueueWorkCommand.class,
-                        () -> new QueueWorkCommand(() -> queues, () -> failedJobs, () -> invoker))
+                        () -> new QueueWorkCommand(() -> queues, () -> failedJobs, () -> invoker,
+                                () -> cache))
+                .register(QueueForgetCommand.class, () -> new QueueForgetCommand(() -> failedJobs))
+                .register(QueueRestartCommand.class, () -> new QueueRestartCommand(() -> cache))
+                .register(QueueMonitorCommand.class, () -> new QueueMonitorCommand(() -> queues))
+                .register(QueuePruneBatchesCommand.class,
+                        () -> new QueuePruneBatchesCommand(() -> batches))
                 .register(QueueFailedCommand.class, () -> new QueueFailedCommand(() -> failedJobs))
                 .register(QueueRetryCommand.class,
                         () -> new QueueRetryCommand(() -> queues, () -> failedJobs, () -> serializer))
@@ -340,6 +364,190 @@ class QueueScheduleCommandsTest {
     }
 
     // ================= schedule:* =================
+
+    // ================= queue:forget / restart / monitor / prune-batches =================
+
+    @Nested
+    @DisplayName("queue:forget")
+    class Forget {
+
+        private long recordOneFailure() {
+            Queue.dispatch(new FailsAlways());
+            Artisan.call("queue:work", "--stop-when-empty");
+            return failedJobs.all().get(0).id();
+        }
+
+        @Test
+        @DisplayName("删掉指定的那一条,并先把它是什么打出来")
+        void forgetsOne() {
+            long id = recordOneFailure();
+
+            assertThat(Artisan.call("queue:forget", String.valueOf(id))).isZero();
+            assertThat(Artisan.output())
+                    .as("id 是从表上抄的,抄错一位就删错一条 —— 所以先显示要删的是什么")
+                    .contains("将删掉")
+                    .contains("FailsAlways");
+            assertThat(failedJobs.count()).isZero();
+        }
+
+        @Test
+        @DisplayName("★ id 不存在时报错并指路,而不是静默成功")
+        void unknownId() {
+            assertThat(Artisan.call("queue:forget", "99999")).isEqualTo(1);
+            assertThat(Artisan.output()).contains("没有 id 为 99999").contains("queue:failed");
+        }
+
+        @Test
+        @DisplayName("id 不是数字时说清它该是什么")
+        void notANumber() {
+            assertThat(Artisan.call("queue:forget", "all")).isEqualTo(1);
+            assertThat(Artisan.output())
+                    .as("queue:retry 收 all,queue:forget 不收 —— 那是 queue:flush")
+                    .contains("queue:flush");
+        }
+    }
+
+    @Nested
+    @DisplayName("queue:restart")
+    class Restart {
+
+        @Test
+        @DisplayName("写下信号,并说清「谁把 worker 拉起来」")
+        void broadcasts() {
+            assertThat(Artisan.call("queue:restart")).isZero();
+
+            assertThat(new io.jaravel.queue.RestartSignal(cache).lastBroadcastAt()).isPresent();
+            assertThat(Artisan.output())
+                    .as("""
+                            这条命令只让 worker 退出。不说清重启是进程管理器的事,
+                            一次部署就会把队列彻底停掉 —— 而监控上只看到积压在涨。""")
+                    .contains("进程管理器");
+        }
+
+        @Test
+        @DisplayName("★ 缓存驱动不共享时警告 —— 否则命令「成功」而什么都不会发生")
+        void warnsOnLocalCache() {
+            assertThat(Artisan.call("queue:restart")).isZero();
+
+            assertThat(Artisan.output())
+                    .as("array 驱动在进程内,信号传不到独立部署的 worker")
+                    .contains("进程内");
+        }
+
+        @Test
+        @DisplayName("★ worker 收到信号后在任务之间退出,不打断在跑的任务")
+        void workerStopsBetweenJobs() throws Exception {
+            for (int i = 0; i < 3; i++) Queue.dispatch(new Succeeds(i));
+
+            // 不给 --stop-when-empty / --once:这个 worker 只能靠信号退出。
+            // 退不出来的表现是线程 join 超时
+            var exit = new java.util.concurrent.atomic.AtomicInteger(-1);
+            // 输出要在**那个线程里**读:Artisan 的捕获是按线程的,
+            // 从主线程读 output() 会拿到空串
+            var out = new java.util.concurrent.atomic.AtomicReference<>("");
+            var worker = new Thread(() -> {
+                exit.set(Artisan.call("queue:work"));
+                out.set(Artisan.output());
+            }, "worker");
+            worker.start();
+
+            // 等它真的开始干活再发信号 —— 信号只认**比 worker 启动更新**的请求
+            // (否则一个刚起来的 worker 会被上一次部署的旧信号立刻杀掉)
+            long deadline = System.nanoTime() + Duration.ofSeconds(15).toNanos();
+            while (LOG.isEmpty() && System.nanoTime() < deadline) {
+                Thread.sleep(20);
+            }
+            assertThat(LOG).as("worker 没能在 15 秒内处理掉任何任务").isNotEmpty();
+
+            // 直接写信号,不经过命令:在 worker 跑着的时候再调一条命令,
+            // 两边的输出会搅在一起。命令本身的行为由上面两条测试覆盖
+            new io.jaravel.queue.RestartSignal(cache).broadcast();
+
+            worker.join(Duration.ofSeconds(20).toMillis());
+            assertThat(worker.isAlive())
+                    .as("收到信号之后应当在下一次回到主循环时退出")
+                    .isFalse();
+            assertThat(exit.get()).isZero();
+            assertThat(out.get()).contains("收到 queue:restart");
+        }
+
+        @Test
+        @DisplayName("--without-restart-signal 的 worker 不理它")
+        void optOut() {
+            Queue.dispatch(new Succeeds(1));
+            Artisan.call("queue:restart");
+
+            assertThat(Artisan.call("queue:work", "--once", "--without-restart-signal")).isZero();
+            assertThat(LOG).hasSize(1);
+        }
+    }
+
+    @Nested
+    @DisplayName("queue:monitor")
+    class Monitor {
+
+        @Test
+        @DisplayName("列出长度,阈值之内退出码 0")
+        void withinThreshold() {
+            Queue.dispatch(new Succeeds(1));
+
+            assertThat(Artisan.call("queue:monitor", "database:default", "--max=10")).isZero();
+            assertThat(Artisan.output()).contains("database:default").contains("正常");
+        }
+
+        @Test
+        @DisplayName("★ 超阈值时退出码 1 —— 能接告警的东西认的是退出码")
+        void overThreshold() {
+            Queue.dispatch(new Succeeds(1));
+            Queue.dispatch(new Succeeds(2));
+
+            assertThat(Artisan.call("queue:monitor", "database:default", "--max=1"))
+                    .as("只打一行字的命令等于把判断留给人去看终端,而没人会一直看")
+                    .isEqualTo(1);
+            assertThat(Artisan.output()).contains("积压").contains("超过阈值");
+        }
+
+        @Test
+        @DisplayName("省略连接名用默认连接;多个队列逗号分隔")
+        void defaultsAndMultiple() {
+            assertThat(Artisan.call("queue:monitor", "default,high")).isZero();
+            assertThat(Artisan.output())
+                    .contains("database:default")
+                    .contains("database:high");
+        }
+
+        @Test
+        @DisplayName("★ 连接名写错时报错并列出已注册的 —— 不能以「0 积压」结束")
+        void unknownConnection() {
+            assertThat(Artisan.call("queue:monitor", "redis:default")).isEqualTo(1);
+            assertThat(Artisan.output())
+                    .as("假阴性是监控最糟的结果")
+                    .contains("已注册的连接");
+        }
+    }
+
+    @Nested
+    @DisplayName("queue:prune-batches")
+    class PruneBatches {
+
+        @Test
+        @DisplayName("没有可清的批次时如实说")
+        void nothingToPrune() {
+            assertThat(Artisan.call("queue:prune-batches", "--hours=48")).isZero();
+            assertThat(Artisan.output()).contains("没有可清的批次");
+        }
+
+        @Test
+        @DisplayName("★ 未结束的批次不清 —— 删了它的回调就永远不执行")
+        void keepsUnfinishedBatches() {
+            batches.create("batch-1", "导入", 3, false, null, null, null);
+
+            assertThat(Artisan.call("queue:prune-batches", "--hours=0")).isZero();
+            assertThat(batches.find("batch-1"))
+                    .as("按创建时刻删会把一个跑了三天的长批次删掉,症状是「批次卡在 99%」")
+                    .isPresent();
+        }
+    }
 
     @Nested
     @DisplayName("schedule:*")

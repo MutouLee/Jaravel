@@ -38,6 +38,7 @@
 > | `route:list --json`(给脚本用) | §2.5 |
 > | **`db:show`** · **`db:table`**(JDBC 元数据) | §2.5 |
 > | `queue:work` · `queue:failed` · `queue:retry` · `queue:flush` | §2.4 |
+> | **`queue:restart`** · **`queue:forget`** · **`queue:monitor`** · **`queue:prune-batches`** | §2.4 |
 > | `schedule:list` · `schedule:run` · `schedule:test` · `schedule:clear-mutexes` | §2.4 |
 > | **`doctor`**(7 项检查 + `--fix`) | §2.6 |
 > | `key:generate`(离线) | §2.5 |
@@ -46,12 +47,7 @@
 > | **一次性命令模式** `-Djaravel.command=…` | starter(§1 下方) |
 > | **`wrapper:install`**:生成 `jaravelw` / `jaravelw.cmd` | §1.1 下方 |
 >
-> **未实现**:native 二进制、`optimize` 这一批(它要 config / route /
-> view / event 四种缓存,而那四种缓存本身都还没有 —— 一条
-> 「什么都缓存了」而实际什么都没做的命令比没有这条命令更糟;
-> **v0.6 也没有做**,见 §10 的待决项)、
-> `queue:restart` / `queue:monitor` /
-> `schedule:work`、`analyze:*`、
+> **未实现**:native 二进制、`schedule:work`、
 > 其余 `make:*`(见下面那条注记)、
 > `@Command` 的 APT 索引(理由见 §3.2 —— 它真正的用处是 native 的
 > reflect-config,排在 v0.9)、§4.3 的生成后处理、
@@ -658,6 +654,44 @@ jaravel up
 > 失败记录是重试的唯一依据,删了就回不去了(不可交互时默认答不)。
 > 只想清旧的用 `--older-than=7`。
 >
+> ### queue:restart / forget / monitor / prune-batches(后补)
+>
+> **`queue:restart` 是一个信号,不是一次 kill。** 它往缓存里写一个时间戳,
+> worker 每处理完一个任务回到主循环时看一眼,比自己启动的时刻新就优雅退出。
+>
+> 为什么不能直接杀进程:正在跑的那个任务已经从队列里取走了,被打断之后要等
+> **保留超时**(retryAfter)才会被别人重新取到 —— 中间那段时间里用户看到的是
+> 「提交了但什么都没发生」,更糟的情况是任务做了一半的副作用(扣了款没发货)。
+> 所以退出必须由 worker 自己在任务之间那个安全点做。
+>
+> **只认比 worker 启动更新的信号** —— 否则一个刚起来的 worker 会被上一次部署
+> 留下的旧信号立刻杀掉,表现是「worker 起不来」。
+>
+> **⚠ 它只负责退出,不负责再起来。** 把 worker 拉起来是进程管理器的事
+> (systemd 的 `Restart=always` / k8s / supervisor)。没有它的话这条命令的效果
+> 是「队列停了」,而监控上看到的只是积压在涨 —— 所以这句话在**每次执行的输出里**
+> 都打出来,不只写在文档里。缓存驱动不共享(caffeine / array)时还会多警告一句:
+> 信号传不到独立部署的 worker,那时命令会「成功」而什么都不会发生。
+> `queue:work` 默认就盯着这个信号,`--without-restart-signal` 可以关掉。
+>
+> **`queue:monitor` 用退出码说话**:超过 `--max` 就以 1 结束。
+> 能接告警的东西(调度器的失败通知、CI、k8s 探针、cron 的 MAILTO)认的都是
+> 退出码;只打一行字等于把判断留给人去看终端,而没人会一直看。两种情况都把表
+> 打出来 —— 退出码说「有没有问题」,表说「问题在哪」。连接名写错时**报错**
+> 而不是显示 0:假阴性是监控最糟的结果。
+>
+> 它只回答「积压了吗」。一个空队列可能是 worker 很健康,也可能是**没有 worker**
+> —— 后者要看 worker 自己的心跳,这条命令不假装覆盖它。
+>
+> **`queue:prune-batches` 只删已结束的批次**(按结束时刻,不是创建时刻)。
+> 按创建时刻删会把一个跑了三天的长批次删掉,于是它的回调永远不执行,
+> 症状是「批次卡在 99%」—— 看起来像队列丢了任务。要清一个卡住的批次,
+> 先 `cancel()`(取消也是一种结束)。
+>
+> **`queue:forget <id>` 删之前先把那条记录打出来**:id 是从 `queue:failed`
+> 的表上抄的,抄错一位就删错一条,而失败记录是重试的唯一依据。
+> 它只收数字 —— `all` 是 `queue:flush` 的事,这一点写在报错里。
+>
 > **`schedule:list` 把「乐观估计」标出来**:下次运行时间只按 cron 算,
 > 约束要到那一刻才判。不标的话一个 `weekdays()` 的任务会显示一个周六的
 > 时间,而那会让人以为约束没生效。
@@ -674,8 +708,8 @@ jaravel config:show database            # 解析后的最终配置(含 .env 覆�
 jaravel config:cache · config:clear
 jaravel view:cache · view:clear
 jaravel event:list · event:cache
-jaravel optimize                        # config + route + view + event 全量缓存
-jaravel optimize:clear
+jaravel optimize                        # ❌ 不做 —— 四种缓存里三种已是构建期产物,route 的序列化在 Java 里做不到(§10)
+jaravel optimize:clear                  # ❌ 同上
 jaravel about                           # 环境、版本、驱动、缓存状态总览
 jaravel key:generate                    # 生成 APP_KEY(v0.5 已实现,**离线命令**)
 jaravel storage:link                    # 创建 public/storage 符号链接
@@ -885,8 +919,8 @@ jaravel inspire                         # 彩蛋,保留 Laravel 传统
 ```bash
 jaravel doctor                          # 健康检查:配置/数据库/缓存/队列连通性 + 常见误配
 jaravel doctor --fix                    # 自动修复可修复项
-jaravel analyze:n-plus-one              # 扫描代码中可能的 N+1(未 with 的关联访问)
-jaravel analyze:unused                  # 未使用的路由/视图/语言键
+jaravel analyze:n-plus-one              # ❌ 不做 —— N+1 由 preventLazyLoading(阻断)+ assertQueryCount(回归测试)覆盖(§10)
+jaravel analyze:unused                  # ❌ 不做 —— 清单会被忽略,阻断不会
 jaravel parity                          # 与等价 Laravel 代码的行数比(见 DESIGN.md §9)
 ```
 
@@ -1480,14 +1514,34 @@ CLI 与 Maven 不是竞争关系:
 **仍然待决:**
 
 - [ ] `jaravel new` 的项目模板分发:内嵌在 CLI 二进制里(体积大但离线可用)还是从 GitHub 下载(需网络)?倾向内嵌 minimal + 可选下载完整 preset。
-- [ ] `analyze:n-plus-one` 的静态分析可靠性:误报率高会让人关掉它。倾向以运行时数据为主(开发期收集查询模式),静态分析为辅。
-- [ ] `optimize` 这一组要先有四种缓存(config / route / view / event)。
-      在那之前**不提供** `optimize` —— 一条「什么都缓存了」而实际什么都没做的
-      命令比没有这条命令更糟。v0.6 已过,仍未排期;按收益排序,
-      config / route 先做(view 的预编译在 v0.9)。
+- [x] `analyze:*`:**不做**。原先的担心(「误报率高会让人关掉它」)在实现
+      另外三件事之后变成了「不需要它」:N+1 由
+      `Eloquent.preventLazyLoading`(开发期直接报错,不是扫描后提示)与
+      `assertQueryCount`(把 N+1 变成会让 CI 失败的回归测试)覆盖;
+      架构与边界问题由 `jaravel-archunit-rules` 覆盖;运行期误配由 `doctor`
+      覆盖。这三者都是**阻断式**的,而一个静态扫描器给出的是一张清单 ——
+      清单会被忽略,阻断不会。登记在 `KNOWN-ISSUES.md`。
+- [x] `optimize` 这一组:**不做**,而且理由比「还没排期」更硬 ——
+      Laravel 的那四种缓存在 Jaravel 里有三种**已经是构建期产物**,
+      剩下那一种做不了:
+      - **view** —— `jaravel-maven-plugin` 的 `compile-views` 在构建期把模板
+        编译成 class(比运行期缓存更彻底:生产包里连 javac 都不需要);
+      - **event** —— 监听器由 `jaravel-events-processor` 在编译期生成索引,
+        没有「运行时扫包」这一步可缓存;
+      - **config** —— 配置是启动时读 YAML 进一个 Map。Java 解析几个 YAML
+        是毫秒级,缓存它省下的时间小于读缓存文件本身;
+      - **route** —— **做不到**。Laravel 能把路由序列化成文件,是因为它的
+        handler 是 `"PostController@index"` 这种字符串;Jaravel 的是
+        `PostController::index` 方法引用,序列化不了。
+      于是 `optimize` 在这里只会是一条「什么都缓存了」而实际什么都没做的命令
+      —— 那比没有这条命令更糟。登记在 `KNOWN-ISSUES.md`。
 - [ ] v0.6 遗留的「再议」项(本文件之外):`CacheKey<T>`(docs/09)、
       工厂类型化 setter(docs/14)、`approximatePaginate`(docs/05)
       —— **v0.7 也没有做**,都没有真实使用反馈支撑;等有生产需求再做。
-- [ ] §7 的 `jaravel-maven-plugin` 整节仍是设计:那个插件不存在。
-      `compile-views` / `verify-migrations` / `openapi` 三个 goal 都还没有,
-      而 §8 原先写的 `mvn jaravel:run` 就是它造成的一条假逃生口(已修)。
+- [ ] §7 的 `jaravel-maven-plugin`:**插件存在了**,但只有两个 goal ——
+      `compile-views`(模板预编译,示例与 `jaravel new` 的模板都在用)与
+      `native-config`(CLI 的 native 反射配置)。
+      §7 里写的 `verify-migrations` / `openapi` 两个 goal 仍然没有:
+      前者的能力在 `migrate:status` 与 `doctor` 里,后者在 `openapi:generate`
+      —— 都是命令而不是构建步骤。要不要再搬进构建期没有定论。
+      (这一条此前写的是「那个插件不存在」,已经过期 —— 它在 v0.9 就落地了。)

@@ -47,6 +47,37 @@
   端到端:`examples/auth` 的演示页加了一个真的
   `DELETE /notes/{id}` 路由与 POST + `@method('DELETE')` 的表单,
   并钉住「伪装后仍要 CSRF(少令牌 419)」与「伪装不绕过授权(别人的 403)」。
+- **`queue:restart` / `queue:forget` / `queue:monitor` / `queue:prune-batches`**
+  (docs/13 §2.4、docs/10 §2)—— v0.7 起登记在 KNOWN-ISSUES 的那四条。
+  **`queue:restart` 是一个信号,不是一次 kill**:往缓存里写一个时间戳,
+  worker 每处理完一个任务回到主循环时看一眼,比自己启动的时刻新就优雅退出
+  (`queue:work` 默认就盯着它,`--without-restart-signal` 可关)。
+  不能直接杀进程:正在跑的那个任务已经从队列里取走了,被打断之后要等**保留
+  超时**才会被别人重新取到 —— 中间那段时间里用户看到的是「提交了但什么都
+  没发生」,更糟的是任务做了一半的副作用(扣了款没发货)。
+  只认比 worker 启动更新的信号,否则一个刚起来的 worker 会被上一次部署留下的
+  旧信号立刻杀掉。**它只负责退出,不负责再起来** —— 这句话打在每次执行的
+  输出里,不只写在文档里:没有进程管理器的话这条命令的效果是「队列停了」,
+  而监控上只看到积压在涨。缓存驱动不共享时再警告一句(信号传不到独立部署的
+  worker,那时命令会「成功」而什么都不会发生)。
+  `queue:monitor` **用退出码说话**:超过 `--max` 以 1 结束 —— 能接告警的东西
+  (调度器的失败通知、CI、探针、cron 的 MAILTO)认的都是退出码,只打一行字
+  等于把判断留给人去看终端。连接名写错时报错而不是显示 0:假阴性是监控最糟的
+  结果。它只回答「积压了吗」,不假装回答「worker 活着吗」。
+  `queue:prune-batches` **只删已结束的批次**(按结束时刻):按创建时刻删会把
+  一个跑了三天的长批次删掉,于是回调永远不执行,症状是「批次卡在 99%」。
+  `queue:forget <id>` 删之前先把那条记录打出来(id 是从表上抄的,抄错一位就
+  删错一条),只收数字 —— `all` 是 `queue:flush` 的事,写在报错里。
+- **`optimize` 与 `analyze:*` 定为不做**,理由从「还没排期」换成了结论
+  (docs/13 §10):Laravel 的四种缓存在 Jaravel 里三种已经是**构建期产物**
+  (view 由 `compile-views` 编成 class、event 由 APT 生成索引、config 就是启动
+  时读几个 YAML),第四种 route **做不到** —— Laravel 能序列化路由是因为
+  handler 是 `"Ctrl@index"` 字符串,这里是方法引用。
+  `analyze:*` 则被三件已有的事覆盖且都更强:`preventLazyLoading`(开发期直接
+  报错)、`assertQueryCount`(CI 回归)、`jaravel-archunit-rules`、`doctor` ——
+  它们是阻断式的,而静态扫描器给出的清单会被忽略。
+  顺带修掉 docs/13 §10 一条过期项:它写着「jaravel-maven-plugin 不存在」,
+  而那个插件 v0.9 就落地了(`compile-views` / `native-config` 两个 goal)。
 - **默认安全响应头**(docs/03 §2.6,SECURITY-AUDIT §6 的「未做」之一)——
   不写配置就有三个头:`X-Content-Type-Options: nosniff`、
   `X-Frame-Options: SAMEORIGIN`、`Referrer-Policy: strict-origin-when-cross-origin`。

@@ -65,16 +65,23 @@ public final class QueueWorkCommand extends RuntimeCommand {
     @Option(names = "--connection", description = "用哪个队列连接")
     String connection;
 
+    @Option(names = "--without-restart-signal",
+            description = "不理 queue:restart 的信号(默认是理的)")
+    boolean withoutRestartSignal;
+
     private final Supplier<QueueManager> queues;
     private final Supplier<FailedJobStore> failedJobs;
     private final Supplier<JobInvoker> invoker;
+    private final Supplier<io.jaravel.cache.Repository> cache;
 
     public QueueWorkCommand(Supplier<QueueManager> queues,
                             Supplier<FailedJobStore> failedJobs,
-                            Supplier<JobInvoker> invoker) {
+                            Supplier<JobInvoker> invoker,
+                            Supplier<io.jaravel.cache.Repository> cache) {
         this.queues = queues;
         this.failedJobs = failedJobs;
         this.invoker = invoker;
+        this.cache = cache;
     }
 
     @Override
@@ -86,6 +93,7 @@ public final class QueueWorkCommand extends RuntimeCommand {
 
         var worker = new QueueWorker(manager, failedJobs.get(), invoker.get(),
                                      options(manager), connectionName);
+        watchRestartSignal(worker);
         worker.addListener(new QueueWorker.Listener() {
             @Override public void onSuccess(QueuedJob job) {
                 success(job.displayName());
@@ -95,6 +103,11 @@ public final class QueueWorkCommand extends RuntimeCommand {
             }
             @Override public void onRetry(QueuedJob job, Throwable cause, Duration delay) {
                 warn(job.displayName() + " 失败,将在 " + delay.toSeconds() + "s 后重试");
+            }
+            @Override public void onRestartRequested() {
+                // 必须打这一行:不打的话终端上看到的是命令突然结束,
+                // 而那与「崩了」长得一样
+                comment("收到 queue:restart,做完手上的任务就退出。");
             }
         });
 
@@ -112,6 +125,25 @@ public final class QueueWorkCommand extends RuntimeCommand {
         // 「跑完了」与「跑完了但有任务失败」对 CI 与监控是两件事,
         // 而失败任务已经进了 failed 表 —— 退出码 0 会让那张表没人去看。
         return worker.failedCount() > 0 ? 1 : 0;
+    }
+
+    /**
+     * 接上 {@code queue:restart} 的信号(docs/13 §2.4)。
+     *
+     * <p>**默认接**:一个部署流程里 {@code queue:restart} 发了信号而 worker
+     * 不理,症状是「换了代码但旧 worker 还在跑旧代码」—— 那正是这个机制
+     * 要解决的事,所以它不该需要再加一个开关。
+     *
+     * <p>取不到缓存时静默跳过:没配缓存的应用照样要能起 worker。
+     * 那时 {@code queue:restart} 自己会警告(它检查驱动是否共享)。
+     */
+    private void watchRestartSignal(QueueWorker worker) {
+        if (withoutRestartSignal) return;
+        try {
+            worker.watchingRestartSignal(new io.jaravel.queue.RestartSignal(cache.get()));
+        } catch (RuntimeException noCache) {
+            // 没有缓存 bean —— 不是错误,只是没有这个能力
+        }
     }
 
     private WorkerOptions options(QueueManager manager) {

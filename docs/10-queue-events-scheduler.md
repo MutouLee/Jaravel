@@ -242,10 +242,14 @@ jaravel queue:prune-batches --hours=48
 > **v0.5:`queue:work` / `queue:failed` / `queue:retry` / `queue:flush` 已实现**
 > (docs/13 §2.4 记了几处语义)。
 >
-> 上面这段里**还没有的**:`queue:listen`(每任务独立进程 —— 在 Java 里
-> 它的用途被热重载覆盖了,优先级低)、`queue:restart`、`queue:monitor`、
-> `queue:prune-batches`、`queue:forget`(`queue:flush --older-than` 覆盖了
-> 大部分需要)。
+> `queue:restart` / `queue:forget` / `queue:monitor` / `queue:prune-batches`
+> **也已落地**(语义见 docs/13 §2.4)。`queue:restart` 是一个写在缓存里的
+> 信号:worker 在**任务之间**那个安全点自己退出,而不是被 kill ——
+> 打断一个已经取走的任务会让它等到保留超时才被接手,用户看到的是
+> 「提交了但什么都没发生」。把 worker 重新拉起来是进程管理器的事。
+>
+> 上面这段里**还没有的**:只剩 `queue:listen`(每任务独立进程 —— 在 Java 里
+> 它的用途被热重载覆盖了,优先级低)。
 >
 > 另外 `--tries` / `--timeout` **不在命令上** —— 它们是**任务自己的属性**
 > (`ShouldQueue.tries()` / `timeout()`,见 §1.1)。Laravel 在命令上也提供
@@ -332,9 +336,9 @@ QueueWorker
 > `queue.batching.driver: redis` 配上即可,不再退化到
 > `LoggingFailedJobStore`。
 >
-> **还没做**:
-> - RabbitMQ / Kafka / SQS 驱动;
-> - `queue:restart` / `queue:monitor` / `queue:prune-batches`。
+> **还没做**(写于 v0.4,后续版本已补上大部分):
+> - RabbitMQ(v0.7 已实现)/ SQS(v0.7 已实现)/ Kafka(**不做**,见 KNOWN-ISSUES);
+> - `queue:restart` / `queue:monitor` / `queue:prune-batches` —— 这三条本切片已实现。
 >
 > **测试**:`RedisQueueTest`(9 条)+ `RedisFailedJobStoreTest`(4 条)+
 > `RedisBatchRepositoryTest`(7 条)。给了

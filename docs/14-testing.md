@@ -396,6 +396,14 @@ Post p4 = Post.factory().forAuthor(author).createOne();          // 用现成的
 Post p5 = Post.factory().forAuthor(Author.factory()).createOne(); // 现建一个
 Author a = Author.factory().hasPosts(3).createOne();              // 子对象
 Author b = Author.factory().hasPosts(3, f -> f.draft()).createOne();
+
+// 中间表(@BelongsToMany)
+Post p6 = Post.factory().hasTags(2).createOne();                  // 现造两个标签挂上
+Post p7 = Post.factory().hasTags(2, f -> f.featured()).createOne();
+Post p8 = Post.factory().hasTags(1, f -> {},
+        Map.of("primary", true)).createOne();                     // 中间表上的额外字段
+Post p9 = Post.factory().withTags(tagA, tagB).createOne();        // 挂**已有**的
+Post p10 = Post.factory().withTags(tags.toList()).createOne();
 ```
 
 骨架由 `jaravel make:factory PostFactory --model=Post` 生成(docs/13 §2.2)。
@@ -422,7 +430,8 @@ docs/14 §10 为此登记过三个版本的开放项(「`definition()` 缺少类
 | 名字与机制方法冲突的列(`count` / `state` / `seed` …) | 不生成 setter,但报 warning | 生成了会变成重载歧义:`.count(3)` 既可能是「造 3 条」也可能是「把 count 列设成 3」,javac 按参数类型挑一个 —— 最糟的一种静默行为 |
 | `forAuthor(Author.factory())` 只建**一个**父对象 | count 条共用 | 「同一个作者的三篇」是这句话想说的事;要「各自一个父对象」在 `state` 里自己建 |
 | `hasPosts(n)` 只对 `create()` 有效 | 是 | `make()` 不入库,父对象没有主键,子对象的外键无处可填 |
-| 中间表关联(`@BelongsToMany`)没有构建器 | 不生成 | 它的外键不在模型字段上。挂接走 `post.tags().attach(...)`(`BlogSeeder` 里有写法),登记在 KNOWN-ISSUES.md |
+| 中间表关联(`@BelongsToMany`) | `hasTags(n[, tweak][, pivot])` / `withTags(…)` | 它没有「模型上的外键」,挂接走关联访问器(`owner.tags().attach(ids, pivot)`)。因此它多一个参数(中间表上的额外字段),也因此**需要关联访问器存在** —— 关掉 `generateHelpers` 的模型跳过这个构建器,而不是生成一段引用 `owner.tags()` 的死代码 |
+| through / 多态关联 | 不生成 | `@HasManyThrough` 是**三方**关系,一个 `hasXxx(int)` 的签名表达不了「中间那层从哪来」;多态的目标类型由一列决定,造数据时得先说清造哪一种。两者的写法留给 `afterCreating` |
 | UNIQUE 列的默认值 | 用户负责 | `Faker` 的序号是**每个实例一份**(固定种子要可复现,就不能有跨实例共享状态),于是两次 `Post.factory()` 的 slug 都从 `slug-1` 开始。`examples/blog` 的 `PostFactory` 里有这件事的写法:加一个进程级计数器 |
 
 ### 3.3 不需要工厂类的那条路还在
@@ -992,6 +1001,9 @@ public class JaravelExtension implements BeforeAllCallback, BeforeEachCallback,
   **`datafaker` 不做**:10MB locale 数据与一串传递依赖,换来的只是更像
   真话的字符串;`Faker` 留在 `io.jaravel.support`,要更真实的数据在
   `definition` 里换自己的(§3.4,登记在 KNOWN-ISSUES.md)。
-- [ ] 中间表关联(`@BelongsToMany`)没有工厂构建器(`hasAttached`):
-  它的外键不在模型字段上,要走关联访问器。当前写法是
-  `post.tags().attach(...)`(§3.2),登记在 KNOWN-ISSUES.md。
+- [x] 中间表关联的工厂构建器:**已实现** —— `hasTags(n[, tweak][, pivot])`
+  与 `withTags(…)`(§3、§3.2)。名字跟着关联走(与 `hasPosts` / `forAuthor`
+  一致),而不是 Laravel 的 `hasAttached(Tag.factory(), pivot)` ——
+  那个写法里「挂哪个关联」要靠目标类型去猜,而一个模型可以对同一个目标有
+  两个中间表关联。`examples/blog` 的 `BlogSeeder` 里那段手写的
+  `attach` 循环已经换成 `withTags(tags.toList())`。

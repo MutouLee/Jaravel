@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import app.models.Author;
 import app.models.Comment;
 import app.models.Post;
+import app.models.Tag;
 import io.jaravel.testing.AppTest;
 
 /**
@@ -203,6 +204,51 @@ class FactoryFeatureTest extends AppTest {
 
             assertThat(Comment.query().wherePostId(post.id).whereApproved(false).count())
                     .isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("★ hasTags:中间表也由生成的工厂挂")
+        void belongsToManyCreatesAndAttaches() {
+            Post post = Post.factory().forAuthor(author()).hasTags(2).createOne();
+
+            Post reloaded = Post.query().with(app.models.Post_.tags).findOrFail(post.id);
+            assertThat(reloaded.tags().get().size())
+                    .as("多对多没有「子对象的外键」,挂接走 owner.tags().attach(...)")
+                    .isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("hasTags(n, tweak) 能调子工厂")
+        void belongsToManyAcceptsChildTweak() {
+            Post post = Post.factory()
+                    .forAuthor(author())
+                    .hasTags(1, f -> f.name("指定标签"))
+                    .createOne();
+
+            Post reloaded = Post.query().with(app.models.Post_.tags).findOrFail(post.id);
+            assertThat(reloaded.tags().get().toList())
+                    .extracting(tag -> tag.name)
+                    .containsExactly("指定标签");
+        }
+
+        @Test
+        @DisplayName("★ withTags 挂**已有**的 —— 两篇文章共用同一批标签")
+        void belongsToManyAttachesExisting() {
+            var shared = Tag.factory().count(2).create().toList();
+            long tagsBefore = Tag.query().count();
+
+            var posts = Post.factory().count(2)
+                    .forAuthor(author())
+                    .withTags(shared.get(0), shared.get(1))
+                    .create().toList();
+
+            assertThat(Tag.query().count())
+                    .as("共用而不是各造一批 —— 否则「两篇文章同一个标签」这件事造不出来")
+                    .isEqualTo(tagsBefore);
+            for (Post post : posts) {
+                Post reloaded = Post.query().with(app.models.Post_.tags).findOrFail(post.id);
+                assertThat(reloaded.tags().get().size()).isEqualTo(2);
+            }
         }
 
         @Test

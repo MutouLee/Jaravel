@@ -47,6 +47,36 @@
   端到端:`examples/auth` 的演示页加了一个真的
   `DELETE /notes/{id}` 路由与 POST + `@method('DELETE')` 的表单,
   并钉住「伪装后仍要 CSRF(少令牌 419)」与「伪装不绕过授权(别人的 403)」。
+- **`@aware`:子组件从外层组件继承 prop**(docs/04 §1.7)——
+  `<x-menu color="purple">` 里的每个 `<x-menu-item>` 不用再写一遍 color。
+  解析顺序是**显式 > 外层 > 默认值**,实现是「一个默认 null 的参数 + 一行解析」:
+  做成参数(而不是纯局部变量)让 `<x-menu-item color="red">` 照常走属性配对,
+  也让 `@aware` 的名字**不漏进属性袋** —— 一个 `color="red"` 出现在生成的
+  HTML 里是真 bug(color 不是合法的 HTML 属性)。
+  继承跨代有效:压进栈的是**解析后**的值,所以
+  `menu(purple) → item(继承) → icon(继承)`;反过来压孙子那层会拿到 null。
+  两条编译期约束各有理由:类型不能是基本类型(「没传」要能表示成 null)、
+  不能带泛型(解析那行要一个 `Class` 字面量,而 `List<String>.class` 在 Java 里
+  不存在 —— 泛型值用 `@props` 让 javac 查)。外层类型不对时的报错指名道姓。
+  属性袋**不进**继承栈:那些是 HTML 属性,让外层的 `class="btn"` 悄悄变成
+  内层的 class 是灾难,而属性袋本来就有 `merge` / `except` 的显式传递。
+  成本写在文档里:声明了 `@props` / `@aware` 的模板每渲染一次多一次压栈与一个
+  小 map —— 不按需,因为「孙子用了 @aware」在祖父的调用点上看不见(跨模板)。
+  实现中被一条测试当场抓住一个漏:只写 `@aware` 的组件没有隐式 `slot` 与属性袋
+  参数,jte 报「No parameter with name slot」并指着那个一字未错的组件模板。
+- **工厂的中间表构建器**(docs/14 §3.2)—— `hasTags(n[, tweak][, pivot])` 与
+  `withTags(…)`,`@BelongsToMany` 的两侧都生成(中间表是对称的)。
+  名字跟着**关联**走而不是 Laravel 的 `hasAttached(Tag.factory(), pivot)`:
+  后者要靠目标类型去猜「挂哪个关联」,而一个模型可以对同一个目标有两个
+  中间表关联。它比 `hasPosts` 多一个参数(中间表上的额外字段),也多一个前提
+  (需要关联访问器)—— 关掉 `generateHelpers` 的模型**跳过**这个构建器,
+  而不是生成一段引用 `owner.tags()` 的死代码。
+  可生成的判据按关联类型分开:前三种要知道外键落在哪个字段上,中间表那种
+  根本没有「模型上的外键」—— 一刀切会让 `hasTags` 根本不生成(第一版就是)。
+  through 与多态仍然不生成,理由写进了 §3.2 的表:前者是三方关系,
+  一个 `hasXxx(int)` 的签名表达不了「中间那层从哪来」。
+  `examples/blog` 的 `BlogSeeder` 里那段手写的 attach 循环换成了
+  `withTags(tags.toList())`。
 - **`install:api` 与 `install:broadcasting`**(docs/13 §2.1)——
   `install:api` 生成四个文件:`personal_access_tokens` 的迁移、
   `ApiTokenController`(签发 / 撤销全部 / `GET /api/me`)、独立的 `ApiRoutes`、

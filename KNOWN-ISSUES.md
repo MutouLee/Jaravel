@@ -8,7 +8,6 @@
 | 项 | 状态 | 说明 |
 |---|---|---|
 | `@WithoutDatabase` | **不做** | 它表达的「纯单元测试」已有更快的写法:不继承基类(docs/14 §5 第一层)。而「有上下文但没有库」要求每个子系统都补无库降级路径 —— `Connection` bean 刻意是启动即失败的 |
-| 工厂的中间表构建器(`hasAttached`) | 未实现 | `@BelongsToMany` 的外键不在模型字段上,挂接走 `post.tags().attach(...)`(docs/14 §3.2) |
 | `datafaker` / locale | **不做** | 10MB locale 数据 + 一串传递依赖,换来的只是更像真话的字符串。`io.jaravel.support.Faker` 是内置最小实现;要更真实的数据在 `definition` 里换自己的(docs/14 §3.4) |
 
 ## 控制台
@@ -27,7 +26,6 @@
 | `@inject` | 不做 | docs/04 §1.8 自己就写着「不鼓励」—— 模板里从容器取服务会让「这个页面依赖什么」不可见;用控制器传 |
 | `DateX.diffForHumans()` 本地化 | 未实现 | 消息目录已有(`Lang`),但 `DateX` 在 support,比 core 低一层、不能依赖它;需要一个钩子 |
 | `Mail.to(user).locale(...)` | 未实现 | 原语已有:`Lang.withLocale(...)` |
-| `@aware` | 未实现 | |
 
 ## 安全 / 账户
 

@@ -172,6 +172,81 @@ class FactoryProcessorTest {
                 .doesNotContain("FactoryBase forAuthor(t.AuthorFactory");
     }
 
+    @Test
+    @DisplayName("★ @BelongsToMany → hasTags / withTags,挂接走关联访问器")
+    void generatesBelongsToManyBuilders() {
+        Compilation c = compile(
+                source("t.Tag", PKG + """
+                        @Model
+                        @UseFactory(TagFactory.class)
+                        public class Tag extends TagBase {
+                            @Id public Long id;
+                            public String name;
+                        }
+                        """),
+                source("t.TagFactory", """
+                        package t;
+                        public class TagFactory extends TagFactoryBase {
+                        }
+                        """),
+                source("t.Post", PKG + """
+                        @Model
+                        @UseFactory(PostFactory.class)
+                        @BelongsToMany(name = "tags", target = Tag.class, pivot = "post_tag")
+                        public class Post extends PostBase {
+                            @Id public Long id;
+                            public String title;
+                        }
+                        """),
+                factory());
+
+        assertThat(c).succeeded();
+        String generated = contents(c, "t.PostFactoryBase");
+        org.assertj.core.api.Assertions.assertThat(generated)
+                .as("""
+                        多对多没有「模型上的外键」—— 判据与前三种不同
+                        (第一版用 factoryReady() 一刀切,结果 hasTags 根本没生成)。""")
+                .contains("public PostFactory hasTags(int n)")
+                .contains("owner.tags().attach(")
+                .contains("java.util.Map<String, ?> pivot")
+                .contains("public PostFactory withTags(t.Tag... existing)")
+                .contains("public PostFactory withTags(java.util.Collection<t.Tag> existing)");
+    }
+
+    @Test
+    @DisplayName("关掉 generateHelpers 的模型不生成中间表构建器 —— 没有访问器可调")
+    void belongsToManyNeedsRelationAccessors() {
+        Compilation c = compile(
+                source("t.Tag", PKG + """
+                        @Model
+                        @UseFactory(TagFactory.class)
+                        public class Tag extends TagBase {
+                            @Id public Long id;
+                            public String name;
+                        }
+                        """),
+                source("t.TagFactory", """
+                        package t;
+                        public class TagFactory extends TagFactoryBase {
+                        }
+                        """),
+                source("t.Post", PKG + """
+                        @Model(generateHelpers = false)
+                        @UseFactory(PostFactory.class)
+                        @BelongsToMany(name = "tags", target = Tag.class, pivot = "post_tag")
+                        public class Post extends PostBase {
+                            @Id public Long id;
+                            public String title;
+                        }
+                        """),
+                factory());
+
+        assertThat(c).succeeded();
+        org.assertj.core.api.Assertions.assertThat(contents(c, "t.PostFactoryBase"))
+                .as("生成一段引用不存在的 owner.tags() 的代码,比不生成糟得多")
+                .doesNotContain("hasTags");
+    }
+
     // ================= 报错 =================
 
     @Test

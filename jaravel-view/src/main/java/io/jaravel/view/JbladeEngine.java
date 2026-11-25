@@ -493,22 +493,32 @@ public final class JbladeEngine implements ViewEngine {
      * (每个带组件的模板转写时,每个组件一次)。
      */
     static Optional<List<String>> declaredPropNames(String componentSource) {
+        var names = new ArrayList<String>();
+        boolean declaredAnything = false;
+
+        // ★ @aware 的名字也算「声明过的 prop」。
+        //
+        // 这个列表决定调用方那边的分流:声明过的进参数,没声明的进属性袋。
+        // 漏掉 @aware 的后果有两个,都很隐蔽:显式传的
+        // <x-item color="red"> 会进属性袋(于是 @aware 读不到它 ——
+        // 「我明明传了却不生效」),而且它会被 {{ attributes }} 原样打进
+        // HTML,而 color 不是合法的 HTML 属性。
         for (String line : componentSource.split("\\R")) {
             String trimmed = line.trim();
-            if (!trimmed.startsWith("@props")) continue;
+            if (!trimmed.startsWith("@props") && !trimmed.startsWith("@aware")) continue;
 
+            declaredAnything = true;
             int open = trimmed.indexOf('(');
             int close = trimmed.lastIndexOf(')');
-            if (open < 0 || close < open) return Optional.of(List.of());
+            if (open < 0 || close < open) continue;
 
-            var names = new ArrayList<String>();
-            for (String declaration : JbladeTranspiler.splitArgs(trimmed.substring(open + 1, close))) {
+            for (String declaration : JbladeTranspiler.splitArgs(
+                    trimmed.substring(open + 1, close))) {
                 String name = propName(declaration);
                 if (name != null) names.add(name);
             }
-            return Optional.of(List.copyOf(names));
         }
-        return Optional.empty();
+        return declaredAnything ? Optional.of(List.copyOf(names)) : Optional.empty();
     }
 
     /** {@code String type = "info"} → {@code type} */

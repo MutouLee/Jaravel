@@ -205,17 +205,32 @@ final class FactoryGenerator {
     // ================= 关联构建器 =================
 
     /**
-     * {@code forAuthor(author)} 与 {@code hasPosts(3)}。
+     * {@code forAuthor(author)} / {@code hasPosts(3)} / {@code hasTags(2)}。
      *
-     * <p>只给外键落在确定一侧的三种关联生成:{@code @BelongsTo}(外键在本模型)、
-     * {@code @HasMany} / {@code @HasOne}(外键在目标模型)。
-     * through / 多态 / 中间表那几种外键不在模型字段上,要走关联访问器 ——
-     * 它们的造数据写法留给 {@code afterCreating}(见 docs/14 §3)。
+     * <p>三类关联各有一种写法:
+     * <ul>
+     *   <li>{@code @BelongsTo} —— 外键在**本模型**上,直接写字段;</li>
+     *   <li>{@code @HasMany} / {@code @HasOne} —— 外键在**目标模型**上,
+     *       父对象入库后用它的主键填;</li>
+     *   <li>{@code @BelongsToMany} —— 外键在**中间表**上,走关联访问器
+     *       ({@code owner.tags().attach(...)})。它比前两类多一个参数:
+     *       中间表上的额外字段。</li>
+     * </ul>
+     *
+     * <p>through 与多态那几种仍然不生成:{@code @HasManyThrough} 的「中间那层」
+     * 要先存在才能接上,而那是一条**三方**关系 —— 一个
+     * {@code hasXxx(int)} 的签名表达不了「中间那层从哪来」。
+     * 多态同理(目标类型由一列决定,造数据时得先说清造哪一种)。
+     * 它们的写法留给 {@code afterCreating}(docs/14 §3.2)。
      */
     private static void emitRelationBuilders(Code c, ModelInfo m, String factory) {
-        var relations = m.relations().stream().filter(ModelInfo.RelationInfo::factoryReady)
+        // 可生成的判据按关联类型不同:前三种要知道外键落在哪个字段上,
+        // 而中间表那种根本没有「模型上的外键」—— 用 factoryReady() 一刀切
+        // 会把它过滤掉(第一版就是这样,症状是 hasTags 根本没生成)
+        var relations = m.relations().stream()
                 .filter(r -> switch (r.kind()) {
-                    case BELONGS_TO, HAS_MANY, HAS_ONE -> true;
+                    case BELONGS_TO, HAS_MANY, HAS_ONE -> r.factoryReady();
+                    case BELONGS_TO_MANY -> r.pivotReady();
                     default -> false;
                 })
                 .toList();
@@ -225,12 +240,89 @@ final class FactoryGenerator {
         c.blank();
 
         for (var r : relations) {
-            if (r.kind() == io.jaravel.eloquent.meta.RelationDef.Kind.BELONGS_TO) {
-                emitBelongsTo(c, m, factory, r);
-            } else {
-                emitHasMany(c, factory, r);
+            switch (r.kind()) {
+                case BELONGS_TO -> emitBelongsTo(c, m, factory, r);
+                case BELONGS_TO_MANY -> emitBelongsToMany(c, m, factory, r);
+                default -> emitHasMany(c, factory, r);
             }
         }
+    }
+
+    /**
+     * {@code hasTags(2)} / {@code hasTags(2, f -> f.featured())} /
+     * {@code hasTags(2, f -> {}, Map.of("primary", true))} /
+     * {@code withTags(tag1, tag2)}。
+     *
+     * <p>中间表的外键不在任何模型的字段上,所以这里走关联访问器:
+     * 先造目标对象,再 {@code owner.tags().attach(ids, pivot)}。
+     *
+     * <p>⚠ 需要关联访问器存在 —— 即模型没关掉 {@code generateHelpers}。
+     * 关掉的模型跳过这个构建器(而不是生成一段编译不过的代码)。
+     */
+    private static void emitBelongsToMany(Code c, ModelInfo m, String factory,
+                                          ModelInfo.RelationInfo r) {
+        if (!m.generateHelpers()) return;           // 没有 owner.tags() 可调
+        if (r.targetFactoryClass() == null) return; // 没有目标工厂,造不出来
+
+        String method = "has" + io.jaravel.support.Str.studly(r.name());
+        String with = "with" + io.jaravel.support.Str.studly(r.name());
+        String childFactory = r.targetFactoryClass();
+
+        c.doc("附带 n 个 %s,并挂上中间表 {@code %s}。".formatted(
+                        r.targetSimpleName(), r.pivotTable()),
+              "",
+              "<p>与 {@code hasXxx} 的差别只在最后一步:多对多没有「子对象的外键」,",
+              "挂接走的是关联访问器 {@code owner." + r.name() + "().attach(...)}。",
+              "",
+              "<p>只对 {@code create()} 有效 —— {@code make()} 不入库,",
+              "中间表里填不进两边的主键。");
+        c.open("public %s %s(int n) {".formatted(factory, method));
+        c.line("return %s(n, child -> { }, java.util.Map.of());", method);
+        c.close();
+        c.blank();
+
+        c.open("public %s %s(int n, Consumer<%s> tweak) {".formatted(factory, method, childFactory));
+        c.line("return %s(n, tweak, java.util.Map.of());", method);
+        c.close();
+        c.blank();
+
+        c.doc("同上,外加中间表上的额外字段({@code withPivot} 声明过的那些)。");
+        c.open("public %s %s(int n, Consumer<%s> tweak, java.util.Map<String, ?> pivot) {"
+                .formatted(factory, method, childFactory));
+        c.open("return afterCreating((owner, index) -> {");
+        c.line("var children = new %s();", childFactory);
+        c.line("children.count(n);");
+        c.line("tweak.accept(children);");
+        c.line("var created = children.create();");
+        c.line("owner.%s().attach(created.toList().stream()", r.name());
+        c.line("        .map(related -> (Object) related.%s).toList(), pivot);", r.targetKeyField());
+        c.close("});");
+        c.close();
+        c.blank();
+
+        c.doc("挂**已有**的 %s —— 造数据时常有「几篇文章共用同一批标签」。".formatted(
+                r.targetSimpleName()));
+        c.open("public %s %s(%s... existing) {".formatted(factory, with, r.targetType()));
+        c.line("return %s(java.util.List.of(existing), java.util.Map.of());", with);
+        c.close();
+        c.blank();
+
+        // Collection 的重载:List<Tag> 传不进 Tag... ——
+        // 而「把已有的一批挂上去」最常见的来源就是另一个工厂的 create()
+        c.open("public %s %s(java.util.Collection<%s> existing) {".formatted(
+                factory, with, r.targetType()));
+        c.line("return %s(existing, java.util.Map.of());", with);
+        c.close();
+        c.blank();
+
+        c.open("public %s %s(java.util.Collection<%s> existing, java.util.Map<String, ?> pivot) {"
+                .formatted(factory, with, r.targetType()));
+        c.open("return afterCreating((owner, index) -> {");
+        c.line("owner.%s().attach(existing.stream()", r.name());
+        c.line("        .map(related -> (Object) related.%s).toList(), pivot);", r.targetKeyField());
+        c.close("});");
+        c.close();
+        c.blank();
     }
 
     private static void emitBelongsTo(Code c, ModelInfo m, String factory,

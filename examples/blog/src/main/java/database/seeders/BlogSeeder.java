@@ -1,7 +1,5 @@
 package database.seeders;
 
-import java.util.List;
-
 import app.models.Author;
 import app.models.Post;
 import app.models.Tag;
@@ -31,23 +29,22 @@ public class BlogSeeder implements Seeder {
         // sequence 把 9 篇轮流分给 3 个作者:一次 create 比三次循环好,
         // 因为 Faker 的唯一序号是**每个工厂实例一份**(见 PostFactory)
         var three = authors.toList();
-        var posts = new java.util.ArrayList<>(Post.factory()
+        Post.factory()
                 .count(9)
                 .seed(42)
                 .sequence(post -> post.authorId = three.get(0).id,
                           post -> post.authorId = three.get(1).id,
                           post -> post.authorId = three.get(2).id)
                 .hasComments(3)
-                .create()
-                .toList());
+                // 中间表也由生成的工厂挂:withTags 用**已有**的标签,
+                // 于是九篇文章共用这五个,而不是各造五个新的
+                .withTags(tags.toList())
+                .create();
 
         // 一篇草稿,让「只列已发布」那条作用域在页面上看得出效果
-        posts.add(Post.factory().draft().forAuthor(authors.get(0)).createOne());
-
-        // 中间表的挂接还得手写 —— 生成的工厂不做 belongsToMany
-        // (外键不在模型字段上),这一条登记在 KNOWN-ISSUES.md
-        for (int i = 0; i < posts.size(); i++) {
-            posts.get(i).tags().attach(List.of(tags.get(i % tags.size()).id));
-        }
+        Post.factory().draft()
+                .forAuthor(authors.get(0))
+                .withTags(tags.get(0))
+                .createOne();
     }
 }

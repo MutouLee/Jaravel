@@ -68,6 +68,21 @@ public final class JbladeTranspiler {
 
     private String layout;
     private final List<String> params = new ArrayList<>();
+
+    /** {@code @aware} 声明(docs/04 §1.7)。顺序即解析顺序 */
+    private final List<Aware> awares = new ArrayList<>();
+
+    /** 这个模板是不是一个组件 —— 声明过 {@code @props} 或 {@code @aware} */
+    private boolean declaresComponentData;
+
+    /**
+     * 一条 {@code @aware} 声明。
+     *
+     * @param type     Java 类型(不能是基本类型:「没传」要能表示成 null)
+     * @param name     参数名
+     * @param fallback 默认值表达式;没写默认值时是 {@code null}
+     */
+    private record Aware(String type, String name, String fallback) {}
     private final List<String> imports = new ArrayList<>();
     /** 循环嵌套栈,存 LoopState 的局部变量名 */
     private final Deque<String> loopStack = new ArrayDeque<>();
@@ -374,6 +389,7 @@ public final class JbladeTranspiler {
         // 头部声明只贡献元信息,不产出 jte 行(返回 null = 不发往 jte)
         if (trimmed.startsWith("@params")) { collectParams(trimmed, sourceLine); return null; }
         if (trimmed.startsWith("@props"))  { collectProps(trimmed, sourceLine); return null; }
+        if (trimmed.startsWith("@aware"))  { collectAware(trimmed, sourceLine); return null; }
         if (trimmed.startsWith("@param "))  { params.add(trimmed.substring(7).trim()); return null; }
         if (trimmed.startsWith("@import"))  { collectImport(trimmed); return null; }
         if (trimmed.startsWith("@extends")) { collectExtends(trimmed, sourceLine); return null; }
@@ -767,14 +783,149 @@ public final class JbladeTranspiler {
             if (!p.isBlank()) params.add(p.trim());
         }
 
+        addImplicitComponentParams();
+    }
+
+    /**
+     * 组件的两个隐式参数:{@code slot} 与属性袋。
+     *
+     * <p>{@code @props} 与 {@code @aware} 都要加 —— 一个只写
+     * {@code @aware} 的组件(菜单项那种)同样会被带 body 调用,
+     * 同样会收到 {@code id} / {@code class} 这些 HTML 属性。
+     * 第一版漏了这一条,症状是 jte 报
+     * 「No parameter with name slot is defined」—— 指着组件模板,
+     * 而那个模板里一个字都没写错。
+     */
+    private void addImplicitComponentParams() {
         // 隐式 slot。放在最后 —— 它是「body」,语义上就该在参数列表末尾
-        boolean declared = params.stream().anyMatch(p -> p.endsWith(" slot")
+        boolean hasSlot = params.stream().anyMatch(p -> p.endsWith(" slot")
                 || p.contains(" slot ") || p.contains(" slot="));
-        if (!declared) params.add("gg.jte.Content slot = null");
+        if (!hasSlot) params.add("gg.jte.Content slot = null");
 
         // 隐式属性袋。每个组件都有,默认空 —— 没有未声明属性的调用方什么都不用传。
         // 与 slot 同理:要求每个组件作者写一遍声明是纯噪音。
-        params.add("io.jaravel.view.Attributes attributes = io.jaravel.view.Attributes.empty()");
+        boolean hasBag = params.stream().anyMatch(p -> p.contains("io.jaravel.view.Attributes"));
+        if (!hasBag) {
+            params.add("io.jaravel.view.Attributes attributes = "
+                     + "io.jaravel.view.Attributes.empty()");
+        }
+
+        // 声明过 @props / @aware = 这是个组件 → 它要把自己的 prop 压进栈,
+        // 供更深的组件 @aware 继承(docs/04 §1.7)
+        declaresComponentData = true;
+    }
+
+    /**
+     * {@code @aware(...)} —— 从**外层组件**继承的 prop(docs/04 §1.7)。
+     *
+     * <pre>{@code
+     * // components/menu.jblade.html
+     * @props(String color = "gray")
+     *
+     * // components/menu/item.jblade.html
+     * @aware(String color = "gray")        ← 不用调用方再传一遍
+     * }</pre>
+     *
+     * <h2>解析顺序:显式 > 外层 > 默认值</h2>
+     * <p>生成的是一个**默认 null 的参数**加一行解析:
+     *
+     * <pre>{@code
+     * @param String color = null
+     * !{if (color == null) color = ctx.aware("color", String.class, "gray");}
+     * }</pre>
+     *
+     * <p>做成参数(而不是纯局部变量)有两个连带好处:
+     * <ul>
+     *   <li>{@code <x-menu.item color="red">} 照常工作 —— 它走的是普通的
+     *       属性配对,显式值优先;</li>
+     *   <li>它**不会漏进属性袋**。{@code @aware} 的名字算「声明过的 prop」,
+     *       于是不会被 {@code {{ attributes }}} 当成 HTML 属性打出来 ——
+     *       一个 {@code color="red"} 出现在生成的 HTML 里是个真 bug,
+     *       因为 color 不是合法的 HTML 属性。</li>
+     * </ul>
+     *
+     * <h2>⚠ 不能是基本类型</h2>
+     * <p>「没传」必须能表示成 null,所以写 {@code Integer} 而不是 {@code int}。
+     *
+     * <h2>⚠ 不能是泛型类型</h2>
+     * <p>解析那一行要一个 {@code Class<T>} 字面量做类型校验,而
+     * {@code List<String>.class} 在 Java 里不存在(擦除)。要传泛型值就用
+     * {@code @props} 让调用方显式传 —— 而不是让它在某个用到的地方
+     * 抛 ClassCastException。
+     */
+    private void collectAware(String trimmed, int line) {
+        String args = extractParens(trimmed);
+        if (args == null) {
+            throw new JbladeException(templateName, line, """
+                    @aware 需要括号,如 @aware(String color = "gray")
+                      它声明「从外层组件继承」的 prop:调用方没传时去外层找。""");
+        }
+
+        for (String declaration : splitArgs(args)) {
+            if (declaration.isBlank()) continue;
+            awares.add(parseAware(declaration.trim(), line));
+        }
+        addImplicitComponentParams();
+    }
+
+    private Aware parseAware(String declaration, int line) {
+        String left = declaration;
+        String fallback = null;
+
+        int eq = declaration.indexOf('=');
+        if (eq >= 0) {
+            left = declaration.substring(0, eq).trim();
+            fallback = declaration.substring(eq + 1).trim();
+        }
+
+        int space = left.lastIndexOf(' ');
+        if (space < 0) {
+            throw new JbladeException(templateName, line, """
+                    @aware(%s) 少了类型。
+                      写法:@aware(String color = "gray")
+                      与 @props 一样要写 Java 类型 —— 它落到 jte 的 @param 上。"""
+                    .formatted(declaration));
+        }
+        String type = left.substring(0, space).trim();
+        String name = left.substring(space + 1).trim();
+
+        if (PRIMITIVES.contains(type)) {
+            throw new JbladeException(templateName, line, """
+                    @aware 的类型不能是基本类型(%s %s)。
+                      「调用方没传」要能表示成 null,所以用包装类型:
+                        @aware(%s %s = …)"""
+                    .formatted(type, name, boxed(type), name));
+        }
+        if (type.indexOf('<') >= 0) {
+            throw new JbladeException(templateName, line, """
+                    @aware 的类型不能带泛型(%s %s)。
+                      解析那一行要一个 Class 字面量做类型校验,而 %s.class
+                      在 Java 里不存在(泛型擦除)。
+                      泛型值用 @props 让调用方显式传 —— 那样类型由 javac 查,
+                      而不是等到某个用到它的地方抛 ClassCastException。"""
+                    .formatted(type, name, type));
+        }
+
+        // 参数默认 null:调用方可以传(显式优先),没传时由解析行去外层找
+        params.add(type + " " + name + " = null");
+        return new Aware(type, name, fallback);
+    }
+
+    private static final java.util.Set<String> PRIMITIVES = java.util.Set.of(
+            "boolean", "byte", "char", "short", "int", "long", "float", "double");
+
+    private static String boxed(String primitive) {
+        return switch (primitive) {
+            case "boolean" -> "Boolean";
+            case "byte"    -> "Byte";
+            case "char"    -> "Character";
+            case "short"   -> "Short";
+            case "int"     -> "Integer";
+            case "long"    -> "Long";
+            case "float"   -> "Float";
+            case "double"  -> "Double";
+            default        -> primitive;
+        };
     }
 
     private void collectImport(String trimmed) {
@@ -1804,12 +1955,76 @@ public final class JbladeTranspiler {
         for (String imp : imports) sb.append("@import ").append(imp).append('\n');
         sb.append("@param io.jaravel.view.JbContext ctx\n");
         for (String p : params) sb.append("@param ").append(p).append('\n');
+        for (String p : prologue()) sb.append(p).append('\n');
         for (int i = 0; i < jteLines.size(); i++) {
             sb.append(jteLines.get(i));
             // 顶层指令行不追加换行,否则那些换行会跑到布局输出之前
             if (jteLineNewline.get(i)) sb.append('\n');
         }
+        if (declaresComponentData) sb.append("!{ctx.popComponentData();}\n");
         return sb.toString();
+    }
+
+    /**
+     * 组件的前导行:{@code @aware} 的解析 + 把自己的 prop 压进栈。
+     *
+     * <p>顺序是定死的:**先解析 aware,再压栈**。压栈里放的是解析后的值,
+     * 于是更深的组件 {@code @aware} 继承到的是「这一层实际用的值」——
+     * {@code menu(purple) → item(继承 purple) → icon(继承 purple)}。
+     * 反过来压的话,孙子那一层会继承到 null。
+     *
+     * <p>每行一条,因为行号映射按行数算(见 {@link #buildLineMap})。
+     */
+    private List<String> prologue() {
+        if (!declaresComponentData) return List.of();
+
+        var out = new ArrayList<String>();
+        for (Aware aware : awares) {
+            out.add("!{if (%s == null) %s = ctx.aware(\"%s\", %s.class, %s);}".formatted(
+                    aware.name(), aware.name(), aware.name(),
+                    aware.type(), aware.fallback() == null ? "null" : aware.fallback()));
+        }
+
+        // 压栈的是**本层的 prop**(含解析后的 aware)。属性袋不进去:
+        // 那些是 HTML 属性(class / id / data-*),让它们被 @aware 继承
+        // 会让一个外层的 class="btn" 悄悄变成内层的 class ——
+        // 而属性袋本来就有 merge/except 这套显式的传递方式
+        var pairs = new ArrayList<String>();
+        for (String name : declaredDataNames()) {
+            pairs.add("\"" + name + "\", " + name);
+        }
+        out.add("!{ctx.pushComponentData(io.jaravel.view.JbContext.data("
+                + String.join(", ", pairs) + "));}");
+        return out;
+    }
+
+    /**
+     * 要压进栈的名字 —— {@code @props} 与 {@code @aware} 声明的那些。
+     *
+     * <p>跳过 slot 与属性袋:它们不是「数据」,而且 {@code Content}
+     * 被继承会让同一段 body 渲染两次。
+     */
+    private List<String> declaredDataNames() {
+        var out = new java.util.LinkedHashSet<String>();
+        for (String declaration : params) {
+            String name = paramName(declaration);
+            if (name == null || name.equals("slot") || name.equals("attributes")) continue;
+            if (declaration.contains("gg.jte.Content")) continue;
+            if (declaration.contains("io.jaravel.view.Attributes")) continue;
+            out.add(name);
+        }
+        return List.copyOf(out);
+    }
+
+    /** {@code String type = "info"} → {@code type} */
+    private static String paramName(String declaration) {
+        String d = declaration.trim();
+        int eq = d.indexOf('=');
+        if (eq >= 0) d = d.substring(0, eq).trim();
+        int space = d.lastIndexOf(' ');
+        if (space < 0) return null;
+        String name = d.substring(space + 1).trim();
+        return name.isEmpty() ? null : name;
     }
 
     /**
@@ -1824,8 +2039,8 @@ public final class JbladeTranspiler {
      * 可见文本通常就是它,而胶水碎片(参数表、反引号)没有对应的模板文本。
      */
     private LineMap buildLineMap() {
-        // 头部行数 = imports + ctx 参数 + params
-        int header = imports.size() + 1 + params.size();
+        // 头部行数 = imports + ctx 参数 + params + 组件前导行(@aware 解析 + 压栈)
+        int header = imports.size() + 1 + params.size() + prologue().size();
         for (int i = 0; i < header; i++) lineMap.emitGenerated();
 
         int chosen = 0;

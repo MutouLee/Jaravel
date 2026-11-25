@@ -191,8 +191,66 @@ jblade **不发明表达式语言**,直接把表达式原样当作 Java 表达�
 > | 命名空间 | `<x-mail::message>` → `components/mail/message.jblade.html` |
 > | 嵌套组件 | 任意深度,slot 里也能嵌 |
 > | **属性袋** | `{{ attributes }}`、`attributes.merge("class", "btn")`、`except` / `only` |
+> | **`@aware`** | 子组件从**外层组件**继承 prop(见下) |
 >
-> **类组件在 v0.6 已实现(见下);`@aware` 仍未实现。**
+> **类组件与 `@aware` 都已实现。**
+>
+> #### `@aware`:从外层组件继承 prop
+>
+> ```
+> // components/menu.jblade.html
+> @props(String color = "gray")
+> <ul class="menu-{{ color }}">{{ slot }}</ul>
+>
+> // components/menu-item.jblade.html
+> @aware(String color = "gray")
+> <li class="item-{{ color }}">{{ slot }}</li>
+> ```
+>
+> ```
+> <x-menu color="purple">
+>   <x-menu-item>一</x-menu-item>      {{-- 不用再写一遍 color --}}
+>   <x-menu-item color="red">二</x-menu-item>
+> </x-menu>
+> ```
+>
+> **解析顺序:显式 > 外层 > 默认值。** 生成的是一个默认 `null` 的参数
+> 加一行解析:
+>
+> ```java
+> @param String color = null
+> !{if (color == null) color = ctx.aware("color", String.class, "gray");}
+> ```
+>
+> 做成参数(而不是纯局部变量)有两个连带好处:`<x-menu-item color="red">`
+> 照常工作(走普通的属性配对,显式值优先);而且它**不会漏进属性袋** ——
+> 一个 `color="red"` 出现在生成的 HTML 里是个真 bug,因为 color 不是
+> 合法的 HTML 属性。
+>
+> **继承跨代有效**:压进栈的是**解析后**的值,所以
+> `menu(purple) → item(继承 purple) → icon(继承 purple)`。
+> 反过来压的话孙子那一层会拿到 null。
+>
+> 两条编译期约束,各有理由:
+>
+> - **类型不能是基本类型**(写 `Integer` 不写 `int`)——「调用方没传」
+>   必须能表示成 null;
+> - **类型不能带泛型** —— 解析那一行要一个 `Class` 字面量做类型校验,而
+>   `List<String>.class` 在 Java 里不存在(擦除)。泛型值用 `@props` 让
+>   调用方显式传,那样类型由 javac 查,而不是等到某个用到它的地方抛
+>   ClassCastException。
+>
+> 外层传进来的类型不对时报错**说清是谁传的**:
+> 「`@aware("color")` 声明的类型是 String,但外层组件传进来的是 Integer(42)」。
+>
+> ⚠ **成本**:声明了 `@props` 或 `@aware` 的模板(也就是组件)每渲染一次
+> 多一次压栈/弹栈与一个小 map。为什么不按需:`@aware` 要的是**祖先**的数据,
+> 而「孙子用了 @aware」这件事在祖父的调用点上看不见(跨模板)——
+> 按需就意味着跨模板分析整棵组件树,换来的只是省掉几个小对象。
+>
+> ⚠ 属性袋**不进**继承栈:那些是 HTML 属性(class / id / data-*),
+> 让一个外层的 `class="btn"` 悄悄变成内层的 class 是灾难。
+> 属性袋本来就有 `merge` / `except` 这套显式的传递方式。
 >
 > #### 具名 slot:读到就声明
 >

@@ -191,7 +191,85 @@ public final class JbContext {
         return out -> out.writeContent(rendered);
     }
 
+    // ---------- @aware:组件数据栈(docs/04 §1.7) ----------
+
+    /**
+     * 每次组件调用一帧,内容是**那次调用写在标签上的属性**。
+     *
+     * <p>{@code @aware} 从栈顶往外找:自己那次调用的属性 → 外层组件的 →
+     * 再外层…… 都没有就用默认值。
+     *
+     * <p>为什么是「栈顶往外」而不是「跳过自己从父级开始」:
+     * {@code <x-menu.item color="red">} 显式给了颜色时,那一定是想要的值。
+     * 跳过自己会让「显式传了却不生效」—— 而那是最难怀疑到的一类行为。
+     */
+    private final java.util.ArrayDeque<Map<String, Object>> componentData =
+            new java.util.ArrayDeque<>();
+
+    /**
+     * 进入一次组件渲染。由转写器在组件调用点前后成对发出。
+     *
+     * <p>⚠ 这意味着**每次组件渲染都有一次 push/pop 与一个小 map** ——
+     * 即使整个页面没有一个 {@code @aware}。为什么不按需:
+     * {@code @aware} 要的是**祖先**的数据,而「孙子用了 @aware」这件事在
+     * 祖父的调用点上看不见(跨模板)。按需就意味着跨模板分析整棵组件树,
+     * 而那换来的只是省掉几个小对象。
+     */
+    public void pushComponentData(Map<String, Object> data) {
+        componentData.push(data == null ? Map.of() : data);
+    }
+
+    public void popComponentData() {
+        componentData.poll();
+    }
+
+    /**
+     * {@code @aware(String color = "gray")} 读到的值。
+     *
+     * @param type 声明的类型 —— 用来在类型不符时给一条**说得清**的错误。
+     *             不校验的话,一个 {@code :color="42"} 的调用会在模板里
+     *             某个用到 color 的地方抛 ClassCastException,而那里与
+     *             「谁传错了」隔着两个模板
+     */
+    public <T> T aware(String key, Class<T> type, T fallback) {
+        for (Map<String, Object> frame : componentData) {
+            if (!frame.containsKey(key)) continue;
+
+            Object value = frame.get(key);
+            if (value == null) return null;
+            if (type.isInstance(value)) return type.cast(value);
+
+            throw new IllegalStateException("""
+                    @aware("%s") 声明的类型是 %s,但外层组件传进来的是 %s(%s)。
+                      传值的那个标签写的是 :%s="…" —— 改成那个类型,
+                      或者把 @aware 的类型改成 %s。"""
+                    .formatted(key, type.getSimpleName(),
+                            value.getClass().getSimpleName(), value,
+                            key, value.getClass().getSimpleName()));
+        }
+        return fallback;
+    }
+
+    /**
+     * 组件调用点的属性表。
+     *
+     * <p>{@code Map.of} 不收 null 值,而组件属性经常是 null
+     * ({@code :title="post.subtitle"}),所以这里自己装。
+     */
+    public static Map<String, Object> data(Object... keysAndValues) {
+        if (keysAndValues.length % 2 != 0) {
+            throw new IllegalArgumentException(
+                    "JbContext.data 需要成对的键值,收到 " + keysAndValues.length + " 个参数");
+        }
+        var out = new LinkedHashMap<String, Object>();
+        for (int i = 0; i < keysAndValues.length; i += 2) {
+            out.put(String.valueOf(keysAndValues[i]), keysAndValues[i + 1]);
+        }
+        return out;
+    }
+
     /** 调试用 */
     public java.util.Set<String> sectionNames() { return sections.keySet(); }
     public java.util.Set<String> stackNames()   { return stacks.keySet(); }
+    public int componentDepth()                 { return componentData.size(); }
 }

@@ -125,6 +125,17 @@ record ModelInfo(
         boolean factoryReady() {
             return foreignKeyField != null && targetKeyField != null && targetType != null;
         }
+
+        /**
+         * 中间表关联能生成构建器吗。
+         *
+         * <p>比 {@link #factoryReady()} 少一个条件:中间表的外键在**中间表**上,
+         * 模型上没有对应字段 —— 挂接走关联访问器
+         * ({@code owner.tags().attach(...)}),只需要知道目标的主键字段。
+         */
+        boolean pivotReady() {
+            return targetType != null && targetKeyField != null && pivotTable != null;
+        }
     }
 
     /** {@code @Scope} / {@code @GlobalScope} 标注的静态方法 */

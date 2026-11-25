@@ -47,6 +47,42 @@
   端到端:`examples/auth` 的演示页加了一个真的
   `DELETE /notes/{id}` 路由与 POST + `@method('DELETE')` 的表单,
   并钉住「伪装后仍要 CSRF(少令牌 419)」与「伪装不绕过授权(别人的 403)」。
+- **生成式模型工厂 `@UseFactory` + `make:factory`**(docs/14 §3)——
+  模型上标 `@UseFactory(PostFactory.class)`,APT 生成 `PostFactoryBase`:
+  **按列的类型化 setter**(`.title("X").views(777)`)、关联构建器
+  (`forAuthor(author)` / `forAuthor(Author.factory())` / `hasPosts(3)` /
+  `hasPosts(3, f -> f.draft())`)、以及 count / state / sequence / seed /
+  make / makeOne / create / createOne,外加模型上的 `Post.factory()`。
+  用户只写两样:默认值(`definition(Faker, Post)`)与具名状态(`draft()`)。
+  **不走 Laravel 的 `Map<String,Object>`**:docs/14 §10 为「`definition()`
+  缺少类型安全」登记过三个版本的开放项,这次关掉它 —— 列名写错、类型写错
+  都在编译期暴露。真正会被反复写的那一行
+  (`Post.factory().draft().count(3).create()`)与 Laravel 一模一样。
+  几个刻意的边界各有理由(§3.2):注解标在**模型**上而不是工厂上
+  (标在工厂上会让 `Post.factory()` 在一次增量编译后静默消失);
+  工厂必须与模型同一次编译(写在 `src/test/java` 会编译不过,
+  处理器直接报错 —— 顺带:seeder 也是工厂的使用者,它本属于 main);
+  链式方法的自类型靠生成时写死 + 一次向下转型,换掉
+  `F extends ModelFactory<M, F>` 那串泛型噪音;名字与机制方法冲突的列
+  (`count` / `state` / `seed` …)不生成 setter 但**报 warning**
+  (生成了会变成重载歧义,javac 按参数类型静默挑一个);
+  `forAuthor(Author.factory())` 只建**一个**父对象给 count 条共用;
+  中间表关联不生成构建器(外键不在模型字段上),登记进 KNOWN-ISSUES。
+  四条报错路径(工厂不存在 / 没继承生成的基类 / abstract / 没有无参构造)
+  都落在**模型那一行**上,而不是 `target/generated-sources` 里。
+  `jaravel make:factory PostFactory --model=Post` 生成骨架,并在输出里
+  给出模型上要加的那行 —— 命令不去改用户写过的文件,但少了那行工厂
+  编译不过,所以另一半必须说清且能照抄。
+  `Factory.Faker` 提升为 `io.jaravel.support.Faker`(工厂基类因此住在
+  `jaravel-eloquent`,生成的代码不再依赖 jaravel-migration);
+  `datafaker` **不做**,理由记在 KNOWN-ISSUES。
+  端到端:`examples/blog` 的 `database/factories` 下四个真工厂,
+  `BlogSeeder` 用它们重写(前后对照),`FactoryFeatureTest` 17 条在真库上
+  验收默认值、状态叠加顺序、序列轮转、种子可复现、关联两侧与 `make()`
+  不入库。顺带钉住一个真陷阱:`Faker` 的序号是**每个实例一份**
+  (固定种子要可复现就不能跨实例共享),所以 UNIQUE 列的默认值要自己带
+  进程级计数器 —— 否则第二次 `Post.factory()` 撞 UNIQUE,而报错是
+  SQLite 的约束冲突,与「工厂」三个字毫无关系。
 - **`AppTest` 与数据库隔离策略注解**(docs/14 §2.1、§5)——
   `AppTest` 是三层测试基类中间的那一层:容器 + 数据库 + 执行作用域,
   **没有发请求的方法**。它的分层在 API 面上而不是启动成本上 ——

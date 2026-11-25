@@ -10,6 +10,7 @@ import io.jaravel.eloquent.annotations.Id;
 import io.jaravel.eloquent.annotations.Model;
 import io.jaravel.eloquent.annotations.Scope;
 import io.jaravel.eloquent.annotations.SoftDeletes;
+import io.jaravel.eloquent.annotations.UseFactory;
 import io.jaravel.eloquent.query.Query;
 
 @Model
@@ -18,6 +19,7 @@ import io.jaravel.eloquent.query.Query;
 @BelongsTo(name = "author", target = Author.class)
 @HasMany(name = "comments", target = Comment.class)
 @BelongsToMany(name = "tags", target = Tag.class, pivot = "post_tag")
+@UseFactory(database.factories.PostFactory.class)
 public class Post extends PostBase {
 
     @Id public Long id;

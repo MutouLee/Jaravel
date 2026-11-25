@@ -17,6 +17,7 @@ import io.jaravel.console.generators.MakeModel;
 import io.jaravel.console.generators.MakeNotification;
 import io.jaravel.console.generators.MakePolicy;
 import io.jaravel.console.generators.MakeRequest;
+import io.jaravel.console.generators.MakeFactory;
 import io.jaravel.console.generators.MakeSeeder;
 import io.jaravel.console.generators.MakeTest;
 import io.jaravel.console.generators.MakeView;
@@ -73,7 +74,7 @@ public final class BuiltInCommands {
             MakeModel.class, MakeController.class, MakeMigration.class,
             MakeRequest.class, MakeJob.class, MakeMiddleware.class,
             MakeEvent.class, MakeListener.class, MakePolicy.class,
-            MakeSeeder.class, MakeMail.class, MakeNotification.class,
+            MakeSeeder.class, MakeFactory.class, MakeMail.class, MakeNotification.class,
             MakeConsoleCommand.class, MakeTest.class,
             MakeView.class, MakeComponent.class,
             KeyGenerateCommand.class, WrapperInstallCommand.class,

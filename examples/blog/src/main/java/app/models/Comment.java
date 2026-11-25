@@ -5,11 +5,13 @@ import io.jaravel.eloquent.annotations.Fillable;
 import io.jaravel.eloquent.annotations.Id;
 import io.jaravel.eloquent.annotations.Model;
 import io.jaravel.eloquent.annotations.Scope;
+import io.jaravel.eloquent.annotations.UseFactory;
 import io.jaravel.eloquent.query.Query;
 
 @Model
 @Fillable({"body", "author_name"})
 @BelongsTo(name = "post", target = Post.class)
+@UseFactory(database.factories.CommentFactory.class)
 public class Comment extends CommentBase {
 
     @Id public Long id;

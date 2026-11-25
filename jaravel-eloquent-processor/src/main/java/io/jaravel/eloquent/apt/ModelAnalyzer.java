@@ -38,6 +38,7 @@ import io.jaravel.eloquent.annotations.MorphTo;
 import io.jaravel.eloquent.annotations.Scope;
 import io.jaravel.eloquent.annotations.SoftDeletes;
 import io.jaravel.eloquent.annotations.Transient;
+import io.jaravel.eloquent.annotations.UseFactory;
 import io.jaravel.eloquent.meta.Cast;
 import io.jaravel.eloquent.meta.RelationDef;
 import io.jaravel.support.Arr;
@@ -125,7 +126,8 @@ final class ModelAnalyzer {
                 table, model.connection().isBlank() ? null : model.connection(),
                 model.timestamps(), model.identityMap(), model.generateHelpers(), model.accessors(),
                 softDelete, columns, key, incrementing,
-                guarded, fillable, relations, scopes, globalScopes);
+                guarded, fillable, relations, scopes, globalScopes,
+                readFactory(type, simpleName));
     }
 
     // ================= 形态校验 =================
@@ -250,6 +252,98 @@ final class ModelAnalyzer {
                     index++));
         }
         return out;
+    }
+
+    // ================= 工厂 =================
+
+    /**
+     * 读 {@code @UseFactory(PostFactory.class)},并校验那个类**能承载**生成的基类。
+     *
+     * <p>这里的全部校验都是为了同一件事:让错误落在模型源码上,而不是落在
+     * {@code target/generated-sources} 里的某个文件上。生成式 API 最差的
+     * 失败模式是「javac 报一串找不到符号,位置指向一个我没写过的文件」。
+     *
+     * @return 工厂类全限定名;没标注解或校验失败返回 null
+     */
+    private String readFactory(TypeElement model, String modelSimpleName) {
+        String factoryName = null;
+        for (AnnotationMirror m : model.getAnnotationMirrors()) {
+            if (!m.getAnnotationType().toString().equals(UseFactory.class.getCanonicalName())) {
+                continue;
+            }
+            for (var e : m.getElementValues().entrySet()) {
+                if (e.getKey().getSimpleName().contentEquals("value")) {
+                    factoryName = e.getValue().getValue().toString();
+                }
+            }
+        }
+        if (factoryName == null) return null;
+
+        TypeElement factory = elements.getTypeElement(factoryName);
+        if (factory == null) {
+            // 典型原因:工厂写在 src/test/java,而模型在 main —— 两次 javac
+            error(model, """
+                    @UseFactory 指向的 %s 不在这次编译里。
+                      工厂必须与模型在**同一个源根**(同一次 javac):
+                      生成 %s.factory() 要在编译模型时就知道工厂的类型。
+                      如果它在 src/test/java,把它挪到 src/main/java ——
+                      seeder 也会用到工厂,它本来就属于 main。"""
+                    .formatted(factoryName, modelSimpleName));
+            return null;
+        }
+
+        boolean ok = true;
+
+        if (factory.getNestingKind().isNested()) {
+            error(model, """
+                    @UseFactory 的工厂不能是嵌套类(%s)。
+                      生成的基类 %sBase 是顶层类,嵌套类无法继承到正确的包里。"""
+                    .formatted(factoryName, factory.getSimpleName()));
+            ok = false;
+        }
+        if (factory.getModifiers().contains(Modifier.ABSTRACT)) {
+            error(model, """
+                    @UseFactory 的工厂不能是 abstract(%s)。
+                      %s.factory() 要 new 它。"""
+                    .formatted(factoryName, modelSimpleName));
+            ok = false;
+        }
+        if (!hasNoArgConstructor(factory)) {
+            error(model, """
+                    @UseFactory 的工厂 %s 没有无参构造。
+                      %s.factory() 只会 new %s() —— 工厂的参数应当是链式方法
+                      (状态、关联),而不是构造参数。"""
+                    .formatted(factoryName, modelSimpleName, factory.getSimpleName()));
+            ok = false;
+        }
+
+        // 必须 extends <自己的名字>Base。此时那个基类还没生成,
+        // superclass 是 ERROR 类型 —— 只能比字符串(与 checkShape 同一招)
+        String expected = factory.getSimpleName() + "Base";
+        String actual = factory.getSuperclass().toString();
+        if (!actual.equals(expected) && !actual.endsWith("." + expected)) {
+            error(model, """
+                    @UseFactory 的工厂 %s 必须 extends %s(当前是 %s)。
+                      那个基类由 Jaravel 生成,里面是按列的类型化 setter
+                      与按关联的构建器。写法:
+                        public class %s extends %s { ... }"""
+                    .formatted(factoryName, expected,
+                               actual.isBlank() ? "(没有父类)" : actual,
+                               factory.getSimpleName(), expected));
+            ok = false;
+        }
+
+        return ok ? factoryName : null;
+    }
+
+    private boolean hasNoArgConstructor(TypeElement type) {
+        var constructors = type.getEnclosedElements().stream()
+                .filter(e -> e.getKind() == ElementKind.CONSTRUCTOR)
+                .map(ExecutableElement.class::cast)
+                .toList();
+        // 一个构造都没声明 = 有默认无参构造
+        return constructors.isEmpty()
+                || constructors.stream().anyMatch(c -> c.getParameters().isEmpty());
     }
 
     /** {@code @Cast.Use(Json.class)} 的 Class 值要从 mirror 取(直接 .value() 会抛 MirroredTypeException) */
@@ -452,7 +546,97 @@ final class ModelAnalyzer {
         return new ModelInfo.RelationInfo(
                 name, kind, target, target == null ? null : simple(target),
                 foreignKey, localKey, throughType, secondKey,
-                pivot, fpk, rpk, withPivot, pivotTs, morphPrefix, morphTypes);
+                pivot, fpk, rpk, withPivot, pivotTs, morphPrefix, morphTypes,
+                foreignKeyField(owner, kind, target, foreignKey),
+                targetKeyField(target),
+                targetFactory(target));
+    }
+
+    // ================= 工厂构建器需要的目标信息(docs/14 §3) =================
+
+    /**
+     * {@code foreignKey} 这个**列**在 Java 侧叫什么字段。
+     *
+     * <p>外键落在哪一边取决于关联类型:{@code @BelongsTo} 在本模型上,
+     * {@code @HasMany} / {@code @HasOne} 在目标模型上。生成的工厂构建器
+     * 要直接写那个字段({@code m.authorId = author.id}),所以必须分清。
+     *
+     * <p>取不到就返回 null,生成器跳过这个关联的构建器 —— 宁可少一个方法,
+     * 也不能生成一个引用了不存在字段的方法(那会让用户的编译错误指向生成文件)。
+     */
+    private String foreignKeyField(TypeElement owner, RelationDef.Kind kind,
+                                   String target, String foreignKey) {
+        if (foreignKey == null) return null;
+
+        TypeElement holder = switch (kind) {
+            case BELONGS_TO -> owner;
+            case HAS_MANY, HAS_ONE -> target == null ? null : elements.getTypeElement(target);
+            default -> null;              // through / morph / pivot 的工厂构建器不生成
+        };
+        return holder == null ? null : fieldForColumn(holder, foreignKey);
+    }
+
+    /** 目标模型主键的 Java 字段名 —— {@code related.id} 里的那个 id */
+    private String targetKeyField(String target) {
+        if (target == null) return null;
+        TypeElement type = elements.getTypeElement(target);
+        if (type == null) return null;
+
+        for (var field : fieldsOf(type)) {
+            if (field.getAnnotation(Id.class) != null) return field.getSimpleName().toString();
+        }
+        // @Id 是 SOURCE 保留的:目标来自另一个模块的 jar 时看不到它。
+        // 回落到约定的 id —— 与 ModelAnalyzer.findKey 的默认一致
+        return fieldsOf(type).stream()
+                .map(f -> f.getSimpleName().toString())
+                .filter("id"::equals)
+                .findFirst()
+                .orElse(null);
+    }
+
+    /** 目标模型的 {@code @UseFactory} —— 有工厂才能生成 {@code forAuthor(AuthorFactory)} */
+    private String targetFactory(String target) {
+        if (target == null) return null;
+        TypeElement type = elements.getTypeElement(target);
+        if (type == null) return null;
+
+        for (AnnotationMirror m : type.getAnnotationMirrors()) {
+            if (!m.getAnnotationType().toString().equals(UseFactory.class.getCanonicalName())) {
+                continue;
+            }
+            for (var e : m.getElementValues().entrySet()) {
+                if (e.getKey().getSimpleName().contentEquals("value")) {
+                    return e.getValue().getValue().toString();
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 哪个字段映射到这个列名。
+     *
+     * <p>先认 {@code @Column(name = ...)} 的显式映射,再按约定
+     * ({@code authorId} → {@code author_id})。两者都不中就是 null ——
+     * 那通常意味着外键列名写错了,而那条错误由 {@code checkForeignKeyOnSelf}
+     * 在本模型侧报(目标侧跨模型,编译期核对不了)。
+     */
+    private String fieldForColumn(TypeElement model, String column) {
+        for (var field : fieldsOf(model)) {
+            var explicit = field.getAnnotation(Column.class);
+            String name = explicit != null && !explicit.value().isBlank()
+                    ? explicit.value()
+                    : Naming.column(field.getSimpleName().toString());
+            if (name.equals(column)) return field.getSimpleName().toString();
+        }
+        return null;
+    }
+
+    private List<VariableElement> fieldsOf(TypeElement type) {
+        return type.getEnclosedElements().stream()
+                .filter(e -> e.getKind() == ElementKind.FIELD)
+                .map(VariableElement.class::cast)
+                .toList();
     }
 
     /** target() 必须是 @Model 标注的类型 —— 否则生成的访问器返回类型不是 Model,编译不过 */

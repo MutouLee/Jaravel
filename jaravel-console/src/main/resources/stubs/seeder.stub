@@ -6,11 +6,22 @@ public class {{ class }} implements Seeder {
 
     @Override
     public void run() {
-        // TODO 用 Factory 批量造数据(元模型由 APT 生成):
+        // TODO 造数据。两条路:
         //
-        //   Factory.of(Post_.META, (f, p) -> {
-        //       p.title = f.word();
-        //       p.body  = f.sentence();
-        //   }).count(20).create();
+        // 1) 模型有工厂(jaravel make:factory + 模型上 @UseFactory)——
+        //    类型化 setter 与关联构建器都是生成的:
+        //
+        //      Post.factory().count(20).hasComments(3).create();
+        //      Post.factory().draft().forAuthor(author).createOne();
+        //
+        // 2) 就地造几条、不想为它建一个工厂类:
+        //
+        //      Factory.of(Post_.META, (f, p) -> {
+        //          p.title = f.word();
+        //          p.body  = f.sentence();
+        //      }).count(20).create();
+        //
+        // 两者都用 seed(42) 固定随机种子 —— 不固定的种子数据会让
+        // 「本地看到的页面」与「CI 上看到的页面」不是同一份。
     }
 }

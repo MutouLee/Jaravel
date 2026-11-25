@@ -22,7 +22,7 @@ Laravel 的测试体验是其被低估的优势:一行 `$this->get('/users')->as
 | `BrowserTest` + Playwright 真实浏览器测试 | ✅ v0.8(默认关闭,见 §6.1) |
 | Testcontainers 自动注入(`@UseDatabase`) | ✅ v0.8(默认关闭,见 §2.2) |
 | 并行测试(`jaravel test --parallel` + 每进程测试库) | ✅ v0.8(见 §6.3) |
-| 模型工厂(§3) | ⏳ 只有 `Factory` 基类;`Post.factory()` 的 APT 生成与 `make:factory` **仍未实现** |
+| 模型工厂(§3) | ✅ `@UseFactory` → 类型化 setter + 关联构建器 + `Post.factory()`;`make:factory` 生成骨架(`datafaker` 不做) |
 | Fake(§4) | ✅ Mail / Event / Storage / Notifications / Broadcast / Http / Queue / Cache + `Clock` 时间控制 + `UploadedFile.fake()`;`Event.fakeExcept` 不提供(用 `Event.fake(types)`) |
 | 隔离策略注解 `@DatabaseTransactions` / `@RefreshDatabase` / `@DatabaseMigrations` | ✅(`@WithoutDatabase` 不做,理由见 §2.1) |
 | `AppTest`(容器 + 数据库,无 HTTP,§5) | ✅(与 `FeatureTest` 共用同一个上下文,见 §5) |
@@ -345,57 +345,112 @@ assertNoLazyLoading(() -> controller.index());
 ## 3. 模型工厂
 
 ```java
-public class PostFactory extends Factory<Post> {
-
-    @Override public Map<String, Object> definition() {
-        return Map.of(
-            "title",   faker.book().title(),
-            "body",    faker.lorem().paragraphs(3),
-            "user_id", User.factory(),                 // 嵌套工厂,自动创建关联
-            "status",  "published"
-        );
-    }
-
-    public PostFactory draft()     { return state(Map.of("status", "draft", "published_at", null)); }
-    public PostFactory published() { return state(Map.of("status", "published", "published_at", Instant.now())); }
-    public PostFactory byAuthor(User u) { return state(Map.of("user_id", u.getId())); }
-
-    /** 创建后的钩子 */
-    @Override public void afterCreating(Post post) {
-        post.tags().attach(Tag.factory().create().getId());
-    }
-}
+@Model
+@UseFactory(PostFactory.class)        // ← 这一行决定 APT 生成什么
+public class Post extends PostBase { ... }
 ```
 
 ```java
-// 使用
-Post p = Post.factory().create();
-Post p2 = Post.factory().draft().create();
-Post p3 = Post.factory().create(Map.of("title", "指定标题"));
-Coll<Post> many = Post.factory().count(10).create();
-Post unsaved = Post.factory().make();                       // 不写库
-Coll<Post> seq = Post.factory().count(3)
-    .sequence(Map.of("status", "draft"), Map.of("status", "published")).create();
+public class PostFactory extends PostFactoryBase {
 
-// 关联
-User u = User.factory().hasPosts(3).create();
-User u2 = User.factory().has(Post.factory().count(3).draft()).create();
-Post p4 = Post.factory().for_(User.factory().admin()).create();
-Post p5 = Post.factory().hasAttached(Tag.factory().count(2), Map.of("primary", true)).create();
+    @Override
+    protected void definition(Faker f, Post post) {
+        post.title = f.sentence();
+        post.body  = f.paragraph();
+        post.published = true;
+    }
+
+    // 具名状态 —— 工厂类存在的理由就是这几个方法
+    public PostFactory draft()   { return state(p -> p.published = false); }
+    public PostFactory popular() { return state(p -> p.views = 10_000); }
+
+    /** 每条都要做的创建后动作 */
+    @Override
+    protected void afterCreating(Post post) { ... }
+}
 ```
 
-工厂由 `jaravel make:factory` 生成骨架,`@Model` 的 APT 生成 `Post.factory()` 静态方法与类型安全的 `hasXxx()` 关联方法。
+**用户只写这两样:默认值与具名状态。** 其余的都是样板,所以都由
+`@UseFactory` 生成进 `PostFactoryBase`:
 
-> ⚠ **这是目标 API,尚未实现。** `make:factory` 与 `Post.factory()` 的 APT
-> 生成都还没有;现有的是 `jaravel-migration` 的 `Factory` 基类
-> (`Factory.of(ModelMeta, ...)`),工厂方法需要手写。见 §10。
+```java
+// 产出
+Post p = Post.factory().createOne();
+Coll<Post> many = Post.factory().count(10).create();
+Post unsaved = Post.factory().makeOne();                    // 不写库
 
-Faker 用 `net.datafaker:datafaker`,支持 `locale: zh_CN`。
+// 按列的类型化 setter(生成的)
+Post p2 = Post.factory().title("指定标题").views(777).createOne();
 
-> ⚠ **同样未实现。** 仓库里没有 `datafaker` 依赖,`Factory.Faker` 是内置的
-> 最小实现:`word` / `words` / `sentence` / `paragraph` / `unique` /
-> `email` / `slug` / `uuid` / `number` / `longNumber` / `sequence` / `random`;
-> 没有 `book()` / `lorem()` / `locale`。
+// 具名状态(自己写的)接在生成的链式方法后面
+Post p3 = Post.factory().draft().count(3).create().get(0);
+
+// 序列、种子
+Coll<Post> seq = Post.factory().count(4)
+        .sequence(p -> p.published = false, p -> p.published = true)
+        .create();
+Coll<Post> reproducible = Post.factory().count(3).seed(42).create();
+
+// 关联(生成的)
+Post p4 = Post.factory().forAuthor(author).createOne();          // 用现成的父对象
+Post p5 = Post.factory().forAuthor(Author.factory()).createOne(); // 现建一个
+Author a = Author.factory().hasPosts(3).createOne();              // 子对象
+Author b = Author.factory().hasPosts(3, f -> f.draft()).createOne();
+```
+
+骨架由 `jaravel make:factory PostFactory --model=Post` 生成(docs/13 §2.2)。
+
+### 3.1 为什么是「类型化 lambda」而不是 Laravel 的 Map
+
+Laravel 的 `definition()` 返回 `['title' => ..., 'status' => ...]`。
+照搬到 Java 会得到 `Map<String, Object>` —— 列名写错是运行时的
+「找不到列 titel」,类型写错是运行时的 ClassCastException。
+docs/14 §10 为此登记过三个版本的开放项(「`definition()` 缺少类型安全」)。
+
+这里关掉它:**默认值是一个写字段的 lambda,setter 是按列生成的方法**。
+列名写错、类型写错都在编译期暴露,IDE 也能补全。代价是与 Laravel 的
+代码形状不同 —— 但 `Post.factory().draft().count(3).create()` 这一行
+(真正会被反复写的那一行)两边一模一样。
+
+### 3.2 几个刻意的边界
+
+| 行为 | 选择 | 理由 |
+|---|---|---|
+| `@UseFactory` 标在**模型**上,不是工厂上 | 模型侧 | 标在工厂上更像 Laravel,但生成 `Post.factory()` 需要在处理模型那一轮就知道工厂类名 —— 只改模型时工厂不在那一轮里,`factory()` 会在一次增量编译后**静默消失** |
+| 工厂必须与模型在**同一次编译**里 | 报错 | 写在 `src/test/java` 的工厂,main 里的 `Post.factory()` 编译不过。处理器直接报错并说清;顺带:seeder 也是工厂的使用者,它本来就属于 main |
+| 链式方法返回具体工厂类型 | 生成时写死 + 一次向下转型 | 替代方案是 `F extends ModelFactory<M, F>` 自引用泛型,它的全部作用只是让链式方法返回正确类型,代价是用户的类声明里一串泛型噪音 |
+| 名字与机制方法冲突的列(`count` / `state` / `seed` …) | 不生成 setter,但报 warning | 生成了会变成重载歧义:`.count(3)` 既可能是「造 3 条」也可能是「把 count 列设成 3」,javac 按参数类型挑一个 —— 最糟的一种静默行为 |
+| `forAuthor(Author.factory())` 只建**一个**父对象 | count 条共用 | 「同一个作者的三篇」是这句话想说的事;要「各自一个父对象」在 `state` 里自己建 |
+| `hasPosts(n)` 只对 `create()` 有效 | 是 | `make()` 不入库,父对象没有主键,子对象的外键无处可填 |
+| 中间表关联(`@BelongsToMany`)没有构建器 | 不生成 | 它的外键不在模型字段上。挂接走 `post.tags().attach(...)`(`BlogSeeder` 里有写法),登记在 KNOWN-ISSUES.md |
+| UNIQUE 列的默认值 | 用户负责 | `Faker` 的序号是**每个实例一份**(固定种子要可复现,就不能有跨实例共享状态),于是两次 `Post.factory()` 的 slug 都从 `slug-1` 开始。`examples/blog` 的 `PostFactory` 里有这件事的写法:加一个进程级计数器 |
+
+### 3.3 不需要工厂类的那条路还在
+
+```java
+Factory.of(Post_.META, (f, p) -> {
+    p.title = f.sentence();
+}).count(20).seed(42).create();
+```
+
+`io.jaravel.migration.Factory` 不需要 APT、不需要工厂类,适合 seeder 里
+就地造几条。换来类型化 setter 与关联构建器的是「每个模型一个工厂类」那条路
+—— 它们只能生成,手写就是样板。两者共用 `io.jaravel.support.Faker`,
+所以定义里的写法完全一样。
+
+### 3.4 Faker
+
+内置最小实现:`word` / `words` / `sentence` / `paragraph` / `unique` /
+`email` / `slug` / `url` / `ipv4` / `uuid` / `number` / `longNumber` /
+`decimal` / `bool` / `chance` / `pick` / `sequence` /
+`pastInstant` / `futureInstant` / `pastDate`。
+
+> ⚠ **没有 `net.datafaker:datafaker`,也没有 `locale`。** 原文设想的
+> `faker.book().title()` / `faker.lorem()` / `locale: zh_CN` 都不存在 ——
+> 10MB 的 locale 数据与一串传递依赖,换来的是造数据时更像真话的字符串,
+> 而工厂真正需要的只是「不重复的字符串」和「范围内的数字」。
+> 要更真实的数据:`definition` 是个 lambda,里面换成自己的 Faker 即可。
+> 登记在 KNOWN-ISSUES.md。
 
 ---
 
@@ -917,7 +972,10 @@ public class JaravelExtension implements BeforeAllCallback, BeforeEachCallback,
   (在 `@BeforeEach` 里 `actingAs` 直接报错,而不是静默无效),
   且**不造合成会话** —— 会话型 guard 在 `AppTest` 里读不到登录态,
   与队列任务一致。
-- [ ] 工厂的 `definition()` 返回 `Map<String,Object>` 缺少类型安全。考虑生成 `PostFactory` 的类型化 setter(`.title("X").status(PUBLISHED)`)。**v0.6 / v0.7 均未做**,仍开放;等真实使用反馈再定。
+- [x] 工厂的类型安全:**已实现** —— 不走 `Map<String,Object>`,默认值是写字段的
+  lambda,setter 按列生成(`.title("X").views(777)`),列名与类型都在编译期
+  检查(§3.1)。这条开放项在 v0.6 / v0.7 两次都记成「等反馈再定」,
+  这次做掉的理由是:工厂的 APT 既然要做,Map 那一版就没有存在的必要了。
 - [x] 测试隔离注解与 `AppTest`:**已实现** —— `@DatabaseTransactions`(默认,
   显式声明)/ `@RefreshDatabase` / `@DatabaseMigrations` + `AppTest`
   (§2.1、§5)。`@WithoutDatabase` **不做**:它要表达的「纯单元测试」已经有
@@ -926,5 +984,14 @@ public class JaravelExtension implements BeforeAllCallback, BeforeEachCallback,
   `Queue.fake()` / `Cache.fake()` / `Clock` / `UploadedFile.fake()`
   都已落地(边界见 `QueueFake` / `CacheFake` / `Clock` / `FakeUpload`
   的类注释)。
-- [ ] 工厂:`Post.factory()` 的 APT 生成与 `make:factory` 未实现,
-  `Factory.Faker` 仍是内置最小实现而非 `datafaker`(§3)。
+- [x] 工厂:**已实现** —— `@UseFactory(PostFactory.class)` 生成
+  `PostFactoryBase`(类型化 setter、关联构建器 `forAuthor` / `hasPosts`、
+  count / state / sequence / seed / make / create)与模型上的
+  `Post.factory()`;`jaravel make:factory` 生成骨架(§3、docs/13 §2.2)。
+  边界与理由见 §3.2。
+  **`datafaker` 不做**:10MB locale 数据与一串传递依赖,换来的只是更像
+  真话的字符串;`Faker` 留在 `io.jaravel.support`,要更真实的数据在
+  `definition` 里换自己的(§3.4,登记在 KNOWN-ISSUES.md)。
+- [ ] 中间表关联(`@BelongsToMany`)没有工厂构建器(`hasAttached`):
+  它的外键不在模型字段上,要走关联访问器。当前写法是
+  `post.tags().attach(...)`(§3.2),登记在 KNOWN-ISSUES.md。

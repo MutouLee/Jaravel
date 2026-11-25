@@ -8,8 +8,8 @@
 | 项 | 状态 | 说明 |
 |---|---|---|
 | `@WithoutDatabase` | **不做** | 它表达的「纯单元测试」已有更快的写法:不继承基类(docs/14 §5 第一层)。而「有上下文但没有库」要求每个子系统都补无库降级路径 —— `Connection` bean 刻意是启动即失败的 |
-| 工厂 `Post.factory()` APT / `make:factory` | 未实现 | 现有 `Factory.of(ModelMeta, ...)` 手写 |
-| `Factory.Faker` 的 `datafaker` / locale | 未实现 | 内置最小 Faker |
+| 工厂的中间表构建器(`hasAttached`) | 未实现 | `@BelongsToMany` 的外键不在模型字段上,挂接走 `post.tags().attach(...)`(docs/14 §3.2) |
+| `datafaker` / locale | **不做** | 10MB locale 数据 + 一串传递依赖,换来的只是更像真话的字符串。`io.jaravel.support.Faker` 是内置最小实现;要更真实的数据在 `definition` 里换自己的(docs/14 §3.4) |
 
 ## 控制台
 
@@ -19,7 +19,6 @@
 | `install:*`(除 `install:auth`) | 未实现 | 只有 auth |
 | `optimize` 的四种缓存 | 未实现 | |
 | `analyze:*` | 未实现 | |
-| `make:factory` | 未实现 | 见测试表 |
 
 ## 视图 / 前端
 

@@ -33,12 +33,31 @@ record ModelInfo(
         List<String> fillable,
         List<RelationInfo> relations,
         List<ScopeInfo> scopes,
-        List<ScopeInfo> globalScopes
+        List<ScopeInfo> globalScopes,
+        String factoryClass              // @UseFactory 的全限定名;null = 没有工厂
 ) {
 
     String baseClass()      { return Naming.baseClass(simpleName); }
     String metamodelClass() { return Naming.metamodelClass(simpleName); }
     String queryClass()     { return Naming.queryClass(simpleName); }
+
+    boolean hasFactory() { return factoryClass != null; }
+
+    /** {@code database.factories.PostFactory} → {@code PostFactory} */
+    String factorySimpleName() {
+        int dot = factoryClass.lastIndexOf('.');
+        return dot < 0 ? factoryClass : factoryClass.substring(dot + 1);
+    }
+
+    /** 工厂基类的全限定名 —— 跟着工厂走,所以工厂放哪个包都行 */
+    String factoryBaseClass() {
+        return factoryClass + "Base";
+    }
+
+    String factoryPackage() {
+        int dot = factoryClass.lastIndexOf('.');
+        return dot < 0 ? "" : factoryClass.substring(0, dot);
+    }
 
     boolean softDeletes() { return softDeleteColumn != null; }
 
@@ -94,9 +113,18 @@ record ModelInfo(
             List<String> withPivot,
             boolean pivotTimestamps,
             String morphPrefix,
-            List<String> morphTypes
+            List<String> morphTypes,
+            // ↓ 工厂生成用(docs/14 §3)。取不到时为 null,生成器据此跳过那个构建器。
+            String foreignKeyField,          // foreignKey 列对应的 Java 字段名
+            String targetKeyField,           // 目标模型主键的 Java 字段名
+            String targetFactoryClass        // 目标模型 @UseFactory 的全限定名
     ) {
         boolean isMany() { return kind.isMany(); }
+
+        /** 能为这个关联生成工厂构建器吗 —— 三样信息都得有 */
+        boolean factoryReady() {
+            return foreignKeyField != null && targetKeyField != null && targetType != null;
+        }
     }
 
     /** {@code @Scope} / {@code @GlobalScope} 标注的静态方法 */

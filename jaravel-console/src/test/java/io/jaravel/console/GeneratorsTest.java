@@ -27,6 +27,7 @@ import io.jaravel.console.generators.MakeMail;
 import io.jaravel.console.generators.MakeMiddleware;
 import io.jaravel.console.generators.MakeMigration;
 import io.jaravel.console.generators.MakeModel;
+import io.jaravel.console.generators.MakeFactory;
 import io.jaravel.console.generators.MakeNotification;
 import io.jaravel.console.generators.MakePolicy;
 import io.jaravel.console.generators.MakeRequest;
@@ -55,7 +56,7 @@ class GeneratorsTest {
         List.of(MakeModel.class, MakeController.class, MakeMigration.class,
                         MakeRequest.class, MakeJob.class, MakeMiddleware.class,
                         MakeEvent.class, MakeListener.class, MakePolicy.class,
-                        MakeSeeder.class, MakeMail.class, MakeNotification.class,
+                        MakeSeeder.class, MakeFactory.class, MakeMail.class, MakeNotification.class,
                         MakeConsoleCommand.class, MakeTest.class,
                         MakeView.class, MakeComponent.class)
                 .forEach(registry::register);
@@ -98,6 +99,8 @@ class GeneratorsTest {
                         "src/main/java/app/listeners/NotifyWarehouse.java"),
                 Arguments.of("make:seeder", "PostSeeder",
                         "src/main/java/database/seeders/PostSeeder.java"),
+                Arguments.of("make:factory", "PostFactory",
+                        "src/main/java/database/factories/PostFactory.java"),
                 Arguments.of("make:mail", "OrderShipped",
                         "src/main/java/app/mail/OrderShipped.java"),
                 Arguments.of("make:notification", "InvoicePaid",
@@ -246,6 +249,43 @@ class GeneratorsTest {
             assertThat(Artisan.output())
                     .as("症状会是「授权规则没生效」,与一个没填的注解之间没有线索")
                     .contains("--model=");
+        }
+    }
+
+    @Nested
+    @DisplayName("make:factory")
+    class Factories {
+
+        @Test
+        @DisplayName("模型从类名推断:PostFactory → Post,并继承生成的基类")
+        void inferredModel(@TempDir Path tmp) {
+            generate(tmp, "make:factory", "PostFactory");
+
+            assertThat(read(tmp.resolve("src/main/java/database/factories/PostFactory.java")))
+                    .contains("import app.models.Post;")
+                    .contains("extends PostFactoryBase")
+                    .contains("protected void definition(Faker f, Post post)");
+        }
+
+        @Test
+        @DisplayName("★ 输出里带上模型上要加的那行 —— 少了它生成的工厂编译不过")
+        void tellsYouToAnnotateTheModel(@TempDir Path tmp) {
+            generate(tmp, "make:factory", "PostFactory");
+
+            assertThat(Artisan.output())
+                    .as("""
+                            命令不去改模型文件(往用户写过的文件里插注解会把代码改坏),
+                            所以另一半必须在输出里说清,而且要能照抄。""")
+                    .contains("@UseFactory(database.factories.PostFactory.class)");
+        }
+
+        @Test
+        @DisplayName("推不出模型时报错,而不是生成一个编译不过的类")
+        void withoutModelFails(@TempDir Path tmp) {
+            registry(tmp);
+
+            assertThat(Artisan.call("make:factory", "Whatever")).isEqualTo(1);
+            assertThat(Artisan.output()).contains("--model=");
         }
     }
 

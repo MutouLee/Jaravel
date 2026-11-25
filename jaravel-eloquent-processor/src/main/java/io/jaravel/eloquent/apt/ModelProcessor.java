@@ -100,12 +100,45 @@ public class ModelProcessor extends AbstractProcessor {
         write(info, info.metamodelClass(), MetamodelGenerator.generate(info));
         write(info, info.baseClass(), BaseGenerator.generate(info));
         write(info, info.queryClass(), QueryGenerator.generate(info));
+        if (info.hasFactory()) emitFactory(info);
         generated.add(info.qualifiedName());
 
         if (verbose) {
             note(info.element(), "Jaravel 为 %s 生成了 %s / %s / %s(%d 列,%d 关联)".formatted(
                     info.simpleName(), info.metamodelClass(), info.baseClass(), info.queryClass(),
                     info.columns().size(), info.relations().size()));
+        }
+    }
+
+    /**
+     * 工厂基类(docs/14 §3)。
+     *
+     * <p>它**不与模型同包** —— 跟着 {@code @UseFactory} 指的工厂走,
+     * 所以 {@code database.factories.PostFactory} 与「工厂写在模型旁边」
+     * 都成立。因此这里不能走 {@link #write},那个方法按模型的包拼名字。
+     */
+    private void emitFactory(ModelInfo info) {
+        String qualified = info.factoryBaseClass();
+        try (Writer w = processingEnv.getFiler()
+                .createSourceFile(qualified, info.element()).openWriter()) {
+            w.write(FactoryGenerator.generate(info));
+        } catch (javax.annotation.processing.FilerException e) {
+            if (verbose) note(info.element(), "跳过已生成的 " + qualified + ":" + e.getMessage());
+        } catch (IOException e) {
+            error(info.element(), "无法写出生成文件 " + qualified + ":" + e.getMessage());
+        }
+
+        // 被占用的列名:不生成 setter,但必须说出来 ——
+        // 静默少一个 setter 的症状是「为什么 .title(...) 有而 .count(...) 没有」
+        var reserved = FactoryGenerator.reservedColumns(info);
+        if (!reserved.isEmpty()) {
+            processingEnv.getMessager().printMessage(Diagnostic.Kind.WARNING, """
+                    %s 的这些列没有生成工厂 setter:%s
+                      它们的名字与工厂自己的机制方法(count / state / seed /
+                      sequence / make / create …)冲突,生成了会变成重载歧义。
+                      用 state(m -> m.%s = ...) 代替。"""
+                    .formatted(info.simpleName(), String.join("、", reserved), reserved.get(0)),
+                    info.element());
         }
     }
 

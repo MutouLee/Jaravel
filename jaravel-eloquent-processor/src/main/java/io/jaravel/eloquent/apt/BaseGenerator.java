@@ -126,6 +126,17 @@ final class BaseGenerator {
         c.close();
         c.blank();
 
+        if (m.hasFactory()) {
+            c.doc("模型工厂(docs/14 §3)—— {@code %s.factory().count(3).create()}。".formatted(name),
+                  "",
+                  "<p>每次返回一个**新的**工厂实例:工厂是可变的(count / 状态都挂在",
+                  "它身上),共享一个实例会让上一个测试的 {@code draft()} 漏给下一个。");
+            c.open("public static %s factory() {".formatted(m.factoryClass()));
+            c.line("return new %s();", m.factoryClass());
+            c.close();
+            c.blank();
+        }
+
         c.open("public static long count() {");
         c.line("return query().count();");
         c.close();

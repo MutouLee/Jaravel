@@ -5,10 +5,12 @@ import io.jaravel.eloquent.annotations.HasMany;
 import io.jaravel.eloquent.annotations.Hidden;
 import io.jaravel.eloquent.annotations.Id;
 import io.jaravel.eloquent.annotations.Model;
+import io.jaravel.eloquent.annotations.UseFactory;
 
 @Model
 @Fillable({"name", "email"})
 @HasMany(name = "posts", target = Post.class, foreignKey = "author_id")
+@UseFactory(database.factories.AuthorFactory.class)
 public class Author extends AuthorBase {
 
     @Id public Long id;

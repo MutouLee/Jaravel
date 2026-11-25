@@ -487,12 +487,22 @@ jaravel make:record UserDto
 >    应用里一条叫 `migrate` 的命令会悄悄遮住框架那条,
 >    而那种冲突在运行时表现为「migrate 的行为变了」。
 >
-> **还没有的几条,各有原因**:`make:resource` 的模块(`jaravel-api`)
+> **`make:factory` 已实现**(docs/14 §3)。此前记的理由是
+> 「工厂类在仓库里还没有先例,给它一个 stub 等于凭空发明一个约定」——
+> 那条理由成立过:当时 `BlogSeeder` 是在 seeder 里就地 `Factory.of(...)`。
+> 现在 `examples/blog` 的 `database/factories` 下有四个真工厂,
+> stub 照它们写。
+>
+> 它比别的 `make:*` 多做一件事:**在输出里给出模型上要加的那行**
+> (`@UseFactory(database.factories.PostFactory.class)`)。命令不去改模型
+> 文件 —— 往用户写过的文件里插注解,格式一不合预期就会把代码改坏,
+> 而那是不可逆的。但少了那行,生成的工厂**编译不过**(它继承的
+> `PostFactoryBase` 由 APT 从那个注解生成),所以另一半必须说清、
+> 且能照抄。有一条测试钉着那行字。
+>
+> **还没有的一条**:`make:resource` 的模块(`jaravel-api`)
 > 在 v0.5 已经落地了,但这条命令还没有 —— 它要生成 `JsonResource`
-> 与一组 OpenAPI 注解,与上面这批「一个类名 → 一个 stub」不同;
-> `make:factory` 的「工厂类」在仓库里还没有先例
-> (`BlogSeeder` 是在 seeder 里就地 `Factory.of(...)`),
-> 给它一个 stub 等于凭空发明一个约定。
+> 与一组 OpenAPI 注解,与上面这批「一个类名 → 一个 stub」不同。
 >
 > ### v0.6:`make:view` / `make:component` 已实现
 >

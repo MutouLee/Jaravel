@@ -1,0 +1,32 @@
+package {{ pkg }};
+
+import app.models.{{ model }};
+import io.jaravel.support.Faker;
+
+/**
+ * {{ model }} 的模型工厂(docs/14 §3)。
+ *
+ * <p>前提:模型上标了 {@code @UseFactory({{ class }}.class)} ——
+ * {{ class }}Base 由 APT 从那个注解生成,里面有按列的类型化 setter
+ * ({@code .title("X")})、关联构建器({@code .forAuthor(a)} /
+ * {@code .hasComments(3)})与 count / state / sequence / seed / make / create。
+ *
+ * <p>这里只写两样:**字段默认值**与**具名状态**。
+ */
+public class {{ class }} extends {{ class }}Base {
+
+    @Override
+    protected void definition(Faker f, {{ model }} {{ var }}) {
+        // TODO 填默认值。UNIQUE 列要跨工厂实例唯一 —— Faker 的序号是
+        // 每个实例一份,两次 factory() 都从 1 开始(见 Faker 的类注释)。
+        //
+        //   {{ var }}.title = f.sentence();
+        //   {{ var }}.slug  = f.slug() + "-" + SLUGS.incrementAndGet();
+    }
+
+    // 具名状态 —— 这才是工厂类存在的理由:
+    //
+    // public {{ class }} draft() {
+    //     return state({{ var }} -> {{ var }}.published = false);
+    // }
+}

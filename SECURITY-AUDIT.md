@@ -169,7 +169,7 @@ Testcontainers **1.21.3 → 1.21.4**。
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| 默认安全响应头 | 未做 | 没有 CSP / X-Frame-Options / Referrer-Policy / HSTS 的默认中间件;应用需自行加 |
+| 默认安全响应头 | **部分做了** | `X-Content-Type-Options: nosniff` / `X-Frame-Options: SAMEORIGIN` / `Referrer-Policy: strict-origin-when-cross-origin` 由 `SecurityHeadersFilter` 默认发(docs/03 §2.6)。**CSP 与 HSTS 仍需应用显式配**:框架猜的 CSP 会挡掉应用自己的脚本,而 HSTS 是粘的 —— 在没全站 https 的域上开一次,一部分用户再也打不开站点 |
 | 受信代理配置 | 委派给 Spring Boot | 框架不解析 XFF;`server.forward-headers-strategy` 的信任范围由应用配置 |
 
 ---

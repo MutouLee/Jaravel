@@ -47,6 +47,56 @@
   端到端:`examples/auth` 的演示页加了一个真的
   `DELETE /notes/{id}` 路由与 POST + `@method('DELETE')` 的表单,
   并钉住「伪装后仍要 CSRF(少令牌 419)」与「伪装不绕过授权(别人的 403)」。
+- **默认安全响应头**(docs/03 §2.6,SECURITY-AUDIT §6 的「未做」之一)——
+  不写配置就有三个头:`X-Content-Type-Options: nosniff`、
+  `X-Frame-Options: SAMEORIGIN`、`Referrer-Policy: strict-origin-when-cross-origin`。
+  **CSP 与 HSTS 默认不开**,要显式配 `jaravel.security.csp` /
+  `jaravel.security.hsts.max-age`:框架猜出来的 CSP 一定会挡掉某些应用的
+  内联脚本或 CDN(症状是「页面上有一块不工作」,而报错只在 devtools 里),
+  而 HSTS 是**粘的** —— 在还没全站 https 的域上开一次,一部分用户再也打不开
+  站点。HSTS 还只在 https 请求上发。
+  **★ 它是 Filter 而不是中间件**,这一点是被一条验收测试当场改掉的:
+  第一版写成全局中间件,而 `/api/me` 的 401 上一个头都没有 ——
+  401 / 419 / 404 / 500 都是用异常表达的,响应在中间件链 unwind **之后**
+  才由 ExceptionHandler 造出来,中间件连不上那一半响应(而错误页同样是
+  会被浏览器解析的内容)。这条分层 `Middleware` 的类注释里早就写了,
+  docs/03 §2.5 现在补上了这第二个理由。
+  顺带修掉 `ResponseWriter` 的一个真问题:响应头此前一律用 `addHeader`,
+  于是 filter 预设的值与应用设的值**并存** —— 浏览器遇到冲突的
+  `X-Frame-Options` 按最严的算,那条路由上「我明明设了 ALLOWALL」不生效。
+  现在第一个值用 `setHeader`(替换)、其余 `addHeader`(多值头仍保留全部值)。
+- **按请求选语言的中间件 `locale`**(docs/03 §2.7)——
+  `?lang=en` → 会话里存过的选择 → `Accept-Language`(按 q 值排序,q=0 丢掉)
+  → 配置默认值。**只认已装载的语言**:照单全收地切成一个没有目录的语言,
+  后果是整站回退到 fallback,看起来像「语言设置没生效」;`zh-CN` 匹配目录名
+  `zh_CN`,`zh-TW` 退一步按语言段匹配(只做精确匹配时中文用户一个都匹配不上)。
+  刻意**不进 `web` 组**:它会让一个只写了中文页面的站点变成半英半中。
+  **★ 顺带修掉 i18n 底座的一个线程安全缺陷**:`Translator` 的当前语言此前
+  是一个 JVM 级 volatile 字段,而 `Lang.withLocale` 的实现是「改全局再改回来」
+  —— 两个并发请求或两个 worker 会互相串台(A 切 en,B 的中文页面里混进英文)。
+  现在是三层解析:`withLocale` 的**线程内**覆盖 > `useLocale` 写进**执行
+  作用域** > 配置默认值。请求级必须是作用域而不是 try/finally:视图在中间件链
+  **返回之后**才渲染,线程覆盖在模板里已经恢复了(症状是「中间件生效了,
+  页面还是默认语言」)。`SetLocaleTest` 有一条两线程各设一种语言、互不串台的
+  测试;`examples/auth` 的 `/notes/page` 挂上了它,`@lang` 的页面按
+  `Accept-Language` 切中英。
+  docs/09 §1.6 里「`remember` 同一进程内只有一个线程执行」那段**从未实现
+  也不该实现**(加锁会把缓存失效变成请求排队),已按代码改正。
+- **`Cache.get(key, TypeRef)` 与 `Cache.rememberLocked`**(docs/09 §1.5、§1.6)——
+  `io.jaravel.support.TypeRef` 让 `Class<T>` 装不下的泛型容器能取回来:
+  `Cache.get("posts", new TypeRef<List<Post>>() {})`,`get` / `remember` /
+  `tags(...)` 上都有重载。不用 Jackson 的 `TypeReference`:那会把 Jackson
+  写进框架的公开 API(caffeine 驱动根本不序列化),`TypeRef` 只暴露一个
+  `java.lang.reflect.Type`。代价说清:`TypeRef` 版一律走 Jackson 转换,
+  换的是「caffeine 上能用的代码换到 redis 上也能用」。
+  `rememberLocked(key, ttl, wait, supplier)` 是跨进程防击穿 ——
+  只有一个进程算,其余的等它写好再读。**等不到锁时自己算而不是抛异常**:
+  `Lock.block` 超时抛异常对「防重复执行」是对的,但这里是缓存,让用户的请求
+  因为另一个进程算得慢而失败比多算一份昂贵得多。另两件实现上的事:
+  拿到锁后**再查一遍**缓存(少了这一步锁只是让请求排队,每个还是各算一遍),
+  锁用 `remember:<key>` 而不是键本身(否则加锁会把缓存值挤掉)。
+  这几条都进了跨驱动契约测试(array / caffeine / file / database / tiered),
+  因为「换驱动后行为变了」是这个模块最贵的一类 bug。
 - **生成式模型工厂 `@UseFactory` + `make:factory`**(docs/14 §3)——
   模型上标 `@UseFactory(PostFactory.class)`,APT 生成 `PostFactoryBase`:
   **按列的类型化 setter**(`.title("X").views(777)`)、关联构建器

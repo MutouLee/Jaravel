@@ -12,6 +12,7 @@ import io.jaravel.auth.middleware.RedirectIfAuthenticated;
 import io.jaravel.auth.middleware.ThrottleRequests;
 import io.jaravel.http.Kernel;
 import io.jaravel.http.Middleware;
+import io.jaravel.http.middleware.SetLocale;
 import io.jaravel.session.StartSession;
 import io.jaravel.session.VerifyCsrfToken;
 import io.jaravel.permissions.middleware.PermissionMiddleware;
@@ -79,6 +80,9 @@ public class DefaultKernel extends Kernel {
         aliases.put("idempotent", Idempotent.class);                // idempotent / idempotent:86400
         aliases.put("role", RoleMiddleware.class);                   // role:admin,editor
         aliases.put("permission", PermissionMiddleware.class);       // permission:publish-posts
+        // 按 Accept-Language / ?lang= / 会话选语言。刻意不进 web 组:
+        // 它会改变现有应用的可见行为(半英半中的页面),该由应用决定
+        aliases.put("locale", SetLocale.class);
         return aliases;
     }
 

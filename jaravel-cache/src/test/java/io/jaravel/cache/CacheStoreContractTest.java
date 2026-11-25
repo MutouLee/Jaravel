@@ -331,6 +331,157 @@ class CacheStoreContractTest {
         assertThat(calls[0]).isEqualTo(2);
     }
 
+    // ================= 泛型容器(docs/09 §1.5) =================
+
+    /** TypeRef 的被测对象 —— 用 record 是因为文档建议缓存 DTO 而不是模型 */
+    record Item(String name, int qty) {}
+
+    @ParameterizedTest(name = "[{0}] TypeRef 取泛型容器,元素类型是真的")
+    @MethodSource("stores")
+    void typeRefKeepsElementTypes(String name, Supplier<CacheStore> factory) {
+        var cache = new Repository(factory.get());
+
+        cache.put("items", List.of(new Item("螺丝", 10), new Item("螺母", 20)));
+
+        List<Item> items = cache.get("items", new io.jaravel.support.TypeRef<List<Item>>() {})
+                .orElseThrow();
+
+        assertThat(items)
+                .as("""
+                        只给 List.class 时这里是 List<Map<String,Object>>,
+                        而那个错误要等到第一次 items.get(0).name() 才炸 ——
+                        离「取缓存时没说元素类型」很远。""")
+                .containsExactly(new Item("螺丝", 10), new Item("螺母", 20));
+    }
+
+    @ParameterizedTest(name = "[{0}] TypeRef 版 remember")
+    @MethodSource("stores")
+    void typeRefRemember(String name, Supplier<CacheStore> factory) {
+        var cache = new Repository(factory.get());
+        var calls = new int[1];
+        var type = new io.jaravel.support.TypeRef<Map<String, Item>>() {};
+
+        Supplier<Map<String, Item>> compute = () -> {
+            calls[0]++;
+            return Map.of("a", new Item("甲", 1));
+        };
+
+        assertThat(cache.remember("m", Duration.ofMinutes(1), type, compute))
+                .containsEntry("a", new Item("甲", 1));
+        assertThat(cache.remember("m", Duration.ofMinutes(1), type, compute))
+                .as("第二次应当命中缓存")
+                .containsEntry("a", new Item("甲", 1));
+        assertThat(calls[0]).isEqualTo(1);
+    }
+
+    @ParameterizedTest(name = "[{0}] TypeRef 的元素类型对不上时,报错说得清")
+    @MethodSource("stores")
+    void typeRefMismatchExplainsItself(String name, Supplier<CacheStore> factory) {
+        var cache = new Repository(factory.get());
+
+        cache.put("items", List.of("不是 Item"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                        cache.get("items", new io.jaravel.support.TypeRef<List<Item>>() {}))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("items")
+                .hasMessageContaining("无法转换");
+    }
+
+    // ================= 跨进程防击穿(docs/09 §1.6) =================
+
+    @ParameterizedTest(name = "[{0}] rememberLocked:并发只算一次")
+    @MethodSource("stores")
+    void rememberLockedComputesOnceUnderConcurrency(String name, Supplier<CacheStore> factory)
+            throws Exception {
+        var cache = new Repository(factory.get());
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var start = new java.util.concurrent.CountDownLatch(1);
+        int threads = 4;
+
+        Supplier<String> expensive = () -> {
+            calls.incrementAndGet();
+            sleep(80);                       // 让其余线程一定撞上锁
+            return "computed";
+        };
+
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+        try {
+            var results = new java.util.ArrayList<java.util.concurrent.Future<String>>();
+            for (int i = 0; i < threads; i++) {
+                results.add(pool.submit(() -> {
+                    start.await();
+                    return cache.rememberLocked("hot", Duration.ofMinutes(1),
+                            Duration.ofSeconds(5), expensive);
+                }));
+            }
+            start.countDown();
+
+            for (var result : results) {
+                assertThat(result.get(20, java.util.concurrent.TimeUnit.SECONDS))
+                        .isEqualTo("computed");
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertThat(calls.get())
+                .as("""
+                        ★ 等到锁之后必须**再查一遍缓存**。少了那一步,锁只是让
+                        请求排队,每个还是各算一遍 —— 而那正是要防的事。""")
+                .isEqualTo(1);
+    }
+
+    @ParameterizedTest(name = "[{0}] rememberLocked:已命中时不加锁、不计算")
+    @MethodSource("stores")
+    void rememberLockedSkipsEverythingOnHit(String name, Supplier<CacheStore> factory) {
+        var cache = new Repository(factory.get());
+        cache.put("hot", "cached");
+
+        String value = cache.rememberLocked("hot", Duration.ofMinutes(1),
+                Duration.ofSeconds(5), () -> {
+                    throw new AssertionError("命中时不应该计算");
+                });
+
+        assertThat(value).isEqualTo("cached");
+        assertThat(cache.lock("remember:hot", Duration.ofSeconds(1)).get())
+                .as("命中那条路径上根本没碰锁,所以这里拿得到")
+                .isTrue();
+    }
+
+    @ParameterizedTest(name = "[{0}] ★ rememberLocked:等不到锁时自己算,而不是抛异常")
+    @MethodSource("stores")
+    void rememberLockedFallsBackToComputingInsteadOfFailing(
+            String name, Supplier<CacheStore> factory) {
+        var cache = new Repository(factory.get());
+
+        // 别人正拿着锁且不释放(模拟另一个进程算得很慢)
+        assertThat(cache.lock("remember:hot", Duration.ofSeconds(30)).get()).isTrue();
+
+        var calls = new int[1];
+        String value = cache.rememberLocked("hot", Duration.ofMinutes(1),
+                Duration.ofMillis(100), () -> {
+                    calls[0]++;
+                    return "computed anyway";
+                });
+
+        assertThat(value)
+                .as("""
+                        让用户的请求因为另一个进程算得慢而失败,比多算一份昂贵得多。
+                        Lock.block 超时抛异常对「防重复执行」是对的,对缓存不是。""")
+                .isEqualTo("computed anyway");
+        assertThat(calls[0]).isEqualTo(1);
+    }
+
+    private static void sleep(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        }
+    }
+
     @ParameterizedTest(name = "[{0}] pull 取出并删除")
     @MethodSource("stores")
     void pullRemoves(String name, Supplier<CacheStore> factory) {

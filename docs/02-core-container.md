@@ -172,6 +172,16 @@ public final class Cache {
 | `Mail` | `Mailer` | mail |
 | `Notifications` | `NotificationDispatcher` | notifications |
 | `Lang` | `Translator` | core(消息在 `resources/lang/<locale>/<group>.yml`) |
+
+> **`Lang` 的「当前语言」有三层**,从窄到宽:`Lang.withLocale(l, () -> …)`
+> 的线程内覆盖(「这几行按收件人的语言渲染」)> `Lang.useLocale(l)` 写进
+> 当前执行作用域(「这个请求 / 这个任务」,`SetLocale` 中间件用的就是它,
+> 见 docs/03 §2.7)> `app.locale` 配置的默认值(`Lang.setLocale` 改的是这一层)。
+>
+> ⚠ 按请求切语言**不能**用 `setLocale` —— 它是整个 JVM 一份,两个并发请求会
+> 串台(A 切成 en,B 的中文页面里混进英文)。这类 bug 在低并发下几乎不出现,
+> 出现时也无法复现,所以它在设计上就被挡住了:理由与三层解析写在
+> `Translator.locale()` 的注释里。
 | `Artisan` | `ConsoleKernel` | console |
 
 ### 2.4 测试期假实现
@@ -533,7 +543,8 @@ DateX.now().timezone("UTC");
 >
 > `Mail.to(user).locale(...)` 同样仍是空的,但原语已经有了:
 > `Lang.withLocale(locale, () -> ...)`(它在那一段里切 locale 并在结束时
-> 还原,嵌套安全)。
+> 还原,嵌套安全;覆盖只对当前线程可见,所以两个 worker 各发一封不同语言的
+> 邮件不会互相覆盖 —— 那个线程安全问题是补 `SetLocale` 中间件时一起修掉的)。
 >
 > 逃生口是 `toZonedDateTime()`:这里没包的能力直接从底层对象拿,
 > 不用等框架补。

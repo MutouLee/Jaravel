@@ -191,8 +191,24 @@ public class ResponseWriter {
                 servletResponse.setContentType(response.contentType());
             }
         }
-        response.headers().forEach((name, values) ->
-                values.forEach(v -> servletResponse.addHeader(name, v)));
+        // ★ 第一个值用 setHeader(替换),其余用 addHeader(追加)。
+        //
+        // 全部用 addHeader 的后果是:全局 filter 预设过的同名头**不会被替换**,
+        // 而是与应用设的值并存。X-Frame-Options 上那意味着响应里同时有
+        // SAMEORIGIN 与 ALLOWALL —— 浏览器遇到冲突值的处理是「当成最严的」,
+        // 于是那条路由上「我明明设了 ALLOWALL」不生效,且响应头里看起来两个都在。
+        //
+        // Jaravel 的 Response 是这次请求的权威来源,所以它该替换掉默认值;
+        // 多值头(Vary、Link)仍然保留全部值,因为只有第一个是 set。
+        response.headers().forEach((name, values) -> {
+            for (int i = 0; i < values.size(); i++) {
+                if (i == 0) {
+                    servletResponse.setHeader(name, values.get(i));
+                } else {
+                    servletResponse.addHeader(name, values.get(i));
+                }
+            }
+        });
 
         response.cookies().forEach(c -> servletResponse.addHeader("Set-Cookie", cookieHeader(c)));
 

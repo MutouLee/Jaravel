@@ -8,6 +8,7 @@ import java.util.Optional;
 import java.util.function.Supplier;
 
 import io.jaravel.support.Cast;
+import io.jaravel.support.TypeRef;
 
 /**
  * 面向用户的缓存 API。架在 {@link CacheStore} 的 8 个原语之上。
@@ -73,6 +74,28 @@ public class Repository {
     }
 
     public <T> T get(String key, Class<T> type, T fallback) {
+        return get(key, type).orElse(fallback);
+    }
+
+    /**
+     * 取泛型容器(docs/09 §1.5)—— {@code Class<T>} 装不下 {@code List<Post>}。
+     *
+     * <pre>{@code
+     * List<Post> posts = Cache.get("posts", new TypeRef<List<Post>>() {})
+     *                         .orElse(List.of());
+     * }</pre>
+     *
+     * <p>只给 {@code List.class} 的后果是一个 {@code List<Map<String,Object>>},
+     * 而它在第一次 {@code posts.get(0).title} 时才抛 ClassCastException ——
+     * 离真正的原因(取缓存时没说元素类型)很远。
+     */
+    public <T> Optional<T> get(String key, TypeRef<T> type) {
+        var raw = store.get(prefixed(key));
+        emitHitOrMiss(key, raw.isPresent());
+        return raw.map(v -> coerce(key, v, type));
+    }
+
+    public <T> T get(String key, TypeRef<T> type, T fallback) {
         return get(key, type).orElse(fallback);
     }
 
@@ -180,6 +203,93 @@ public class Repository {
         return value;
     }
 
+    /** 泛型容器版的 remember(docs/09 §1.5) */
+    public <T> T remember(String key, Duration ttl, TypeRef<T> type, Supplier<T> callback) {
+        Optional<T> cached = get(key, type);
+        if (cached.isPresent()) return cached.get();
+
+        T value = callback.get();
+        if (value != null) put(key, value, ttl);
+        return value;
+    }
+
+    /**
+     * 跨进程防击穿的 remember(docs/09 §1.6)。
+     *
+     * <pre>{@code
+     * Cache.rememberLocked("home-feed", Duration.ofMinutes(5),
+     *                      Duration.ofSeconds(10), () -> expensive());
+     * }</pre>
+     *
+     * <h2>它与 {@link #remember} 的区别,以及为什么默认那个不加锁</h2>
+     * <p>{@code remember} 刻意不加锁(理由写在它的注释里:加锁会把「缓存失效」
+     * 变成「所有请求排队等一个计算」)。本方法是**显式**选择另一边:
+     * 只有一个进程算,其余的等它算完,然后读缓存。
+     *
+     * <p>值得付这个代价的是「算一次很贵、而且贵到不能同时算几份」的键 ——
+     * 全站首页、报表、聚合统计。普通的热键用 {@code remember} 就好。
+     *
+     * <h2>★ 等不到锁时**自己算**,而不是抛异常</h2>
+     * <p>这是本方法唯一真正需要决策的地方。{@code Cache.lock(...).block(...)}
+     * 超时会抛 {@link Lock.LockTimeoutException} —— 对一个「防重复计算」的
+     * 工具那是对的。但这里是缓存:让用户的请求因为**另一个进程算得慢**而
+     * 失败,比多算一份昂贵得多。
+     *
+     * <p>所以超时后再查一次缓存(等待期间对方很可能已经写好了),仍然没有
+     * 就自己算 —— 退化成 {@code remember} 的行为,而不是失败。
+     *
+     * <h2>锁的 TTL 与等待时长是同一个值</h2>
+     * <p>一个旋钮:{@code Duration.ofSeconds(10)} 表示「至多等 10 秒,
+     * 锁也最多持有 10 秒」。计算超过这个时长时锁会过期,于是可能有第二个
+     * 进程开始算 —— 代价是重复计算,不是数据错误。两者需要不同时用
+     * {@link #rememberLocked(String, Duration, Duration, Duration, Supplier)}。
+     */
+    public <T> T rememberLocked(String key, Duration ttl, Duration lockWait,
+                                Supplier<T> callback) {
+        return rememberLocked(key, ttl, lockWait, lockWait, callback);
+    }
+
+    /**
+     * 同上,但锁的 TTL 与等待时长分开给。
+     *
+     * @param lockTtl  锁最多持有多久 —— 要大于计算本身耗时
+     * @param lockWait 拿不到锁的请求最多等多久
+     */
+    public <T> T rememberLocked(String key, Duration ttl, Duration lockTtl, Duration lockWait,
+                                Supplier<T> callback) {
+        @SuppressWarnings("unchecked")
+        Optional<T> cached = (Optional<T>) store.get(prefixed(key));
+        if (cached.isPresent()) return cached.get();
+
+        // 锁名带前缀以外的命名空间:锁与值不能共用一个键,否则
+        // 「加锁」会把缓存值挤掉(add 是 put-if-absent,而值通常已被 forget)
+        Lock lock = lock("remember:" + key, lockTtl);
+
+        try {
+            return lock.block(lockWait, () -> {
+                // ★ 拿到锁后**再查一遍**:等待期间很可能已经有人写好了。
+                // 少了这一步,排在后面的每个请求都会各算一遍 ——
+                // 锁只是让它们排队,并没有减少计算次数。
+                @SuppressWarnings("unchecked")
+                Optional<T> again = (Optional<T>) store.get(prefixed(key));
+                if (again.isPresent()) return again.get();
+
+                T value = callback.get();
+                if (value != null) put(key, value, ttl);
+                return value;
+            });
+        } catch (Lock.LockTimeoutException timeout) {
+            @SuppressWarnings("unchecked")
+            Optional<T> afterWaiting = (Optional<T>) store.get(prefixed(key));
+            if (afterWaiting.isPresent()) return afterWaiting.get();
+
+            // 见类注释:宁可重复计算,不要让请求失败
+            T value = callback.get();
+            if (value != null) put(key, value, ttl);
+            return value;
+        }
+    }
+
     // ================= 删 =================
 
     public void forget(String key) {
@@ -272,6 +382,31 @@ public class Repository {
      * 这样「换驱动后取值炸了」不会成为用户的问题。
      */
     @SuppressWarnings("unchecked")
+    /**
+     * 泛型容器的转换 —— 一律交给 Jackson。
+     *
+     * <p>不像 {@link #coerce(String, Object, Class)} 那样先试
+     * {@code type.isInstance(value)}:擦除之后 {@code TypeRef<List<Post>>}
+     * 没法问「这个 List 的元素是不是 Post」。于是 caffeine 驱动(存的是原对象)
+     * 也会走一遍 Jackson 的转换 —— 多一次往返,换来的是「caffeine 上能用的
+     * 代码换到 redis 上也能用」。驱动之间行为分叉是这个模块最贵的一类 bug。
+     */
+    private <T> T coerce(String key, Object value, TypeRef<T> type) {
+        try {
+            return Json.mapper().convertValue(value,
+                    Json.mapper().getTypeFactory().constructType(type.type()));
+        } catch (RuntimeException jacksonFailed) {
+            throw new IllegalStateException("""
+                    缓存键 "%s" 里存的是 %s,取的时候要求 %s,两者无法转换。
+                      常见原因:
+                        · 元素类型写错了(TypeRef<List<Post>> 而里面存的是别的);
+                        · 同一个键被两处用不同类型写过。
+                      修复:用 Cache.flush() 清掉旧格式,或统一该键的类型。"""
+                    .formatted(key, value.getClass().getName(), type),
+                    jacksonFailed);
+        }
+    }
+
     private <T> T coerce(String key, Object value, Class<T> type) {
         if (type.isInstance(value)) return (T) value;
 

@@ -305,6 +305,79 @@ Filter 是**全局的、按 URL pattern 匹配的、顺序由注册决定的**�
 
 **代价**:中间件无法拦截「路由未匹配」的请求。因此真正需要全局拦截的横切关注点(CORS、代理头、维护模式)放在 `global()`,由 Jaravel 自己注册为一个 Servlet Filter 统一执行。这是刻意的分层。
 
+> **这条分层的第二个理由**(实现时才发现的):401 / 419 / 404 / 500 都是用
+> **异常**表达的,它们的响应在中间件链 unwind **之后**才由
+> `JaravelExceptionHandler` 造出来 —— 于是一个中间件连不上那一半响应。
+> 「给每个响应加安全头」第一版写成了全局中间件,而 `/api/me` 的 401 上
+> 一个头都没有,是一条验收测试当场抓住的。所以它改成了
+> `SecurityHeadersFilter`(§2.6)。
+
+### 2.6 默认安全响应头 ✅
+
+不写任何配置就有三个头(`SecurityHeadersFilter`,SECURITY-AUDIT §6):
+
+| 头 | 值 | 它挡住什么 |
+|---|---|---|
+| `X-Content-Type-Options` | `nosniff` | 浏览器把一个 `text/plain` 的上传当成 HTML/JS 执行 |
+| `X-Frame-Options` | `SAMEORIGIN` | 点击劫持:别人把你的页面嵌进 iframe 盖一层透明按钮 |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | 含令牌的 URL 泄漏到第三方站点的 Referer 里 |
+
+**★ CSP 与 HSTS 默认不开。** 这两个与上面三个有本质区别:配错会让站点
+看起来坏掉,而且坏法很隐蔽。
+
+```yaml
+# config/jaravel.yml
+security:
+  frame-options: DENY                 # 覆盖默认的 SAMEORIGIN
+  referrer-policy: no-referrer
+  permissions-policy: "geolocation=()"
+  csp: "default-src 'self'"           # 默认不发
+  csp-report-only: "default-src 'self'"   # 上线前先观察哪些资源会被挡
+  hsts:
+    max-age: 15552000                 # 秒;默认不发
+    include-subdomains: false
+    preload: false
+```
+
+- **CSP** —— 任何一个框架猜出来的默认值都会挡掉某些应用的内联脚本、CDN、
+  统计代码。症状是「页面上有一块不工作」,而那条 CSP 报错只有打开 devtools
+  才看得到;
+- **HSTS** —— 它是**粘的**。浏览器记住「这个域只能用 https」之后,你无法让
+  用户的浏览器忘掉(除了等 `max-age` 到期)。在还没全站 https 的域上开一次,
+  代价是一部分用户再也打不开站点。而且它**只在 https 请求上发** ——
+  http 上发它浏览器会忽略,但那也意味着开发环境里一次误配不会立刻暴露。
+
+控制器显式设的同名头**赢**:`ResponseWriter` 写响应头时第一个值用
+`setHeader`(替换),其余用 `addHeader`。全部用 `addHeader` 的后果是
+filter 预设的值与应用设的值并存,而浏览器遇到冲突的 `X-Frame-Options`
+会按最严的算 —— 于是那条路由上「我明明设了 ALLOWALL」不生效。
+
+### 2.7 按请求选语言 ✅
+
+```java
+r.get("/", HomeController::index).middleware("web", "locale");
+```
+
+别名 `locale` 对应 `SetLocale`,选语言的顺序是:`?lang=en` → 会话里存过的
+选择 → `Accept-Language`(按 q 值排序)→ 都不中就用配置里的默认语言。
+
+**只认已装载的语言**。浏览器会发 `Accept-Language: de,fr;q=0.8`,而应用
+可能只翻了 zh_CN 与 en。照单全收地切成 `de` 的后果是**整站回退到
+fallback** —— 每条消息都查不到 de 的目录,看起来像「语言设置没生效」。
+`zh-CN` 会匹配到目录名 `zh_CN`,`zh-TW` 退一步按语言段匹配(只做精确匹配
+时中文用户一个都匹配不上)。
+
+**它不在 `web` 组里**,要显式挂:一个只写了中文页面的站点挂上它之后,
+有 en 翻译的文案会变英文、没翻的还是中文 —— 半英半中的页面是不是想要的,
+只有应用知道。
+
+> **★ 请求级的 locale 存在执行作用域里,不是线程 try/finally。**
+> 视图在中间件链**返回之后**才渲染,所以「中间件里设、返回前恢复」
+> 的写法在模板里会失效(症状:中间件生效了,页面还是默认语言)。
+> 同理它也不能去改 `Translator` 那个 JVM 级字段 —— 两个并发请求会串台。
+> 三层解析(`Lang.withLocale` 的线程覆盖 > 作用域 > 配置默认值)写在
+> `Translator.locale()` 的注释里,`SetLocaleTest` 有一条两线程互不串台的测试。
+
 ---
 
 ## 3. Request

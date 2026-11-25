@@ -185,12 +185,23 @@ cache:
 `Cache.get("k", User.class)` 必须传类型,因为 JSON 反序列化需要目标类型。泛型容器用 `TypeRef`:
 
 ```java
-Cache.get("posts", new TypeRef<List<Post>>() {});
+List<Post> posts = Cache.get("posts", new TypeRef<List<Post>>() {}).orElse(List.of());
+Cache.remember("posts", ttl, new TypeRef<List<Post>>() {}, () -> Post.all().toList());
 ```
 
-> ⚠ `TypeRef` 这个重载**尚未实现**(见 [KNOWN-ISSUES](../KNOWN-ISSUES.md))。
-> 当前取泛型容器:缓存一个包装 record(`record Posts(List<Post> items) {}`),
-> 或 `Cache.get(key, String.class)` 后自行反序列化。
+`io.jaravel.support.TypeRef` 是一个抽象类,靠**匿名子类**把泛型参数留在 class
+文件的签名里(Jackson 的 `TypeReference`、Guava 的 `TypeToken` 都是同一招)。
+`get` / `remember` 各有一个 `TypeRef` 重载,`Cache.tags(...)` 上也有。
+
+> **为什么不直接用 Jackson 的 `TypeReference`**:那会把 Jackson 写进框架的
+> 公开 API —— caffeine 驱动根本不序列化(存的是原对象),而用户为了取一个
+> `List<Post>` 却要 `import com.fasterxml.jackson...`。`TypeRef` 只暴露一个
+> `java.lang.reflect.Type`,缓存那边自己转成 Jackson 的 `JavaType`。
+>
+> 代价说清:`TypeRef` 版的转换**一律走 Jackson**,包括 caffeine
+> (擦除之后没法问「这个 List 的元素是不是 Post」)。多一次往返,
+> 换的是「caffeine 上能用的代码换到 redis 上也能用」—— 驱动之间行为分叉
+> 是这个模块最贵的一类 bug,契约测试把这几条重载也跑在全部驱动上。
 
 > **重要约束**:缓存 Eloquent 模型实例需谨慎——模型带脏跟踪状态与关联缓存。文档建议缓存 DTO/record 而非模型。`@Model` 的 Jackson 序列化器会剔除内部状态字段,但反序列化出的模型 `exists()` 为 false,`save()` 会变成 INSERT。这是必须在文档中显著警告的陷阱。
 
@@ -200,18 +211,35 @@ Cache.get("posts", new TypeRef<List<Post>>() {});
 Cache.remember("hot-key", ttl, () -> expensive());
 ```
 
-`remember` 在缓存未命中时,**同一进程内**用 `ConcurrentHashMap#computeIfAbsent` 语义保证只有一个线程执行 `expensive()`(其余等待)。跨进程需要分布式锁:
+> ⚠ **`remember` 不加锁** —— 原文这里写的「同一进程内用
+> `computeIfAbsent` 语义保证只有一个线程执行」**从未实现,而且不该实现**。
+> 理由写在 `Repository.remember` 的注释里:加锁会把「缓存失效」变成
+> 「所有请求排队等一个计算」,而那正是缓存雪崩的放大器。并发穿透时
+> 多个线程各算一遍、写入同一个值,这是刻意的默认值。
+
+要防重复计算就**显式**说出来 —— 因为那时你必须同时想清楚
+「等不到锁的请求该怎么办」:
 
 ```java
-Cache.rememberLocked("hot-key", ttl, Duration.ofSeconds(10), () -> expensive());
+Cache.rememberLocked("home-feed", Duration.ofMinutes(5),
+                     Duration.ofSeconds(10), () -> expensive());
 ```
 
-> ⚠ `rememberLocked` **尚未实现**(见 [KNOWN-ISSUES](../KNOWN-ISSUES.md))。
-> 跨进程防击穿目前自己拼:`Cache.lock(key, ttl).get(() -> ...)` ——
-> `Lock` 已落地,缺的只是这个把「锁 + remember」合起来的便利方法。
+只有一个进程算,其余的等它算完再读缓存。第三个参数既是**最长等待**也是
+**锁的 TTL**(一个旋钮);两者要分开给用五参数的那个重载。
 
-进程内那一层是对 Laravel 的增强——Laravel 的 `remember` 没有防击穿,
-高并发下会出现惊群。
+**★ 等不到锁时它自己算,而不是抛异常。** 这是这个方法唯一需要决策的地方:
+`Cache.lock(...).block(...)` 超时会抛 `LockTimeoutException` —— 对一个
+「防重复执行」的工具那是对的,但这里是缓存,让用户的请求因为**另一个进程
+算得慢**而失败,比多算一份昂贵得多。所以超时后再查一次缓存(等待期间对方
+很可能已经写好了),仍然没有就自己算,退化成 `remember` 的行为。
+
+另两件实现上的事:拿到锁之后**再查一遍缓存** —— 少了这一步,锁只是让请求
+排队,每个还是各算一遍;锁用的键是 `remember:<key>` 而不是 `<key>` 本身,
+否则「加锁」会把缓存值挤掉。
+
+值得付这个代价的是「算一次很贵、而且贵到不能同时算几份」的键 ——
+全站首页、报表、聚合统计。普通的热键用 `remember` 就好。
 
 ---
 
@@ -384,8 +412,8 @@ Jaravel 的 `CacheRepository` 底层可以**注册为 Spring 的 `CacheManager`*
 
 | 项 | Laravel | Jaravel | 原因 |
 |---|---|---|---|
-| `Cache::get('k')` | 返回混合类型 | 必须传 `Class<T>` 或 `TypeRef` | Java 需要反序列化目标类型 |
-| `remember` 防击穿 | 无 | 进程内自动 + `rememberLocked` 可选跨进程 | 消除惊群 |
+| `Cache::get('k')` | 返回混合类型 | 必须传 `Class<T>` 或 `TypeRef`(§1.5) | Java 需要反序列化目标类型 |
+| `remember` 防击穿 | 无 | 默认同样不加锁;`rememberLocked` 显式跨进程防击穿(§1.6) | 加锁的默认值会把缓存失效变成请求排队 |
 | 标签不支持的驱动 | 静默或报错不清 | 明确抛异常 + 提示 | 避免「缓存永不失效」的隐蔽 bug |
 | memcached 驱动 | 支持 | 不支持 | Java 生态中 Redis 已是绝对主流,维护一个低使用率驱动不划算 |
 | 两级缓存 | 无 | `tiered` 驱动 | Java 应用常驻进程,本地缓存价值远高于 PHP |

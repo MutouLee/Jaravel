@@ -21,8 +21,11 @@ public class DirectiveDemoRoutes implements RouteDefinition {
 
     @Override
     public void define(Router r) {
+        // 挂上 locale:按 ?lang= / 会话 / Accept-Language 选语言。
+        // 这个页面用 @lang / @choice 渲染,而消息目录里有 zh_CN 与 en
+        // 两份 —— 正好是那个中间件的演示场景
         r.get("/notes/page", DirectiveDemoController::page)
-         .middleware("web").name("notes.page");
+         .middleware("web", "locale").name("notes.page");
 
         // 局部刷新:只回一行(@fragment)
         r.get("/notes/{id}/row", DirectiveDemoController::row)

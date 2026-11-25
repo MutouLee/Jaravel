@@ -577,6 +577,81 @@ public class JaravelAutoConfiguration {
         return new DefaultKernel();
     }
 
+    /**
+     * 默认安全响应头(SECURITY-AUDIT §6)。
+     *
+     * <p>三个「不会弄坏任何东西」的头默认开({@code nosniff} /
+     * {@code SAMEORIGIN} / {@code strict-origin-when-cross-origin}),
+     * CSP 与 HSTS 必须显式配 —— 它们配错会让站点以很隐蔽的方式坏掉,
+     * 理由写在 {@link io.jaravel.http.middleware.SecurityHeaders} 的类注释里。
+     *
+     * <pre>{@code
+     * # config/jaravel.yml
+     * security:
+     *   frame-options: DENY                      # 覆盖默认的 SAMEORIGIN
+     *   csp: "default-src 'self'"                # 默认不发
+     *   hsts:
+     *     max-age: 15552000                      # 秒;默认不发
+     *     include-subdomains: false
+     * }</pre>
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public io.jaravel.http.SecurityHeaders jaravelSecurityHeaders(ConfigRepository config) {
+        var headers = new io.jaravel.http.SecurityHeaders()
+                .withCsp(config.string("jaravel.security.csp"))
+                .withCspReportOnly(config.string("jaravel.security.csp-report-only"))
+                .withPermissionsPolicy(config.string("jaravel.security.permissions-policy"));
+
+        String frameOptions = config.string("jaravel.security.frame-options");
+        if (frameOptions != null) headers.withFrameOptions(frameOptions);
+
+        String referrerPolicy = config.string("jaravel.security.referrer-policy");
+        if (referrerPolicy != null) headers.withReferrerPolicy(referrerPolicy);
+
+        long hstsSeconds = config.longValue("jaravel.security.hsts.max-age", 0);
+        if (hstsSeconds > 0) {
+            headers.withHsts(java.time.Duration.ofSeconds(hstsSeconds),
+                    config.bool("jaravel.security.hsts.include-subdomains", false),
+                    config.bool("jaravel.security.hsts.preload", false));
+        }
+        return headers;
+    }
+
+    /**
+     * 贴安全响应头的 filter。
+     *
+     * <p>顺序紧跟请求 ID 之后、分发之前:错误响应、静态资源、没匹配上路由的
+     * 请求都要覆盖到(那正是它不能是中间件的原因,见
+     * {@link SecurityHeadersFilter})。
+     */
+    @Bean
+    public org.springframework.boot.web.servlet.FilterRegistrationBean<SecurityHeadersFilter>
+            jaravelSecurityHeadersFilter(io.jaravel.http.SecurityHeaders policy) {
+
+        var registration = new org.springframework.boot.web.servlet.FilterRegistrationBean<>(
+                new SecurityHeadersFilter(policy));
+        registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE + 22);
+        return registration;
+    }
+
+    /**
+     * 按请求选语言的中间件 —— 别名 {@code locale},默认**不**挂在任何组里
+     * (理由见 {@link io.jaravel.http.middleware.SetLocale} 的类注释)。
+     *
+     * <p>这里把「用户选过的语言」接到会话上:{@code jaravel-http} 不依赖
+     * {@code jaravel-session},所以那个来源是注入进去的函数。
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public io.jaravel.http.middleware.SetLocale jaravelSetLocale(ConfigRepository config) {
+        return new io.jaravel.http.middleware.SetLocale()
+                .supporting(config.stringList("app.locales"))
+                .readingSelectionFrom(key -> io.jaravel.session.Session.isActive()
+                        ? io.jaravel.session.Session.get(key, String.class)
+                        : java.util.Optional.empty());
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public io.jaravel.http.MiddlewareStack jaravelMiddlewareStack(

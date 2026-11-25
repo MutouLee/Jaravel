@@ -28,7 +28,6 @@
 | `@inject` | 不做 | docs/04 §1.8 自己就写着「不鼓励」—— 模板里从容器取服务会让「这个页面依赖什么」不可见;用控制器传 |
 | `DateX.diffForHumans()` 本地化 | 未实现 | 消息目录已有(`Lang`),但 `DateX` 在 support,比 core 低一层、不能依赖它;需要一个钩子 |
 | `Mail.to(user).locale(...)` | 未实现 | 原语已有:`Lang.withLocale(...)` |
-| 按请求切 locale 的中间件 | 未实现 | 手写:读 `Accept-Language` 后 `Lang.setLocale(...)` |
 | `@aware` | 未实现 | |
 
 ## 安全 / 账户
@@ -36,16 +35,9 @@
 | 项 | 状态 | 说明 |
 |---|---|---|
 | 二步验证二维码 / 登录挑战页 | 未实现 | TOTP 原语与用户侧默认方法已有(docs/08 §6.4) |
-| 默认安全响应头(CSP / X-Frame-Options / Referrer-Policy / HSTS) | 未实现 | 应用自行加 |
+| CSP / HSTS 默认值 | **不做** | `X-Content-Type-Options` / `X-Frame-Options` / `Referrer-Policy` 已默认发(`SecurityHeadersFilter`)。CSP 与 HSTS 必须显式配:框架猜的 CSP 会挡掉应用自己的脚本,而 HSTS 是粘的 —— 开错了用户浏览器会记住(docs/03 §2.6)|
 | 第三方安全审计 | 不做 | 当前范围外 |
 | OSV / SBOM 扫描 | 不做 | 当前范围外 |
-
-## 缓存
-
-| 项 | 状态 | 说明 |
-|---|---|---|
-| `Cache.get(key, TypeRef<...>)` 泛型容器重载 | 未实现 | docs/09 §1.5;缓存一个包装 record 代替 |
-| `Cache.rememberLocked` 跨进程防击穿 | 未实现 | docs/09 §1.6;`Cache.lock(...).get(...)` 代替 |
 
 ## 队列 / 事件
 

@@ -80,6 +80,15 @@ public final class Cache {
         return store().get(key, type, fallback);
     }
 
+    /** 泛型容器(docs/09 §1.5):{@code Cache.get("posts", new TypeRef<List<Post>>() {})} */
+    public static <T> Optional<T> get(String key, io.jaravel.support.TypeRef<T> type) {
+        return store().get(key, type);
+    }
+
+    public static <T> T get(String key, io.jaravel.support.TypeRef<T> type, T fallback) {
+        return store().get(key, type, fallback);
+    }
+
     public static boolean has(String key) {
         return store().has(key);
     }
@@ -126,8 +135,29 @@ public final class Cache {
         return store().remember(key, ttl, type, callback);
     }
 
+    public static <T> T remember(String key, Duration ttl, io.jaravel.support.TypeRef<T> type,
+                                 Supplier<T> callback) {
+        return store().remember(key, ttl, type, callback);
+    }
+
     public static <T> T rememberForever(String key, Supplier<T> callback) {
         return store().rememberForever(key, callback);
+    }
+
+    /**
+     * 跨进程防击穿(docs/09 §1.6)—— 只有一个进程算,其余的等它写好再读。
+     *
+     * <p>默认的 {@link #remember} 刻意不加锁;等不到锁时这里**自己算**
+     * 而不是抛异常。两条理由都写在 {@code Repository.rememberLocked} 上。
+     */
+    public static <T> T rememberLocked(String key, Duration ttl, Duration lockWait,
+                                       Supplier<T> callback) {
+        return store().rememberLocked(key, ttl, lockWait, callback);
+    }
+
+    public static <T> T rememberLocked(String key, Duration ttl, Duration lockTtl,
+                                       Duration lockWait, Supplier<T> callback) {
+        return store().rememberLocked(key, ttl, lockTtl, lockWait, callback);
     }
 
     // ================= 删 =================

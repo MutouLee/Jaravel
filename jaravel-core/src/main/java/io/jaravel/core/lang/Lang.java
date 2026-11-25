@@ -84,24 +84,41 @@ public final class Lang {
         return t == null ? "zh_CN" : t.locale();
     }
 
+    /**
+     * 改**默认** locale(整个 JVM)。
+     *
+     * <p>按请求切语言不要用它 —— 见 {@link #useLocale(String)}
+     * 与 {@link Translator#locale()} 里「为什么不能只有那个 volatile 字段」。
+     */
     public static void setLocale(String locale) {
         Translator t = translator;
         if (t != null) t.setLocale(locale);
     }
 
-    /** 在某个 locale 下跑一段 —— 「按收件人语言渲染邮件」用 */
+    /**
+     * 设定**当前执行作用域**的 locale —— 一个请求、一个队列任务、一条命令。
+     *
+     * <p>{@code SetLocale} 中间件用的就是它(按 {@code Accept-Language}
+     * 选语言)。作用域结束自动失效,不需要配对的恢复调用。
+     */
+    public static void useLocale(String locale) {
+        Translator t = translator;
+        if (t != null) t.useLocale(locale);
+    }
+
+    /**
+     * 在某个 locale 下跑一段 —— 「按收件人语言渲染邮件」用。
+     *
+     * <p>覆盖只对**当前线程**可见:并发的另一个请求/任务不受影响。
+     * 此前这里是「改全局默认值再改回来」,那在多线程下会串台
+     * (两个 worker 各发一封不同语言的邮件时互相覆盖)。
+     */
     public static void withLocale(String locale, Runnable body) {
         Translator t = translator;
         if (t == null) {
             body.run();
             return;
         }
-        String previous = t.locale();
-        t.setLocale(locale);
-        try {
-            body.run();
-        } finally {
-            t.setLocale(previous);
-        }
+        t.withLocale(locale, body);
     }
 }

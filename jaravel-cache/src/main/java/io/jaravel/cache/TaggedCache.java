@@ -58,6 +58,11 @@ public final class TaggedCache {
         return cache.get(taggedKey(key), type, fallback);
     }
 
+    /** 泛型容器(docs/09 §1.5) */
+    public <T> Optional<T> get(String key, io.jaravel.support.TypeRef<T> type) {
+        return cache.get(taggedKey(key), type);
+    }
+
     public boolean has(String key) {
         return cache.has(taggedKey(key));
     }
@@ -83,6 +88,11 @@ public final class TaggedCache {
     }
 
     public <T> T remember(String key, Duration ttl, Class<T> type, Supplier<T> callback) {
+        return cache.remember(taggedKey(key), ttl, type, callback);
+    }
+
+    public <T> T remember(String key, Duration ttl, io.jaravel.support.TypeRef<T> type,
+                          Supplier<T> callback) {
         return cache.remember(taggedKey(key), ttl, type, callback);
     }
 

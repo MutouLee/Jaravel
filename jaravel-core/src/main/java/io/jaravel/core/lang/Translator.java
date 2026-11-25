@@ -7,6 +7,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
+import io.jaravel.core.context.ExecutionScope;
+
 /**
  * 消息目录与翻译(docs/02 §2.3 的 {@code Lang} 契约)。
  *
@@ -89,12 +91,94 @@ public final class Translator {
 
     // ================= locale =================
 
+    /** {@link ExecutionScope} 里存「这次请求/这个任务的 locale」用的键 */
+    private static final String SCOPE_KEY = "jaravel.lang.locale";
+
+    /**
+     * 「这一段代码的 locale」—— 比作用域更窄,见 {@link #withLocale}。
+     *
+     * <p>每个 Translator 实例一份,所以测试里换一个 Translator 不会继承
+     * 上一个的覆盖值。
+     */
+    private final ThreadLocal<String> override = new ThreadLocal<>();
+
+    /**
+     * 当前 locale,按**从窄到宽**三层解析:
+     *
+     * <ol>
+     *   <li>{@link #withLocale} 的线程内覆盖 —— 「这几行按收件人的语言渲染」;</li>
+     *   <li>当前执行作用域的 locale —— 「这个请求按 Accept-Language 渲染」
+     *       (由 {@code SetLocale} 中间件用 {@link #useLocale} 写入);</li>
+     *   <li>配置里的默认值({@code app.locale})。</li>
+     * </ol>
+     *
+     * <h2>★ 为什么不能只有第 3 层(那个 volatile 字段)</h2>
+     * <p>它是**整个 JVM 一份**。按请求切语言如果去改它,两个并发请求会互相
+     * 串台:A 把它改成 en,B 正在渲染页面 —— B 的中文页面里混进英文。
+     * 同理,队列 worker 里「按收件人语言发邮件」会让两个线程互相覆盖。
+     *
+     * <p>这类 bug 在低并发下几乎不出现,出现时也无法复现 ——
+     * 所以它必须在设计上不可能发生,而不是靠「小心使用」。
+     */
     public String locale() {
-        return locale;
+        String narrow = override.get();
+        if (narrow != null) return narrow;
+
+        return ExecutionScope.tryCurrent()
+                .flatMap(scope -> scope.attribute(SCOPE_KEY, String.class))
+                .orElse(locale);
     }
 
+    /**
+     * 改**默认** locale(整个 JVM)。
+     *
+     * <p>用于启动时读配置、以及测试前重置。**不要用它实现「按请求切语言」**
+     * —— 那会串台,理由见 {@link #locale()}。请求级的切换用
+     * {@link #useLocale(String)},一段代码内的切换用 {@link #withLocale}。
+     */
     public void setLocale(String value) {
         this.locale = normalize(value, locale);
+    }
+
+    /**
+     * 设定**当前执行作用域**的 locale —— 一个请求、一个队列任务、一条命令。
+     *
+     * <p>作用域结束时自动失效(它存在 {@link ExecutionScope} 的属性里),
+     * 所以不需要也不应该有配对的「恢复」调用。
+     *
+     * <p>覆盖的是渲染阶段也看得到的那一层:视图在中间件链**返回之后**才
+     * 渲染(见 {@code JaravelHandlerAdapter}),所以请求级的 locale 不能用
+     * try/finally 的线程覆盖来做 —— 那种写法在模板里会失效,
+     * 而症状是「中间件生效了,但页面还是默认语言」。
+     *
+     * @throws IllegalStateException 不在任何执行作用域里
+     */
+    public void useLocale(String value) {
+        String normalized = normalize(value, locale);
+        ExecutionScope.tryCurrent().orElseThrow(() -> new IllegalStateException("""
+                useLocale("%s") 不在任何执行作用域里(请求 / 队列任务 / 命令)。
+                  要在一段代码里临时切语言用 Lang.withLocale(locale, () -> ...);
+                  要改整个 JVM 的默认语言用 Lang.setLocale(locale)。"""
+                .formatted(value))).put(SCOPE_KEY, normalized);
+    }
+
+    /**
+     * 在某个 locale 下跑一段代码,结束后恢复(可嵌套)。
+     *
+     * <p>覆盖只对**当前线程**可见,所以并发的另一个请求/任务不受影响。
+     */
+    public void withLocale(String value, Runnable body) {
+        String previous = override.get();
+        override.set(normalize(value, locale));
+        try {
+            body.run();
+        } finally {
+            if (previous == null) {
+                override.remove();
+            } else {
+                override.set(previous);
+            }
+        }
     }
 
     public String fallbackLocale() {
@@ -107,7 +191,7 @@ public final class Translator {
 
     /** 当前 locale 对应的 {@link Locale} —— 给需要它的格式化器 */
     public Locale asLocale() {
-        return Locale.forLanguageTag(locale.replace('_', '-'));
+        return Locale.forLanguageTag(locale().replace('_', '-'));
     }
 
     // ================= 查询 =================
@@ -161,7 +245,9 @@ public final class Translator {
     // ================= 内部 =================
 
     private Optional<String> lookup(String key) {
-        return messageIn(locale, key).or(() -> messageIn(fallbackLocale, key));
+        // locale() 而不是 locale 字段 —— 请求级/线程级的覆盖必须对查询生效,
+        // 否则中间件设了语言而消息还是默认语言(见 locale() 的注释)
+        return messageIn(locale(), key).or(() -> messageIn(fallbackLocale, key));
     }
 
     private Optional<String> messageIn(String localeName, String key) {

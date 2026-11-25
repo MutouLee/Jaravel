@@ -245,4 +245,16 @@ public final class Jb {
         String upper = method == null ? "" : method.trim().toUpperCase(java.util.Locale.ROOT);
         return "<input type=\"hidden\" name=\"_method\" value=\"" + upper + "\">";
     }
+
+    // ---------- 前端产物(docs/04 §1.9、ADR-020) ----------
+
+    /** {@code @vite(['resources/css/app.css', 'resources/js/app.js'])} */
+    public static String vite(String... entries) {
+        return Vite.tags(entries);
+    }
+
+    /** {@code @viteReactRefresh} —— 只在 dev 模式有输出 */
+    public static String viteReactRefresh() {
+        return Vite.reactRefresh();
+    }
 }

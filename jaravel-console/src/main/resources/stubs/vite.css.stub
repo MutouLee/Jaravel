@@ -1,0 +1,19 @@
+/*
+ * 应用样式的入口。
+ *
+ * 这个文件的路径出现在三处(vite.config.js 的 input、manifest 的 key、
+ * 模板里的 @vite([...])),改名要一起改。
+ */
+
+:root {
+  --ink: #1f2933;
+  --paper: #ffffff;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.6;
+}

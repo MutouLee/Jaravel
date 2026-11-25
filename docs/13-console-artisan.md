@@ -371,10 +371,12 @@ jaravel new <name> --preset=api         # 预设:api / web / minimal
 jaravel install:auth                    # 在已有项目中加认证脚手架(登录/注册/重置)
 jaravel install:api                     # 加 API 脚手架(token 签发 + ApiRoutes + api.yml)
 jaravel install:broadcasting            # 加广播配置与频道鉴权骨架
+jaravel install:vite                    # 加 vite 配置、前端入口与 config/vite.yml
 ```
 
 > **已实现**:`new`(`--preset` 支持 web / api / minimal,模板内嵌在 CLI 里、
-> 离线可用)、`install:auth`、`install:api`、`install:broadcasting`。
+> 离线可用)、`install:auth`、`install:api`、`install:broadcasting`、
+> `install:vite`。
 > 另有 `examples/api-only` / `examples/multi-tenant` 两个 v1.0 示例。
 
 > ### install:api —— 它要求先有 install:auth
@@ -423,6 +425,28 @@ jaravel install:broadcasting            # 加广播配置与频道鉴权骨架
 >
 > 它**不要求** `install:auth`:只推公开频道(大盘、公告)是成立的用法。
 > 没看到 `User` 模型时生成照做,但会提醒一句。
+
+> ### install:vite —— 为的是那四条约定
+>
+> 生成五个文件:`vite.config.js`、`package.json`、`resources/css/app.css`、
+> `resources/js/app.js`、`config/vite.yml`。约定本身在 **ADR-020** 与
+> docs/04 §1.9,这里只记三件会踩坑的事:
+>
+> - **产物落在 `src/main/resources/public/build/`**,不是项目根的 `public/`。
+>   前者进 jar(Spring Boot 默认就把 `classpath:/public/` 当静态根,
+>   URL 还是 Laravel 的 `/build/...`),后者会留在 jar 外面 ——
+>   部署时忘了带的症状是「线上页面没有样式」;
+> - **`mvn package` 不跑前端。** 只改了 Java 的那次打包不该因为下载一整个
+>   Node 慢上几十秒。命令的输出里给了 `npm run build && mvn package`
+>   与一个 `frontend` profile 的做法,要一键的人自己打开;
+> - **它不改你的 `.gitignore`。** `jaravel new` 生成的那份里已经有
+>   `node_modules/` 与产物目录了;老项目少那两行时命令会**提醒**但不代劳
+>   ——「命令偷偷改了我的文件」是更糟的性质。漏了的后果不报错,
+>   只会让每次构建产生一堆无意义的 diff,直到某天有人发现仓库有几百兆。
+>
+> **不发 npm 包**(ADR-020 第 4 条):要做的只有「outDir 指过去 + 开 manifest」,
+> 十来行;一条要长期维护的 npm 发布渠道、加一个「插件版本与 Java 侧
+> 不匹配」的故障源,换不来这个。
 
 ### 2.2 代码生成
 

@@ -15,6 +15,7 @@ import io.jaravel.console.generators.MakeMigration;
 import io.jaravel.console.generators.InstallApiCommand;
 import io.jaravel.console.generators.InstallAuthCommand;
 import io.jaravel.console.generators.InstallBroadcastingCommand;
+import io.jaravel.console.generators.InstallViteCommand;
 import io.jaravel.console.generators.MakeModel;
 import io.jaravel.console.generators.MakeNotification;
 import io.jaravel.console.generators.MakePolicy;
@@ -82,6 +83,7 @@ public final class BuiltInCommands {
             KeyGenerateCommand.class, WrapperInstallCommand.class,
             NewProjectCommand.class, InstallAuthCommand.class,
             InstallApiCommand.class, InstallBroadcastingCommand.class,
+            InstallViteCommand.class,
             OpenApiDiffCommand.class, TestCommand.class);
 
     /**

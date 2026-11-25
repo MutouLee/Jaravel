@@ -13,7 +13,7 @@ import org.junit.jupiter.api.io.TempDir;
 import io.jaravel.console.CommandRegistry;
 import io.jaravel.console.ConsoleIo;
 
-@DisplayName("jaravel new + install:auth / install:api / install:broadcasting")
+@DisplayName("jaravel new + install:auth / install:api / install:broadcasting / install:vite")
 class StarterKitTest {
 
     private CommandRegistry registry(Path cwd, Class<?> command) {
@@ -188,6 +188,85 @@ class StarterKitTest {
                 .as("只推公开频道(大盘、公告)是成立的用法")
                 .exists();
         assertThat(io.output() + io.errors()).contains("install:auth");
+    }
+
+    @Test
+    @DisplayName("install:vite 生成 vite.config.js、入口文件与 config/vite.yml")
+    void installVite(@TempDir Path tmp) throws Exception {
+        var io = new ConsoleIo.Recording();
+        assertThat(registry(tmp, NewProjectCommand.class).run("new", List.of("demo"), io))
+                .isZero();
+        Path root = tmp.resolve("demo");
+
+        int code = registry(root, InstallViteCommand.class).run("install:vite", List.of(), io);
+
+        assertThat(code).isZero();
+        assertThat(root.resolve("vite.config.js")).exists();
+        assertThat(root.resolve("package.json")).exists();
+        assertThat(root.resolve("resources/css/app.css")).exists();
+        assertThat(root.resolve("resources/js/app.js")).exists();
+        assertThat(root.resolve("src/main/resources/config/vite.yml")).exists();
+
+        assertThat(Files.readString(root.resolve("vite.config.js")))
+                .as("""
+                        产物必须落在 classpath:/public/ 下 —— 放项目根的 public/
+                        会让它不进 jar,症状是「线上页面没有样式」(ADR-020)""")
+                .contains("outDir: 'src/main/resources/public/build'")
+                .contains("manifest: true")
+                .contains("'resources/css/app.css'")
+                .doesNotContain("{{");
+
+        assertThat(Files.readString(root.resolve("src/main/resources/config/vite.yml")))
+                .as("空 dev-server = build 模式;开发时由 .env 覆盖")
+                .contains("dev-server: ${VITE_DEV_SERVER:}");
+
+        assertThat(io.output())
+                .as("那一行要贴到布局里,不说的话用户装完什么都看不到")
+                .contains("@vite(['resources/css/app.css', 'resources/js/app.js'])");
+        assertThat(io.output())
+                .as("mvn package 不跑前端是一个会让人踩坑的决定(ADR-020),必须说出来")
+                .contains("npm run build && mvn package");
+    }
+
+    @Test
+    @DisplayName("★ 老项目的 .gitignore 少那两行时 install:vite 提醒(不代劳)")
+    void installViteWarnsAboutGitignore(@TempDir Path tmp) throws Exception {
+        var io = new ConsoleIo.Recording();
+        assertThat(registry(tmp, NewProjectCommand.class).run("new", List.of("demo"), io))
+                .isZero();
+        Path root = tmp.resolve("demo");
+
+        // jaravel new 生成的 .gitignore 里已经有那两行了(见 project.gitignore.stub)。
+        // 这里把它退回到「vite 之前的项目」那个样子 —— 那才是会踩坑的人
+        Files.writeString(root.resolve(".gitignore"), """
+                target/
+                .env
+                """);
+
+        assertThat(registry(root, InstallViteCommand.class)
+                .run("install:vite", List.of(), io)).isZero();
+
+        assertThat(io.output() + io.errors())
+                .as("""
+                        漏了的后果是把带哈希的产物与整个 node_modules 提交进仓库 ——
+                        不报错,只是某天有人发现仓库有几百兆""")
+                .contains("src/main/resources/public/build")
+                .contains("node_modules");
+        assertThat(Files.readString(root.resolve(".gitignore")))
+                .as("这条命令不改用户已有的文件,只提示")
+                .doesNotContain("node_modules");
+    }
+
+    @Test
+    @DisplayName("jaravel new 的 .gitignore 里就有前端那两行 —— 提醒只是兜底")
+    void newProjectAlreadyIgnoresFrontendOutput(@TempDir Path tmp) throws Exception {
+        var io = new ConsoleIo.Recording();
+        assertThat(registry(tmp, NewProjectCommand.class).run("new", List.of("demo"), io))
+                .isZero();
+
+        assertThat(Files.readString(tmp.resolve("demo/.gitignore")))
+                .contains("node_modules/")
+                .contains("src/main/resources/public/build/");
     }
 
     @Test

@@ -586,6 +586,9 @@ public final class JbladeTranspiler {
             case "lang"         -> "${io.jaravel.view.Jb.lang(" + langArgs(args, "lang", line) + ")}";
             case "choice"       -> "${io.jaravel.view.Jb.choice(" + langArgs(args, "choice", line) + ")}";
 
+            case "vite"         -> "$unsafe{io.jaravel.view.Jb.vite(" + viteArgs(args, line) + ")}";
+            case "viteReactRefresh" -> handleViteReactRefresh(args, line);
+
             case "env"          -> { open("env", line);    yield "@if(io.jaravel.view.Jb.isEnv(" + envArgs(args, line) + "))"; }
             case "endenv"       -> { close("env", "endenv", line);     yield "@endif"; }
             case "production"   -> { open("production", line); yield "@if(io.jaravel.view.Jb.isProduction())"; }
@@ -1636,6 +1639,75 @@ public final class JbladeTranspiler {
             call.append(", ").append(rewriteExpression(parts.get(i)));
         }
         return call.toString();
+    }
+
+    /**
+     * {@code @vite(['resources/css/app.css', 'resources/js/app.js'])}
+     * 或 {@code @vite('resources/js/app.js')}。
+     *
+     * <p>两种写法都收:Laravel 的文档里两种都出现,而一个「数组才行」的
+     * 限制除了让人回去加一对方括号之外没有任何作用。
+     *
+     * <p>★ 入口**必须是字面量字符串**。它不是一个表达式求值点 ——
+     * 那个字符串同时是 manifest 的 key 与 vite.config.js 的 input
+     * (ADR-020),一个运行时拼出来的路径在构建期不存在,
+     * 症状是「页面上什么都没有」而不是一条编译错误。
+     */
+    private String viteArgs(String args, int line) {
+        String raw = args == null ? "" : args.trim();
+        if (raw.startsWith("[") && raw.endsWith("]")) {
+            raw = raw.substring(1, raw.length() - 1);
+        }
+
+        List<String> parts = splitArgs(raw);
+        if (parts.isEmpty()) {
+            throw new JbladeException(templateName, line,
+                    "@vite 需要至少一个入口,如 "
+                  + "@vite(['resources/css/app.css', 'resources/js/app.js'])");
+        }
+
+        for (String part : parts) {
+            if (!isSingleStringLiteral(part)) {
+                throw new JbladeException(templateName, line,
+                        """
+                        @vite 的入口要写成字面量字符串,收到:%s
+                          那个字符串同时是 vite.config.js 的 input 与 manifest 的 key,
+                          运行时拼出来的路径在构建产物里不存在(docs/04 §1.9)。"""
+                                .formatted(part));
+            }
+        }
+        return parts.stream().map(JbladeTranspiler::normalizeString)
+                .collect(java.util.stream.Collectors.joining(", "));
+    }
+
+    /**
+     * 整个参数就是**一个**字符串字面量吗。
+     *
+     * <p>比 {@link #isStringLiteral(String)} 严:后者只看首尾引号,
+     * 于是 {@code 'a' + x + 'b'} 也算通过 —— 对 @vite 不行,
+     * 那种表达式的值在构建期不存在。
+     */
+    private static boolean isSingleStringLiteral(String part) {
+        String t = part.trim();
+        if (t.length() < 2) return false;
+        char first = t.charAt(0);
+        if (first != SQUOTE && first != DQUOTE) return false;
+        if (t.charAt(t.length() - 1) != first) return false;
+
+        // 中间不能再有未转义的同种引号 —— 'a' + x + 'b' 不是字面量
+        for (int i = 1; i < t.length() - 1; i++) {
+            if (t.charAt(i) == first && t.charAt(i - 1) != '\\') return false;
+        }
+        return true;
+    }
+
+    /** {@code @viteReactRefresh} —— 不带参数 */
+    private String handleViteReactRefresh(String args, int line) {
+        if (args != null && !args.isBlank()) {
+            throw new JbladeException(templateName, line,
+                    "@viteReactRefresh 不带参数,收到:(" + args + ")");
+        }
+        return "$unsafe{io.jaravel.view.Jb.viteReactRefresh()}";
     }
 
     /** {@code @env('local')} / {@code @env('local', 'staging')} */

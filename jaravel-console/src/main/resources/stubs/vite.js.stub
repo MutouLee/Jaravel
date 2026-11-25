@@ -1,0 +1,8 @@
+/*
+ * 应用脚本的入口。
+ *
+ * 不在这里 import app.css —— 它自己就是一个入口(见 vite.config.js)。
+ * 两边都写会让同一份样式出现两次:一次是独立产物,一次是这个 chunk 的 css。
+ */
+
+console.log('jaravel + vite ready')

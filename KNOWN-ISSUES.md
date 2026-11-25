@@ -22,7 +22,9 @@
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| `@vite` | 未实现 | 需要 manifest 解析与 dev server 约定(前端工具链耦合) |
+| `@vite` | **已实现** | manifest(两个位置都认)/ dev server / `modulepreload` / `@viteReactRefresh` / `install:vite`。约定见 ADR-020,docs/04 §1.9 |
+| `@vite` 的端到端示例 | 未实现 | `examples/*` 都用内联 CSS。要一个真用 `@vite` 的示例,就得把带哈希的产物提交进仓库、或让示例依赖 npm —— 两者都与「示例必须一条 `mvn` 命令跑起来」冲突。指令本身由 `ViteTest` 的 16 条(含整条模板→HTML)覆盖 |
+| `@vite` 的 SSR 入口 | 不做 | Jaravel 的渲染在服务端本来就是 jblade;再引一个 Node 渲染进程是另一套架构,不是一个指令的事 |
 | `@inject` | 不做 | docs/04 §1.8 自己就写着「不鼓励」—— 模板里从容器取服务会让「这个页面依赖什么」不可见;用控制器传 |
 | `DateX.diffForHumans()` 本地化 | 未实现 | 消息目录已有(`Lang`),但 `DateX` 在 support,比 core 低一层、不能依赖它;需要一个钩子 |
 | `Mail.to(user).locale(...)` | 未实现 | 原语已有:`Lang.withLocale(...)` |

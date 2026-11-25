@@ -6,3 +6,9 @@ storage/
 .idea/
 *.iml
 .DS_Store
+
+# 前端(install:vite 之后才有,先写在这里 —— 漏了的后果是把带哈希的产物
+# 与整个 node_modules 提交进仓库,而那不报错,只会让每次构建产生一堆
+# 无意义的 diff,直到某天有人发现仓库有几百兆)
+node_modules/
+src/main/resources/public/build/

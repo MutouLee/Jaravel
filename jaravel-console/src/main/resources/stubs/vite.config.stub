@@ -1,0 +1,36 @@
+// vite 配置 —— jaravel install:vite 生成(ADR-020、docs/04 §1.9)
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  build: {
+    // ★ 产物放进 src/main/resources/public/ —— Spring Boot 默认就把
+    // classpath:/public/ 当静态根,所以浏览器看到的 URL 恰好是
+    // /build/...(与 Laravel 相同),而且产物**进得了 jar**。
+    //
+    // 放项目根的 public/(Laravel 原样)会让产物留在 jar 外面,
+    // 部署时忘了带的症状是「线上页面没有样式」—— 而那与前端构建
+    // 离得很远。
+    outDir: 'src/main/resources/public/build',
+    emptyOutDir: true,
+
+    // @vite 要读它。关掉的话指令会报「找不到 manifest」
+    manifest: true,
+
+    rollupOptions: {
+      // ★ 这几个字符串同时是:这里的 input、manifest 的 key、
+      // 模板里 @vite([...]) 的参数 —— 三处**逐字相同**才查得到。
+      // 改路径时三处一起改,否则页面上什么都不出现
+      input: [
+        'resources/css/app.css',
+        'resources/js/app.js',
+      ],
+    },
+  },
+
+  server: {
+    // 页面由 8000 端口的应用发出,模块从 5173 加载。
+    // 不设 origin 时 vite 注入的 HMR 地址会指向 8000 —— 那里没有 vite,
+    // 症状是「改了代码不刷新」且控制台一堆 404
+    origin: 'http://localhost:5173',
+  },
+})

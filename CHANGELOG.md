@@ -6,6 +6,34 @@
 
 ### Added
 
+- **`@vite` 与 `install:vite`**(docs/04 §1.9、ADR-020)—— KNOWN-ISSUES 里
+  剩下最大的那块。难的不是指令本身(读一个 manifest、吐两个标签),
+  而是**它会锁死用户的构建脚本形状**,所以先写了 ADR-020 定四条约定:
+  前端源码在**项目根 `resources/{css,js}`**(这个字符串同时是 vite.config.js
+  的 input、manifest 的 key、模板里 `@vite([...])` 的参数 —— 用 Laravel 的路径,
+  Laravel 的配置与片段逐字可用);产物在
+  **`src/main/resources/public/build/`**(Spring Boot 默认就把
+  `classpath:/public/` 当静态根,URL 恰好是 Laravel 的 `/build/...`,
+  **而且进得了 jar** —— 放项目根的 `public/` 会让它留在 jar 外面,
+  忘了带的症状是「线上页面没有样式」);`mvn package` **默认不跑前端**;
+  **不发 npm 包**,`install:vite` 生成十来行的 `vite.config.js`。
+  **dev 模式是配置而不是 `public/hot` 文件**:Java 这边 dev 期的类路径是
+  `target/classes`,写进 `src/main/resources` 的文件要重新编译才可见 ——
+  文件开关在这里根本不可靠。也**不自动探测** 5173:每页多一次连接尝试,
+  而探测失败时回落到 manifest 恰好是最难发现的错(「改了 CSS 但页面没变」
+  会被当成浏览器缓存)。
+  **没有 manifest 时报错**而不是吐空标签(空标签的页面长得像「CSS 坏了」),
+  **入口必须是字面量字符串**(运行时拼出来的路径在产物里不存在,
+  症状是「页面上什么都没有」),顺序是**样式 → modulepreload → 脚本**,
+  入口 chunk 自带的 css 与 `imports` 的**递归**依赖都算上(递归那层漏了
+  不报错、只是慢,所以没人会发现)。
+  manifest 读 `.vite/manifest.json` 与 `manifest.json` 两个位置
+  (Vite 5 与 Vite 4 / laravel-vite-plugin 的布局差异不该变成一条报错)。
+  manifest 用 **snakeyaml** 解析 —— YAML 是 JSON 的超集,
+  为一个机器生成的文件再引一个 JSON 库不划算。
+  验收 16 条,含「布局里的 @vite 真的渲染成标签(走 `$unsafe` 不被转义)」
+  与一份**真的** vite 产物形状的 manifest(哈希文件名、chunk 的 css、
+  递归与自环的 imports)。
 - **批次/链的回调投递也走有界重试**(docs/10 §2)——
   `then` / `finally` / `catch` 与链的下一环此前是**一次 push,失败就吞掉**,
   而它旁边那个同样「丢一次就不可恢复」的批次计数早就有三次重试了。

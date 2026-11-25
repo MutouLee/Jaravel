@@ -1,0 +1,24 @@
+# 前端产物(docs/04 §1.9、ADR-020)。这份文件就是 install:vite 生成的东西。
+
+vite:
+  # dev server 的地址。**空 = 读 manifest**(build 模式)。
+  #
+  # 开发时:npm run dev,并在 .env 里写
+  #   VITE_DEV_SERVER=http://localhost:5173
+  # 那之后 @vite 改为指向 dev server,改一行就刷新。
+  #
+  # ⚠ 它是配置而不是「存在 public/hot 就算」(Laravel 的做法):
+  # Java 这边 dev 期的类路径是 target/classes,写进 src/main/resources
+  # 的文件要重新编译才可见 —— 文件开关在这里根本不可靠。
+  #
+  # 也**不做自动探测**:每次渲染去探一下 5173 会给每个页面加一次连接尝试,
+  # 而探测失败时回落到 manifest 恰好是最难发现的错
+  #(「我改了 CSS 但页面没变」会被当成浏览器缓存)
+  dev-server: ${VITE_DEV_SERVER:}
+
+  # 产物目录名。类路径上是 /public/<它>/,URL 上是 /<它>/
+  build-directory: build
+
+  # 类路径上的静态根。public 与 static 都是 Spring Boot 的默认值,
+  # 改成别的要自己配 spring.web.resources.static-locations
+  resource-root: public

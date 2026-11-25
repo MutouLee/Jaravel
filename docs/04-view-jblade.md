@@ -545,7 +545,8 @@ public class PostCard extends Component {
 | `@choice('k', n)` / `@choice('k', n, 替换表)` | ✅ `|` 分段;支持 `{0}` / `[1,19]` / `[20,*]` 区间 |
 | `@once` / `@endonce` | ✅ 同一次渲染只输出一次;去重键是**模板名 + 行号** |
 | `@fragment('row')` / `@endfragment` | ✅ 照常出现在整页里,也能被单独渲染(`View.fragment(...)`) |
-| 其余(`@vite` / `@inject`) | ⏳ 未实现,见 [KNOWN-ISSUES](../KNOWN-ISSUES.md) |
+| `@vite([...])` / `@viteReactRefresh` | ✅ 读 manifest 或指向 dev server;见 §1.9 与 ADR-020 |
+| 其余(`@inject`) | ⏳ 未实现,见 [KNOWN-ISSUES](../KNOWN-ISSUES.md) |
 
 条件指令的三条边界:
 
@@ -658,7 +659,68 @@ Laravel 有一个 `ShareErrorsFromSession`,把 `$errors` 塞进每个视图的�
 少一个中间件也就少一处「忘了把路由放进 web 组时 `@error` 静默为空」
 的失败形态 —— 不过 `@csrf` 仍然需要会话,那一处会**报错**并说清原因。
 
-### 1.9 自定义指令
+### 1.9 前端产物:`@vite`
+
+```bash
+jaravel install:vite      # vite.config.js / package.json / 入口 / config/vite.yml
+npm install
+npm run build
+```
+
+```html
+<head>
+  @vite(['resources/css/app.css', 'resources/js/app.js'])
+</head>
+```
+
+开发时(改一行就刷新):
+
+```bash
+npm run dev
+# .env
+VITE_DEV_SERVER=http://localhost:5173
+```
+
+**四条约定(ADR-020,一旦发布就改不动,所以先定再写)**:
+
+| | 位置 | 为什么 |
+|---|---|---|
+| 前端源码 | `resources/{css,js}/`(**项目根**) | 这个字符串同时是 `vite.config.js` 的 input、manifest 的 key、模板里 `@vite([...])` 的参数 —— 用 Laravel 的路径,Laravel 的配置与片段**逐字可用** |
+| 构建产物 | `src/main/resources/public/build/` | Spring Boot 默认就把 `classpath:/public/` 当静态根,于是 URL 恰好是 Laravel 的 `/build/...`,**而且进得了 jar**。放项目根的 `public/` 会让产物留在 jar 外面,忘了带的症状是「线上页面没有样式」|
+| 谁跑 npm | 用户自己 | `mvn package` **默认不跑前端**:只改了 Java 的那次打包不该因为下载一整个 Node 慢上几十秒。发布前是 `npm run build && mvn package`;要一键的话自己加一个 `frontend` profile |
+| 工具链 | 不发 npm 包 | 要做的只有「outDir 指过去 + 开 manifest」,十来行;一条 npm 发布渠道换不来这个 |
+
+**dev 模式是配置,不是 `public/hot` 文件。** Laravel 用那个文件做开关,
+因为 PHP 每个请求都看文件系统。Java 这边 dev 期的类路径是 `target/classes`
+—— 写进 `src/main/resources` 的文件要重新编译才可见,文件开关在这里根本不可靠。
+
+**也不做自动探测。** 每次渲染去 TCP 探一下 5173 会给每个页面加一次连接尝试,
+而探测失败时回落到 manifest 恰好是最难发现的错:「我改了 CSS 但页面没变」
+会被当成浏览器缓存。
+
+**入口必须是字面量字符串** —— `@vite(['resources/js/' + name])` 是**转写期错误**。
+那个字符串在构建期必须已知,运行时拼出来的路径在产物里不存在,
+而症状是「页面上什么都没有」而不是一条报错。
+
+**没有 manifest 时报错**,不吐空标签:一个没有 `<link>` 的页面长得像
+「CSS 坏了」,而真正的原因是没跑 `npm run build` —— 那两件事离得太远。
+(与 `@csrf` 在没有会话时报错是同一个判断。)
+
+**吐出来的顺序是:样式 → `modulepreload` → `module` 脚本。**
+样式在后会让浏览器先执行脚本再回头重排(FOUC);preload 在后就没意义了
+(浏览器要等入口解析完才知道还要下别的)。入口 chunk 自带的 css
+(`app.js` 里 `import './x.css'` 的那些)与 `imports` 的**递归**依赖都算上
+—— 递归那一层漏了不报错,只是首屏多几次串行往返,所以没人会发现。
+
+**build 模式的产物变更要重启应用**:类路径资源读的是 `target/classes`
+里的副本,没有「改了就重新读」这回事。真正的开发回路是 dev server,
+那条路上压根不读 manifest。
+
+manifest 两个位置都认:`.../build/.vite/manifest.json`(Vite 5+)与
+`.../build/manifest.json`(Vite 4 / `laravel-vite-plugin` 的布局)——
+版本差异不该变成一条「没有 manifest」的报错。
+
+### 1.10 自定义指令
 
 ```java
 // AppServiceProvider#boot

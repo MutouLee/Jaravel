@@ -492,6 +492,97 @@ Web 应用只能以 JVM 方式部署。若将来出现真实的 Serverless / 快
 
 ---
 
+## ADR-020 · `@vite` 的前端产物约定
+
+**状态**:已采纳 · **日期**:2026-11-25 · 第 1 / 3 / 4 条由所有者确认(三条都取了推荐值)
+
+**背景**
+`@vite` 是 KNOWN-ISSUES 里剩下最大的一块。它难的地方不是指令本身
+(读一个 manifest、吐两个标签),而是**它会锁死用户的构建脚本形状** ——
+前端源码放哪、产物放哪、谁来跑 `npm run build`、dev server 怎么被发现。
+这四件事一旦发布就改不动了(改一次所有用户的 `vite.config.js` 与 CI 都要改),
+所以先定约定,再写指令。
+
+Laravel 的做法是基线:`@vite(['resources/css/app.css','resources/js/app.js'])`
+读 `public/build/manifest.json`,`public/hot` 存在时改为指向
+`http://localhost:5173`,而这两个文件都由官方 npm 包
+`laravel-vite-plugin` 负责产出。
+
+**约束(与 Laravel 不同的那几条)**
+1. **交付物是一个 jar**。`public/` 不是一个 web 根目录,运行时也不一定存在 ——
+   产物必须进 jar,否则「一个 jar 跑起来」这条主线就破了;
+2. **dev 期类路径是 `target/classes`**。写进 `src/main/resources` 的文件要
+   重新编译才可见,所以**不能用「存在某个文件」当 dev server 的开关**
+   (`public/hot` 那套在 Java 这边不成立);
+3. **Spring Boot 默认就把 `classpath:/public/` 当静态根**。
+   这意味着产物放在 `src/main/resources/public/build/` 时,
+   URL 恰好是 Laravel 的 `/build/...`,且**零配置**;
+4. Jaravel 没有 npm 发布渠道。加一个等于多一条要长期维护的发布流水线
+   (版本号要与 Java 侧对齐,否则「两边版本不匹配」会变成常见故障)。
+
+**决策**
+
+| # | 约定 | 取值 |
+|---|---|---|
+| 1 | 前端源码 | `resources/{css,js}/`(**项目根**,与 Laravel 逐字相同) |
+| 2 | 构建产物 | `src/main/resources/public/build/`(进 jar,URL 为 `/build/...`) |
+| 3 | 谁跑 npm | 用户自己(`npm run build`);`mvn package` **默认不**跑前端 |
+| 4 | 工具链接线 | 不发 npm 包;`jaravel install:vite` 生成 `vite.config.js` |
+| 5 | dev server | 配置项 `vite.dev-server`(默认取 `${VITE_DEV_SERVER:}`),空 = 读 manifest |
+| 6 | manifest 位置 | `classpath:/public/build/.vite/manifest.json`,回落到 `.../build/manifest.json` |
+| 7 | manifest 缺失 | **报错**,并给出那两条命令 |
+
+**理由**
+
+- **第 1 条用 Laravel 的路径,是因为那个字符串是跨三处的同一个键**:
+  它出现在 `vite.config.js` 的 input 里、出现在 manifest 的 key 里、
+  出现在模板的 `@vite([...])` 里。用 Laravel 的路径,等于 Laravel 的
+  `vite.config.js` 与模板片段**逐字可用** —— 这正是这个框架的卖点。
+  代价是项目根多一个 `resources/`,与 `src/main/resources` 看起来撞名
+  (它们确实不是一回事:一个是前端源码,一个是 Java 资源)。
+  备选见下。
+- **第 2 条不放项目根的 `public/`**:那样产物不进 jar,部署要多带一个目录,
+  而「忘了带」的症状是线上页面没有样式。放在
+  `src/main/resources/public/build/` 时 Spring Boot 的默认静态根直接命中,
+  URL 还是 `/build/...`(Laravel 的 HTML 片段照样能抄)。
+  这个目录进 `.gitignore`,与 Laravel 的 `public/build` 一样。
+- **第 3 条不默认跑 npm**:`frontend-maven-plugin` 会下载一整个 Node,
+  让一个「只改了 Java」的 `mvn package` 慢上几十秒并需要网络。
+  README 与 `install:vite` 的输出里给出一个 `frontend` profile 的片段,
+  **要的人自己打开**。CI 的那一行也写进文档。
+- **第 4 条不发 npm 包**:要做的事只有「把 outDir 指过去 + 开 manifest」,
+  十来行 `vite.config.js`,生成一次就不用再碰。
+  发包换来的是 `laravel-vite-plugin` 那种「一行 plugins: [jaravel()]」,
+  代价是一条新的发布渠道与一个新的版本对齐问题,收益不成比例。
+- **第 5 条用配置而不是 `hot` 文件**:见上面的约束 2。
+  `.env` 里 `VITE_DEV_SERVER=http://localhost:5173` 打开 dev 模式,
+  指令改为吐 `@vite/client` + 源码路径的 module 标签。
+  **它不做自动探测**:每次渲染去 TCP 探一下 5173 会让每个页面多一次
+  连接尝试,而探测失败时的回落(读 manifest)又正好是最难发现的错 ——
+  「我改了 CSS 但页面没变」会被当成浏览器缓存。
+- **第 7 条报错而不是吐空**:没有 manifest 时吐不出标签,页面长得像
+  「CSS 坏了」,而真正的原因是没跑 `npm run build`。
+  这与 `@csrf` 在没有会话时报错是同一个判断。
+
+**被否决的方案**
+
+- *产物放项目根 `public/build`*(Laravel 原样):不进 jar,见第 2 条;
+- *源码放 `src/main/resources/assets/`*(docs/16 §5 的草图):
+  源码会被打进 jar(多余),而且 manifest 的 key 变成
+  `src/main/resources/assets/js/app.js` —— Laravel 的片段抄不过来;
+- *用 `public/hot` 文件做 dev 开关*:在 Java 的类路径模型下不成立(约束 2);
+- *每次渲染探测 dev server*:见第 5 条;
+- *发一个 `@jaravel/vite-plugin`*:见第 4 条。如果将来 SSR / React refresh /
+  多入口的接线真的复杂到十行写不完,再重新评估。
+
+**范围(v1.0 做什么)**
+`@vite([...])` 的 CSS / JS 标签与 `modulepreload`、dev 模式、
+`@viteReactRefresh`、`install:vite` 生成器、manifest 缺失的报错。
+**不做**:SSR 入口、`integrity`、CSP nonce 的自动注入
+(CSP 本身按 KNOWN-ISSUES 是不做默认值的)。
+
+---
+
 # 第二部分:风险登记册
 
 按「概率 × 影响」排序。

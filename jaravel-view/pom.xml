@@ -22,5 +22,17 @@
       <artifactId>jte</artifactId>
       <version>${jte.version}</version>
     </dependency>
+    <!--
+      vite 的 manifest.json(Vite.java)。
+
+      显式声明而不是靠 jaravel-core 传递进来:用一个传递依赖的包
+      是「它哪天不传了就编译不过」的那类隐患。
+      为一个机器生成的 manifest 再引一个 JSON 库不划算 ——
+      YAML 是 JSON 的超集,理由写在 Vite.parse 上。
+    -->
+    <dependency>
+      <groupId>org.yaml</groupId>
+      <artifactId>snakeyaml</artifactId>
+    </dependency>
   </dependencies>
 </project>

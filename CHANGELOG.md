@@ -520,6 +520,11 @@
 
 ### Fixed
 
+- **`jaravel-bom` 的 release profile**:BOM 刻意不继承 `jaravel-parent`,
+  因此父 POM 的 `release` profile(Central Publishing + GPG)对它不生效,
+  `mvn -Prelease deploy` 会在第一个模块 `jaravel-bom` 上退回默认
+  `maven-deploy-plugin` 并报「no distributionManagement」。现给 BOM 补了
+  一个独立的 `release` profile(POM-only 构件不需要 sources/javadoc)。
 - **跑完之后才炸的任务不再被记成失败**:worker 的出队(`DELETE jobs`)
   可能撞上存储层的瞬时冲突(SQLite 共享缓存的 `SQLITE_LOCKED_SHAREDCACHE`、
   MySQL 死锁检测随机挑牺牲者),而那个异常此前会掉进任务失败分支 ——

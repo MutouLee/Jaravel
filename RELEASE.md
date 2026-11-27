@@ -14,7 +14,9 @@
 
 - JDK 21、Maven 3.9+
 - GPG 密钥(发布到 Maven Central 的每个 artifact 都要签名)
-- Maven Central Portal 账号与 `io.jaravel` 命名空间
+- Maven Central Portal 账号与 `net.dobeen.jaravel` 命名空间
+  (groupId 以 `net.dobeen` 开头,Central 的验证方式是在 `dobeen.net`
+  加一条 DNS TXT 记录)
 - `~/.m2/settings.xml` 里配置 `central` server:
 
 ```xml
@@ -89,7 +91,8 @@ mvn -Prelease deploy
   到 <https://central.sonatype.com/> 人工检查后再点 Publish。
 
 > 示例模块设置了 `maven.deploy.skip=true`,不会进入 Central。
-> 第一次发布前确认 `io.jaravel` 命名空间已经验证。
+> 第一次发布前确认 `net.dobeen.jaravel` 命名空间已经验证
+> (即 `dobeen.net` 的 DNS TXT 记录已经生效)。
 
 ## 6. 打标签与 GitHub Release
 

@@ -1,6 +1,6 @@
 package {{ pkg }};
 
-import io.jaravel.migration.Seeder;
+import net.dobeen.jaravel.migration.Seeder;
 
 public class {{ class }} implements Seeder {
 

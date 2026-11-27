@@ -11,8 +11,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 
 import app.models.Todo;
-import io.jaravel.testing.AppTest;
-import io.jaravel.testing.RefreshDatabase;
+import net.dobeen.jaravel.testing.AppTest;
+import net.dobeen.jaravel.testing.RefreshDatabase;
 
 /**
  * {@code @RefreshDatabase} 的验收:每个测试前把结构整个重建(docs/14 §2.1)。

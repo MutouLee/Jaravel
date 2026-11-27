@@ -8,10 +8,10 @@ import app.models.Comment_;
 import app.models.Post;
 import app.models.Post_;
 import app.models.Tag;
-import io.jaravel.http.Redirect;
-import io.jaravel.http.Request;
-import io.jaravel.http.Response;
-import io.jaravel.http.View;
+import net.dobeen.jaravel.http.Redirect;
+import net.dobeen.jaravel.http.Request;
+import net.dobeen.jaravel.http.Response;
+import net.dobeen.jaravel.http.View;
 
 /**
  * 文章控制器。**零裸 SQL** —— 全部经 Eloquent。
@@ -38,7 +38,7 @@ public class PostController {
                 .withTags()
                 .withComments(q -> q.where(Comment_.approved, true).orderByKeyDesc())
                 .first()
-                .orElseThrow(() -> new io.jaravel.http.HttpException(404, "文章不存在:" + slug));
+                .orElseThrow(() -> new net.dobeen.jaravel.http.HttpException(404, "文章不存在:" + slug));
 
         post.increment(Post_.views, 1);
         return View.of("posts.show").with("post", post);
@@ -115,7 +115,7 @@ public class PostController {
      * {@code If-None-Match} 再来时回 304、不传正文。
      */
     public Object apiCached() {
-        return io.jaravel.http.Response
+        return net.dobeen.jaravel.http.Response
                 .json(Post.query().published().get().toList())
                 .etag()
                 .cacheControl("public, max-age=300");
@@ -129,7 +129,7 @@ public class PostController {
      * 猜一个列集合会让导出文件在字段变化时悄悄错位。
      */
     public Object apiFormats() {
-        return io.jaravel.http.Response.negotiated(
+        return net.dobeen.jaravel.http.Response.negotiated(
                         Post.query().published().get().toList())
                 .json()
                 .xml()

@@ -10,14 +10,14 @@ import app.models.Invoice;
 import app.models.Invoice_;
 import app.support.BatchLedger;
 import app.support.InvoiceGateway;
-import io.jaravel.database.Connection;
-import io.jaravel.queue.FailedJobStore;
-import io.jaravel.queue.JobInvoker;
-import io.jaravel.queue.Queue;
-import io.jaravel.queue.QueueManager;
-import io.jaravel.queue.QueueWorker;
-import io.jaravel.queue.WorkerOptions;
-import io.jaravel.testing.FeatureTest;
+import net.dobeen.jaravel.database.Connection;
+import net.dobeen.jaravel.queue.FailedJobStore;
+import net.dobeen.jaravel.queue.JobInvoker;
+import net.dobeen.jaravel.queue.Queue;
+import net.dobeen.jaravel.queue.QueueManager;
+import net.dobeen.jaravel.queue.QueueWorker;
+import net.dobeen.jaravel.queue.WorkerOptions;
+import net.dobeen.jaravel.testing.FeatureTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -47,11 +47,11 @@ import org.springframework.beans.factory.annotation.Autowired;
  * 而那个事务永远不提交 —— 于是任务永远不入队,所有断言都会失败,
  * 且失败的样子是「队列是空的」,看起来像投递坏了。
  *
- * <p>所以整个类标了 {@link io.jaravel.testing.WithoutRollback},清理由
+ * <p>所以整个类标了 {@link net.dobeen.jaravel.testing.WithoutRollback},清理由
  * {@link #resetState()} 手工做。这是一个真实的取舍,写在这里免得
  * 下一个人把回滚加回来 —— 加回来之后所有断言都会以「队列是空的」失败。
  */
-@io.jaravel.testing.WithoutRollback
+@net.dobeen.jaravel.testing.WithoutRollback
 class QueueFeatureTest extends FeatureTest {
 
     @Autowired Connection db;
@@ -60,12 +60,12 @@ class QueueFeatureTest extends FeatureTest {
     @Autowired JobInvoker invoker;
     @Autowired InvoiceGateway gateway;
     @Autowired BatchLedger ledger;
-    @Autowired io.jaravel.scheduler.Schedule schedule;
-    @Autowired io.jaravel.scheduler.Scheduler scheduler;
-    @Autowired io.jaravel.mail.MailManager mail;
-    @Autowired io.jaravel.storage.FilesystemManager disks;
-    @Autowired io.jaravel.core.crypt.UrlSigner signer;
-    @Autowired io.jaravel.spring.JaravelStorageAutoConfiguration
+    @Autowired net.dobeen.jaravel.scheduler.Schedule schedule;
+    @Autowired net.dobeen.jaravel.scheduler.Scheduler scheduler;
+    @Autowired net.dobeen.jaravel.mail.MailManager mail;
+    @Autowired net.dobeen.jaravel.storage.FilesystemManager disks;
+    @Autowired net.dobeen.jaravel.core.crypt.UrlSigner signer;
+    @Autowired net.dobeen.jaravel.spring.JaravelStorageAutoConfiguration
             .StorageTemporaryUrlRoute temporaryUrls;
 
     /**
@@ -95,11 +95,11 @@ class QueueFeatureTest extends FeatureTest {
      * (最终的 HTML、纯文本版本、发件人),而 fake 在渲染之前就拦下了。
      * 两者的分工见 {@code ArrayTransport} 的类注释。
      */
-    private io.jaravel.mail.transport.ArrayTransport mailbox;
+    private net.dobeen.jaravel.mail.transport.ArrayTransport mailbox;
 
     @org.junit.jupiter.api.BeforeEach
     void useArrayMailer() {
-        mailbox = (io.jaravel.mail.transport.ArrayTransport) mail.mailer("array");
+        mailbox = (net.dobeen.jaravel.mail.transport.ArrayTransport) mail.mailer("array");
         mail.defaultMailer("array");
     }
 
@@ -588,7 +588,7 @@ class QueueFeatureTest extends FeatureTest {
 
             assertThat(mailbox.sent()).singleElement().satisfies(m -> {
                 assertThat(m.subject()).isEqualTo("发票 ORD-M1b 已发送");
-                assertThat(m.to()).extracting(io.jaravel.mail.Address::email)
+                assertThat(m.to()).extracting(net.dobeen.jaravel.mail.Address::email)
                         .containsExactly("customer@example.com");
             });
             assertThat(Invoice.query().findOrFail(id).status).isEqualTo("sent");
@@ -666,7 +666,7 @@ class QueueFeatureTest extends FeatureTest {
 
         @org.junit.jupiter.api.AfterEach
         void cleanDisk() {
-            io.jaravel.storage.Storage.stopFaking();
+            net.dobeen.jaravel.storage.Storage.stopFaking();
         }
 
         @Test
@@ -680,9 +680,9 @@ class QueueFeatureTest extends FeatureTest {
         @Test
         @DisplayName("★ 写了能读回来(真的落到了磁盘上)")
         void roundTrip() {
-            var fake = io.jaravel.storage.Storage.fake("local");
+            var fake = net.dobeen.jaravel.storage.Storage.fake("local");
 
-            io.jaravel.storage.Storage.putString("notes/1.txt", "内容");
+            net.dobeen.jaravel.storage.Storage.putString("notes/1.txt", "内容");
 
             fake.assertExists("notes/1.txt").assertContent("notes/1.txt", "内容");
         }
@@ -690,11 +690,11 @@ class QueueFeatureTest extends FeatureTest {
         @Test
         @DisplayName("★ putFile 用随机名,扩展名来自内容嗅探")
         void uploadIsSafeByDefault() {
-            var fake = io.jaravel.storage.Storage.fake("local");
+            var fake = net.dobeen.jaravel.storage.Storage.fake("local");
 
             // 客户端声称这是 .php,内容其实是 PNG
-            String path = io.jaravel.storage.Storage.putFile("avatars",
-                    io.jaravel.storage.Storage.upload(PNG, "evil.php"));
+            String path = net.dobeen.jaravel.storage.Storage.putFile("avatars",
+                    net.dobeen.jaravel.storage.Storage.upload(PNG, "evil.php"));
 
             assertThat(path)
                     .as("扩展名由内容决定,不信客户端给的文件名")
@@ -706,26 +706,26 @@ class QueueFeatureTest extends FeatureTest {
         @Test
         @DisplayName("★ public 磁盘拒绝可执行类型 —— 这是启动后真实生效的")
         void publicDiskRejectsExecutables() {
-            assertThatThrownBy(() -> io.jaravel.storage.Storage.disk("public")
+            assertThatThrownBy(() -> net.dobeen.jaravel.storage.Storage.disk("public")
                     .putString("evil.php", "<?php ?>"))
                     .as("这个检查由 config 里的 url/driver 打开 —— "
                             + "接线错了的话它会静默不生效")
-                    .isInstanceOf(io.jaravel.storage.PathGuard.UnsafePathException.class)
+                    .isInstanceOf(net.dobeen.jaravel.storage.PathGuard.UnsafePathException.class)
                     .hasMessageContaining("远程代码执行");
         }
 
         @Test
         @DisplayName("★ 路径穿越被拦")
         void traversalIsBlocked() {
-            assertThatThrownBy(() -> io.jaravel.storage.Storage
+            assertThatThrownBy(() -> net.dobeen.jaravel.storage.Storage
                     .putString("../../escape.txt", "x"))
-                    .isInstanceOf(io.jaravel.storage.PathGuard.UnsafePathException.class);
+                    .isInstanceOf(net.dobeen.jaravel.storage.PathGuard.UnsafePathException.class);
         }
 
         @Test
         @DisplayName("★ 临时 URL 签出来并且**能被校验**")
         void temporaryUrlIsSignedAndVerifiable() {
-            String url = io.jaravel.storage.Storage.temporaryUrl(
+            String url = net.dobeen.jaravel.storage.Storage.temporaryUrl(
                     "private/report.pdf", java.time.Duration.ofMinutes(15));
 
             assertThat(url)
@@ -739,7 +739,7 @@ class QueueFeatureTest extends FeatureTest {
         @Test
         @DisplayName("★ 改了路径的临时 URL 校验失败 —— 否则它是任意文件读取")
         void tamperedTemporaryUrlIsRejected() {
-            String url = io.jaravel.storage.Storage.temporaryUrl(
+            String url = net.dobeen.jaravel.storage.Storage.temporaryUrl(
                     "private/report.pdf", java.time.Duration.ofMinutes(15));
 
             String tampered = url.replace("private%2Freport.pdf", "private%2Fsecret.pdf");
@@ -785,7 +785,7 @@ class QueueFeatureTest extends FeatureTest {
         @DisplayName("未实现的驱动在**用到时**报错,不在启动时")
         void unsupportedDriverFailsLazily() {
             // 这个示例没配 s3,所以拿一个不存在的磁盘名
-            assertThatThrownBy(() -> io.jaravel.storage.Storage.disk("s3"))
+            assertThatThrownBy(() -> net.dobeen.jaravel.storage.Storage.disk("s3"))
                     .hasMessageContaining("没有名为 \"s3\" 的磁盘");
         }
     }
@@ -822,7 +822,7 @@ class QueueFeatureTest extends FeatureTest {
                     .hasSize(3);
 
             assertThat(schedule.tasks().stream().map(
-                    io.jaravel.scheduler.ScheduledTask::label))
+                    net.dobeen.jaravel.scheduler.ScheduledTask::label))
                     .contains("标记过期发票", "每日提醒", "手动触发");
         }
 
@@ -854,7 +854,7 @@ class QueueFeatureTest extends FeatureTest {
             var executed = scheduler.runDue(friday);
 
             assertThat(executed.stream().map(
-                    io.jaravel.scheduler.ScheduledTask::label))
+                    net.dobeen.jaravel.scheduler.ScheduledTask::label))
                     .containsExactly("标记过期发票");
 
             assertThat(app.ConsoleKernel.runs())

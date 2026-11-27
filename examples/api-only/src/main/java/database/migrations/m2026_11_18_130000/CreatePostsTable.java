@@ -1,7 +1,7 @@
 package database.migrations.m2026_11_18_130000;
 
-import io.jaravel.migration.Migration;
-import io.jaravel.migration.schema.Schema;
+import net.dobeen.jaravel.migration.Migration;
+import net.dobeen.jaravel.migration.schema.Schema;
 
 public class CreatePostsTable implements Migration {
 

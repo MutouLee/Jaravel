@@ -8,10 +8,10 @@ import org.junit.jupiter.api.Test;
 
 import app.models.Note;
 import app.models.User;
-import io.jaravel.auth.Auth;
-import io.jaravel.auth.access.Gate;
-import io.jaravel.auth.hash.Hash;
-import io.jaravel.testing.AppTest;
+import net.dobeen.jaravel.auth.Auth;
+import net.dobeen.jaravel.auth.access.Gate;
+import net.dobeen.jaravel.auth.hash.Hash;
+import net.dobeen.jaravel.testing.AppTest;
 
 /**
  * 授权规则的测试,**不经过 HTTP**(docs/14 §5)。

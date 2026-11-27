@@ -2,7 +2,7 @@ package app.http.controllers;
 
 import org.springframework.stereotype.Component;
 
-import io.jaravel.http.View;
+import net.dobeen.jaravel.http.View;
 
 @Component
 public class HomeController {

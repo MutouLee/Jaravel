@@ -1,8 +1,8 @@
 package routes;
 
 import app.http.controllers.InvoiceController;
-import io.jaravel.routing.RouteDefinition;
-import io.jaravel.routing.Router;
+import net.dobeen.jaravel.routing.RouteDefinition;
+import net.dobeen.jaravel.routing.Router;
 import org.springframework.stereotype.Component;
 
 /**

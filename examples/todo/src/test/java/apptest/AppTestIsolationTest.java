@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 
 import app.models.Todo;
-import io.jaravel.testing.AppTest;
+import net.dobeen.jaravel.testing.AppTest;
 
 /**
  * {@code AppTest} 的验收:容器 + 数据库,没有 HTTP(docs/14 §5)。

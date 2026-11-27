@@ -442,9 +442,9 @@ Factory.of(Post_.META, (f, p) -> {
 }).count(20).seed(42).create();
 ```
 
-`io.jaravel.migration.Factory` 不需要 APT、不需要工厂类,适合 seeder 里
+`net.dobeen.jaravel.migration.Factory` 不需要 APT、不需要工厂类,适合 seeder 里
 就地造几条。换来类型化 setter 与关联构建器的是「每个模型一个工厂类」那条路
-—— 它们只能生成,手写就是样板。两者共用 `io.jaravel.support.Faker`,
+—— 它们只能生成,手写就是样板。两者共用 `net.dobeen.jaravel.support.Faker`,
 所以定义里的写法完全一样。
 
 ### 3.4 Faker
@@ -544,7 +544,7 @@ Clock.withFrozen(instant, () -> { ... });  // 只在这一段里冻结
 Clock.reset();                             // FeatureTest 每个测试前自动调
 ```
 
-门面是 `io.jaravel.support.Clock`(在 support 模块 —— 每个模块都要用它,
+门面是 `net.dobeen.jaravel.support.Clock`(在 support 模块 —— 每个模块都要用它,
 它必须在最底层)。`FeatureTest` / `BrowserTest` 在每个测试前 `reset()`:
 漏出去的冻结时间会让后面的测试以「令牌莫名过期/莫名不过期」失败,
 而且只在特定执行顺序下出现。
@@ -556,7 +556,7 @@ Clock.reset();                             // FeatureTest 每个测试前自动�
 最容易写错。现在是:
 
 ```java
-io.jaravel.support.Clock.travel(Duration.ofMinutes(61));
+net.dobeen.jaravel.support.Clock.travel(Duration.ofMinutes(61));
 post("/reset-password", ...).assertSessionHasErrors("token");
 ```
 
@@ -580,9 +580,9 @@ WebSocket 心跳。它们量的是「真的过了多久」—— 走可冻结的
 
 ```java
 ArchRule rule = noClasses()
-        .that().resideInAPackage("io.jaravel..")
-        .and().doNotHaveFullyQualifiedName("io.jaravel.support.Clock")
-        .and().doNotHaveFullyQualifiedName("io.jaravel.spring.broadcast.WsConnection")
+        .that().resideInAPackage("net.dobeen.jaravel..")
+        .and().doNotHaveFullyQualifiedName("net.dobeen.jaravel.support.Clock")
+        .and().doNotHaveFullyQualifiedName("net.dobeen.jaravel.spring.broadcast.WsConnection")
         .should().callMethod(Instant.class, "now")
         .orShould().callMethod(LocalDateTime.class, "now")
         .orShould().callMethod(ZonedDateTime.class, "now")
@@ -999,7 +999,7 @@ public class JaravelExtension implements BeforeAllCallback, BeforeEachCallback,
   `Post.factory()`;`jaravel make:factory` 生成骨架(§3、docs/13 §2.2)。
   边界与理由见 §3.2。
   **`datafaker` 不做**:10MB locale 数据与一串传递依赖,换来的只是更像
-  真话的字符串;`Faker` 留在 `io.jaravel.support`,要更真实的数据在
+  真话的字符串;`Faker` 留在 `net.dobeen.jaravel.support`,要更真实的数据在
   `definition` 里换自己的(§3.4,登记在 KNOWN-ISSUES.md)。
 - [x] 中间表关联的工厂构建器:**已实现** —— `hasTags(n[, tweak][, pivot])`
   与 `withTags(…)`(§3、§3.2)。名字跟着关联走(与 `hasPosts` / `forAuthor`

@@ -1,7 +1,7 @@
 package database.migrations.m2026_10_29_100100;
 
-import io.jaravel.migration.Migration;
-import io.jaravel.migration.schema.Schema;
+import net.dobeen.jaravel.migration.Migration;
+import net.dobeen.jaravel.migration.schema.Schema;
 
 /**
  * install:auth 生成的迁移。

@@ -342,7 +342,7 @@
   docs/09 §1.6 里「`remember` 同一进程内只有一个线程执行」那段**从未实现
   也不该实现**(加锁会把缓存失效变成请求排队),已按代码改正。
 - **`Cache.get(key, TypeRef)` 与 `Cache.rememberLocked`**(docs/09 §1.5、§1.6)——
-  `io.jaravel.support.TypeRef` 让 `Class<T>` 装不下的泛型容器能取回来:
+  `net.dobeen.jaravel.support.TypeRef` 让 `Class<T>` 装不下的泛型容器能取回来:
   `Cache.get("posts", new TypeRef<List<Post>>() {})`,`get` / `remember` /
   `tags(...)` 上都有重载。不用 Jackson 的 `TypeReference`:那会把 Jackson
   写进框架的公开 API(caffeine 驱动根本不序列化),`TypeRef` 只暴露一个
@@ -382,7 +382,7 @@
   `jaravel make:factory PostFactory --model=Post` 生成骨架,并在输出里
   给出模型上要加的那行 —— 命令不去改用户写过的文件,但少了那行工厂
   编译不过,所以另一半必须说清且能照抄。
-  `Factory.Faker` 提升为 `io.jaravel.support.Faker`(工厂基类因此住在
+  `Factory.Faker` 提升为 `net.dobeen.jaravel.support.Faker`(工厂基类因此住在
   `jaravel-eloquent`,生成的代码不再依赖 jaravel-migration);
   `datafaker` **不做**,理由记在 KNOWN-ISSUES。
   端到端:`examples/blog` 的 `database/factories` 下四个真工厂,
@@ -458,7 +458,7 @@
   嗅探不出来,不伪造。一条测试核对魔数表与 `ContentSniffer` 一致;
   `examples/auth` 的 `UploadFlowTest`(真 multipart + 真磁盘)改用它
   生成素材,顺带把它放进端到端验收。
-- **`Clock` 时间源**(`io.jaravel.support.Clock`,docs/14 §4.2)——
+- **`Clock` 时间源**(`net.dobeen.jaravel.support.Clock`,docs/14 §4.2)——
   `freeze` / `travel` / `travelTo` / `withFrozen` / `reset`。框架内 **106 处**
   领域时间读取(模型时间戳、令牌与签名过期、缓存 TTL、任务可见时刻、
   调度器下次执行)改走它;存活性计时(worker 的 `maxTime` 与关停宽限、
@@ -483,7 +483,7 @@
   「第二次没有再去算」,而那从返回值上看不出来。
   边界:换的是 manager 的默认 store,**构造注入了 `Repository`** 的代码
   (框架自己的会话、限流、队列唯一性锁)持有旧实例、不受影响。
-- **`Cache` 静态门面**(`io.jaravel.cache.Cache`)—— docs/09 §1.1 与
+- **`Cache` 静态门面**(`net.dobeen.jaravel.cache.Cache`)—— docs/09 §1.1 与
   docs/02 §2.3 一直在写它,但代码里只有 `CacheManager` / `Repository`。
   starter 启动时绑定,`FeatureTest` 每个测试前重绑到当前上下文。
 - **公开 API 文档覆盖核对**:`docs-site/tools/api_coverage.py`
@@ -495,6 +495,15 @@
 
 ### Changed
 
+- **公开坐标与 Java 包名统一改为 `net.dobeen.jaravel`**(发布前改名)——
+  Maven 坐标从 `io.jaravel:*` 变为 `net.dobeen.jaravel:*`,Java 包从
+  `io.jaravel.*` 变为 `net.dobeen.jaravel.*`。`io.jaravel` 对应
+  `jaravel.io` 的命名空间验证,而 `net.dobeen.jaravel` 对应 `dobeen.net`;
+  趁 `1.0.0` 还没发出去改掉,用户不必在发布后迁移。覆盖面:753 个
+  位于 `io/jaravel/` 下的文件(880 个 Java 文件引用新包名)、53 个 POM、
+  APT 生成器里写死的 import、ServiceLoader /
+  AutoConfiguration、native-image 目录名、ArchUnit 规则、示例脚本与
+  全部文档。没有已发布版本受影响。
 - **文档站英文完整版**(`docs-site`):`en/` 补齐到与中文一一对应 ——
   安装 / 认证 / 路由 / 数据库 / 测试 / 部署 / 两篇迁移 / API 参考,
   `mkdocs.yml` 的 English nav 同步。翻译时修掉 `routing.md` 一处过时声明

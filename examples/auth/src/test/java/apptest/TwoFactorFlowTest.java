@@ -23,8 +23,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
-import io.jaravel.auth.twofactor.Totp;
-import io.jaravel.support.Clock;
+import net.dobeen.jaravel.auth.twofactor.Totp;
+import net.dobeen.jaravel.support.Clock;
 
 /**
  * 二步验证的端到端验收(docs/08 §6.4)。

@@ -3,7 +3,7 @@ package apptest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import io.jaravel.testing.BrowserTest;
+import net.dobeen.jaravel.testing.BrowserTest;
 
 /**
  * 第二个 {@code BrowserTest} 子类。

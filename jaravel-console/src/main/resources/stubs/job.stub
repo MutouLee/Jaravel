@@ -1,6 +1,6 @@
 package {{ pkg }};
 
-import io.jaravel.queue.ShouldQueue;
+import net.dobeen.jaravel.queue.ShouldQueue;
 
 public class {{ class }} implements ShouldQueue {
 

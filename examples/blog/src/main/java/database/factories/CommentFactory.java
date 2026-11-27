@@ -1,7 +1,7 @@
 package database.factories;
 
 import app.models.Comment;
-import io.jaravel.support.Faker;
+import net.dobeen.jaravel.support.Faker;
 
 /** Comment 的工厂(docs/14 §3)。外键由 {@code Post.factory().hasComments(3)} 填。 */
 public class CommentFactory extends CommentFactoryBase {

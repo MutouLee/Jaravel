@@ -46,7 +46,7 @@ public class Post extends PostBase {
 ## Status
 
 v1.0 is feature-complete; the public release is pending. The default suite has
-**2702 tests** green; parity worst case **1.29 / 1.30**.
+**3030 tests** green (0 failures / 12 skipped); parity worst case **1.28 / 1.30**.
 
 See [V1.0-RESULT.md](https://github.com/MutouLee/Jaravel/blob/main/V1.0-RESULT.md)
 for evidence and remaining release steps.

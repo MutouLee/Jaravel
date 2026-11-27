@@ -1,1 +1,1 @@
-io.jaravel.routing.apt.RouteProcessor
+net.dobeen.jaravel.routing.apt.RouteProcessor

@@ -9,7 +9,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import app.models.Post;
-import io.jaravel.testing.FeatureTest;
+import net.dobeen.jaravel.testing.FeatureTest;
 
 class ApiTest extends FeatureTest {
 

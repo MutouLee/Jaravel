@@ -1,11 +1,11 @@
 package app.models;
 
-import io.jaravel.eloquent.annotations.Fillable;
-import io.jaravel.eloquent.annotations.HasMany;
-import io.jaravel.eloquent.annotations.Hidden;
-import io.jaravel.eloquent.annotations.Id;
-import io.jaravel.eloquent.annotations.Model;
-import io.jaravel.eloquent.annotations.UseFactory;
+import net.dobeen.jaravel.eloquent.annotations.Fillable;
+import net.dobeen.jaravel.eloquent.annotations.HasMany;
+import net.dobeen.jaravel.eloquent.annotations.Hidden;
+import net.dobeen.jaravel.eloquent.annotations.Id;
+import net.dobeen.jaravel.eloquent.annotations.Model;
+import net.dobeen.jaravel.eloquent.annotations.UseFactory;
 
 @Model
 @Fillable({"name", "email"})

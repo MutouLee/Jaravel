@@ -20,7 +20,7 @@
 pwsh verification/v10-quickstart-cold/run-docker.ps1
 
 # 隔离出构建/生成/测试本身:先把一份已有 maven 仓库拷进容器(拷贝不计时),
-# 拷完删掉其中的 io/jaravel —— 框架必须从这次 clone 真的构建出来
+# 拷完删掉其中的 net/dobeen/jaravel —— 框架必须从这次 clone 真的构建出来
 pwsh verification/v10-quickstart-cold/run-docker.ps1 -SeedM2 "D:\apache-maven-3.9.6\repository"
 ```
 
@@ -106,7 +106,7 @@ CLI 是发布页的二进制,于是 02/03/04 都不需要。今天 Central 还�
 - `docs/09` §1.1 整节用 `Cache.get(...)` / `Cache.put(...)` 写 API,
   而代码里**没有** `Cache` 这个门面 —— 只有 `CacheManager` / `Repository`。
   docs/02 §2.3 的门面清单里也列着它。已补
-  `io.jaravel.cache.Cache`(+ starter 绑定 + 测试侧重绑 + 两个模块的测试)。
+  `net.dobeen.jaravel.cache.Cache`(+ starter 绑定 + 测试侧重绑 + 两个模块的测试)。
 - `docs/09` 的 `Cache.get(key, TypeRef<...>)` 与 `Cache.rememberLocked`
   确实不存在,已就地标 ⚠ 并登记进 [KNOWN-ISSUES](../../KNOWN-ISSUES.md)。
 

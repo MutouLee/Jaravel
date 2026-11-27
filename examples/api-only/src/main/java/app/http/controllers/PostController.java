@@ -5,7 +5,7 @@ import org.springframework.stereotype.Component;
 import app.http.requests.StorePostRequest;
 import app.http.resources.PostResource;
 import app.models.Post;
-import io.jaravel.http.Response;
+import net.dobeen.jaravel.http.Response;
 
 /**
  * JSON API。**没有任何模板**,响应形状都由 JsonResource 决定;

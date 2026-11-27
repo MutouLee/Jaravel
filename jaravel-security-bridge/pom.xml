@@ -5,7 +5,7 @@
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
-    <groupId>io.jaravel</groupId>
+    <groupId>net.dobeen.jaravel</groupId>
     <artifactId>jaravel-parent</artifactId>
     <version>0.1.0-SNAPSHOT</version>
   </parent>
@@ -17,14 +17,14 @@
 
     这是**唯一一个刻意依赖 Spring Security 全栈**的 Jaravel 模块,
     与 jaravel-spring-boot-starter 同属「适配层」。ADR-001 的边界规则
-    把它和 starter 一起列入白名单(包名 io.jaravel.spring.security)。
+    把它和 starter 一起列入白名单(包名 net.dobeen.jaravel.spring.security)。
 
     不引入这个模块的项目完全不会接触 Spring Security 的 Filter 链。
   </description>
 
   <dependencies>
     <dependency>
-      <groupId>io.jaravel</groupId>
+      <groupId>net.dobeen.jaravel</groupId>
       <artifactId>jaravel-auth</artifactId>
     </dependency>
 
@@ -34,7 +34,7 @@
       见 GuardDriver 的类注释。
     -->
     <dependency>
-      <groupId>io.jaravel</groupId>
+      <groupId>net.dobeen.jaravel</groupId>
       <artifactId>jaravel-spring-boot-starter</artifactId>
       <optional>true</optional>
     </dependency>

@@ -4,7 +4,7 @@ import java.util.Map;
 
 import app.models.Invoice;
 import app.models.Invoice_;
-import io.jaravel.queue.ShouldQueue;
+import net.dobeen.jaravel.queue.ShouldQueue;
 
 /** 链上的第一环:把发票标成待发送 */
 public class MarkInvoiceReady implements ShouldQueue {

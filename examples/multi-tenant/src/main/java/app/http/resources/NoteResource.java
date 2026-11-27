@@ -3,8 +3,8 @@ package app.http.resources;
 import java.util.Map;
 
 import app.models.Note;
-import io.jaravel.api.JsonResource;
-import io.jaravel.http.Request;
+import net.dobeen.jaravel.api.JsonResource;
+import net.dobeen.jaravel.http.Request;
 
 public class NoteResource extends JsonResource<Note> {
 

@@ -3,8 +3,8 @@ package app.http.requests;
 import java.util.List;
 import java.util.Map;
 
-import io.jaravel.support.Str;
-import io.jaravel.validation.FormRequest;
+import net.dobeen.jaravel.support.Str;
+import net.dobeen.jaravel.validation.FormRequest;
 
 public class StorePostRequest extends FormRequest {
 

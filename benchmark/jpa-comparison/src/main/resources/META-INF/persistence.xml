@@ -9,7 +9,7 @@
        基准要比的是「取一行并映射」这条路径,不是两个框架的启动开销。 -->
   <persistence-unit name="bench" transaction-type="RESOURCE_LOCAL">
     <provider>org.hibernate.jpa.HibernatePersistenceProvider</provider>
-    <class>io.jaravel.benchmark.JpaPost</class>
+    <class>net.dobeen.jaravel.benchmark.JpaPost</class>
     <exclude-unlisted-classes>true</exclude-unlisted-classes>
     <properties>
       <property name="jakarta.persistence.schema-generation.database.action" value="none"/>

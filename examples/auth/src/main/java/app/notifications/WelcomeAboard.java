@@ -3,11 +3,11 @@ package app.notifications;
 import java.util.List;
 import java.util.Map;
 
-import io.jaravel.mail.Mailable;
-import io.jaravel.notifications.HasDatabase;
-import io.jaravel.notifications.HasMail;
-import io.jaravel.notifications.Notifiable;
-import io.jaravel.notifications.Notification;
+import net.dobeen.jaravel.mail.Mailable;
+import net.dobeen.jaravel.notifications.HasDatabase;
+import net.dobeen.jaravel.notifications.HasMail;
+import net.dobeen.jaravel.notifications.Notifiable;
+import net.dobeen.jaravel.notifications.Notification;
 
 /**
  * 注册后的欢迎通知 —— 同时发邮件与站内。

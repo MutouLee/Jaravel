@@ -5,9 +5,9 @@ import java.util.Map;
 
 import app.models.Invoice;
 import app.models.Invoice_;
-import io.jaravel.console.Command;
-import io.jaravel.console.ConsoleCommand;
-import io.jaravel.console.Option;
+import net.dobeen.jaravel.console.Command;
+import net.dobeen.jaravel.console.ConsoleCommand;
+import net.dobeen.jaravel.console.Option;
 import org.springframework.stereotype.Component;
 
 /**

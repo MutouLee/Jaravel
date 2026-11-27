@@ -1,7 +1,7 @@
 package database.migrations.m2026_10_29_120000;
 
-import io.jaravel.migration.Migration;
-import io.jaravel.migration.schema.Schema;
+import net.dobeen.jaravel.migration.Migration;
+import net.dobeen.jaravel.migration.schema.Schema;
 
 /**
  * 队列需要的三张表(docs/10 §1.5),外加一张业务表。

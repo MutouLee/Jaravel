@@ -1,6 +1,6 @@
 package {{ pkg }};
 
-import io.jaravel.view.Component;
+import net.dobeen.jaravel.view.Component;
 
 /**
  * jblade 类组件(docs/04 §1.7)。

@@ -6,9 +6,9 @@ import java.util.Map;
 import org.springframework.stereotype.Component;
 
 import app.models.User;
-import io.jaravel.auth.Auth;
-import io.jaravel.auth.EmailVerification;
-import io.jaravel.session.Session;
+import net.dobeen.jaravel.auth.Auth;
+import net.dobeen.jaravel.auth.EmailVerification;
+import net.dobeen.jaravel.session.Session;
 
 /**
  * 登录后的落地页。
@@ -81,9 +81,9 @@ public class DashboardController {
      * 标准做法。明文**只在这里返回一次** —— 库里存的是 SHA-256,
      * 之后再也取不回来。
      */
-    public Object issueToken(io.jaravel.http.Request request) {
+    public Object issueToken(net.dobeen.jaravel.http.Request request) {
         var principal = Auth.guard("web").user().orElseThrow();
-        var guard = (io.jaravel.auth.guard.TokenGuard) Auth.guard("api");
+        var guard = (net.dobeen.jaravel.auth.guard.TokenGuard) Auth.guard("api");
 
         var token = guard.issue(principal, request.input("name", "default"));
         return Map.of("token", token.plainText(), "id", token.id());

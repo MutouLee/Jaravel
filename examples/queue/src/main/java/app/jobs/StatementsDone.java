@@ -1,8 +1,8 @@
 package app.jobs;
 
 import app.support.BatchLedger;
-import io.jaravel.queue.Batch;
-import io.jaravel.queue.ShouldQueue;
+import net.dobeen.jaravel.queue.Batch;
+import net.dobeen.jaravel.queue.ShouldQueue;
 
 /**
  * 批次完成后的汇总回调。

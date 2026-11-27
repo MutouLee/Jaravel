@@ -25,8 +25,8 @@ import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.web.client.RestTemplate;
 
-import io.jaravel.session.SessionStore;
-import io.jaravel.session.store.FileSessionStore;
+import net.dobeen.jaravel.session.SessionStore;
+import net.dobeen.jaravel.session.store.FileSessionStore;
 
 /**
  * ★ v0.3 验收第 3、4 条:热重启的耗时与**登录状态不丢失**。

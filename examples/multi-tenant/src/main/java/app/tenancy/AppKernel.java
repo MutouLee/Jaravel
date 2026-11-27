@@ -5,8 +5,8 @@ import java.util.Map;
 
 import org.springframework.stereotype.Component;
 
-import io.jaravel.http.Middleware;
-import io.jaravel.spring.DefaultKernel;
+import net.dobeen.jaravel.http.Middleware;
+import net.dobeen.jaravel.spring.DefaultKernel;
 
 /** 在默认 web/api 组与别名之上加一个 {@code tenant} 别名。 */
 @Component

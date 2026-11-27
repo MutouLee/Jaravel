@@ -83,13 +83,13 @@ class UploadFlowTest {
      * 必须真的能过完整的上传管道。
      */
     private static byte[] png(int totalBytes) {
-        return io.jaravel.http.UploadedFile.fake()
+        return net.dobeen.jaravel.http.UploadedFile.fake()
                 .create("x.png", Math.max(1, totalBytes / 1024))
                 .content();
     }
 
     /** 一张真的 4×4 PNG(ImageIO 编的,不是魔数桩) */
-    private static final byte[] PNG = io.jaravel.http.UploadedFile.fake()
+    private static final byte[] PNG = net.dobeen.jaravel.http.UploadedFile.fake()
             .image("avatar.png", 4, 4)
             .content();
     private static final byte[] PHP_SCRIPT =

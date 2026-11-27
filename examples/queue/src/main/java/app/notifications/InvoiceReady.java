@@ -3,9 +3,9 @@ package app.notifications;
 import java.util.List;
 import java.util.Map;
 
-import io.jaravel.notifications.HasDatabase;
-import io.jaravel.notifications.Notifiable;
-import io.jaravel.notifications.Notification;
+import net.dobeen.jaravel.notifications.HasDatabase;
+import net.dobeen.jaravel.notifications.Notifiable;
+import net.dobeen.jaravel.notifications.Notification;
 
 /**
  * 发票已发出 —— **站内通知**。

@@ -1,7 +1,7 @@
 package database.factories;
 
 import app.models.Author;
-import io.jaravel.support.Faker;
+import net.dobeen.jaravel.support.Faker;
 
 /**
  * Author 的工厂(docs/14 §3)。

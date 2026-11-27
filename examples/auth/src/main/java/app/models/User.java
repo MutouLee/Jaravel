@@ -2,13 +2,13 @@ package app.models;
 
 import java.time.Instant;
 
-import io.jaravel.auth.AuthModel;
-import io.jaravel.auth.MustVerifyEmail;
-import io.jaravel.eloquent.annotations.Fillable;
-import io.jaravel.eloquent.annotations.HasMany;
-import io.jaravel.eloquent.annotations.Hidden;
-import io.jaravel.eloquent.annotations.Id;
-import io.jaravel.eloquent.annotations.Model;
+import net.dobeen.jaravel.auth.AuthModel;
+import net.dobeen.jaravel.auth.MustVerifyEmail;
+import net.dobeen.jaravel.eloquent.annotations.Fillable;
+import net.dobeen.jaravel.eloquent.annotations.HasMany;
+import net.dobeen.jaravel.eloquent.annotations.Hidden;
+import net.dobeen.jaravel.eloquent.annotations.Id;
+import net.dobeen.jaravel.eloquent.annotations.Model;
 
 /**
  * 用户。
@@ -31,7 +31,7 @@ import io.jaravel.eloquent.annotations.Model;
 @MustVerifyEmail
 @Fillable({"name", "email"})
 @HasMany(name = "notes", target = Note.class)
-public class User extends UserBase implements io.jaravel.notifications.Notifiable {
+public class User extends UserBase implements net.dobeen.jaravel.notifications.Notifiable {
 
     @Id public Long id;
     public String name;
@@ -50,7 +50,7 @@ public class User extends UserBase implements io.jaravel.notifications.Notifiabl
 
     /** 存 JSON 数组 —— 恢复码是十个哈希,一列装得下 */
     @Hidden
-    @io.jaravel.eloquent.meta.Cast.Use(io.jaravel.eloquent.cast.AsList.class)
+    @net.dobeen.jaravel.eloquent.meta.Cast.Use(net.dobeen.jaravel.eloquent.cast.AsList.class)
     public java.util.List<String> twoFactorRecoveryCodes = java.util.List.of();
 
     // ================= Notifiable(docs/11 §2.3)=================

@@ -1,8 +1,8 @@
 package {{ pkg }};
 
-import io.jaravel.mail.Content;
-import io.jaravel.mail.Envelope;
-import io.jaravel.mail.Mailable;
+import net.dobeen.jaravel.mail.Content;
+import net.dobeen.jaravel.mail.Envelope;
+import net.dobeen.jaravel.mail.Mailable;
 
 /**
  * ⚠ 与队列任务、通知相反:**Mailable 的字段可以随便放**。

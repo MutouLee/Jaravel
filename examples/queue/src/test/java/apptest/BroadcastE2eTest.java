@@ -20,9 +20,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.TestPropertySource;
 
-import io.jaravel.broadcasting.Broadcast;
-import io.jaravel.broadcasting.ShouldBroadcast;
-import io.jaravel.events.Event;
+import net.dobeen.jaravel.broadcasting.Broadcast;
+import net.dobeen.jaravel.broadcasting.ShouldBroadcast;
+import net.dobeen.jaravel.events.Event;
 
 /**
  * ★ 广播的端到端验收:真 Tomcat + 真 WebSocket 端点 + JDK 的 WS 客户端。

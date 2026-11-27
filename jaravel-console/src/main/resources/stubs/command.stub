@@ -2,10 +2,10 @@ package {{ pkg }};
 
 import org.springframework.stereotype.Component;
 
-import io.jaravel.console.Argument;
-import io.jaravel.console.Command;
-import io.jaravel.console.ConsoleCommand;
-import io.jaravel.console.Option;
+import net.dobeen.jaravel.console.Argument;
+import net.dobeen.jaravel.console.Command;
+import net.dobeen.jaravel.console.ConsoleCommand;
+import net.dobeen.jaravel.console.Option;
 
 /**
  * {@code @Component} 让容器建它,于是依赖可以从构造器注入。

@@ -7,7 +7,7 @@ import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import io.jaravel.testing.FeatureTest;
+import net.dobeen.jaravel.testing.FeatureTest;
 
 /**
  * {@code @csrf} / {@code @error} / {@code @old} 的端到端验收(docs/04 §1.8)。

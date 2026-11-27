@@ -5,7 +5,7 @@
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
-    <groupId>io.jaravel</groupId>
+    <groupId>net.dobeen.jaravel</groupId>
     <artifactId>jaravel-parent</artifactId>
     <version>0.1.0-SNAPSHOT</version>
   </parent>
@@ -16,7 +16,7 @@
 
   <dependencies>
     <dependency>
-      <groupId>io.jaravel</groupId>
+      <groupId>net.dobeen.jaravel</groupId>
       <artifactId>jaravel-console</artifactId>
     </dependency>
 
@@ -47,7 +47,7 @@
         输出进 target/classes,随 CLI jar 一起被 native-image 读到。
       -->
       <plugin>
-        <groupId>io.jaravel</groupId>
+        <groupId>net.dobeen.jaravel</groupId>
         <artifactId>jaravel-maven-plugin</artifactId>
         <version>${project.version}</version>
         <configuration>
@@ -69,7 +69,7 @@
 
         注意这里不打 fat jar:native 镜像与 fat jar 是两条不同的分发路线
         (docs/13 §1.1),而 native 在 v0.9。现在的用法是
-        java -cp "jaravel-cli.jar;依赖..." io.jaravel.cli.Jaravel,
+        java -cp "jaravel-cli.jar;依赖..." net.dobeen.jaravel.cli.Jaravel,
         或者交给 jaravelw 包装脚本去拼 classpath。
       -->
       <plugin>
@@ -78,7 +78,7 @@
         <configuration>
           <archive>
             <manifest>
-              <mainClass>io.jaravel.cli.Jaravel</mainClass>
+              <mainClass>net.dobeen.jaravel.cli.Jaravel</mainClass>
               <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
             </manifest>
           </archive>

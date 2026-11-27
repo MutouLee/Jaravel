@@ -5,7 +5,7 @@
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
-    <groupId>io.jaravel</groupId>
+    <groupId>net.dobeen.jaravel</groupId>
     <artifactId>jaravel-parent</artifactId>
     <version>0.1.0-SNAPSHOT</version>
   </parent>
@@ -19,22 +19,22 @@
 
   <dependencies>
     <dependency>
-      <groupId>io.jaravel</groupId>
+      <groupId>net.dobeen.jaravel</groupId>
       <artifactId>jaravel-core</artifactId>
     </dependency>
     <dependency>
-      <groupId>io.jaravel</groupId>
+      <groupId>net.dobeen.jaravel</groupId>
       <artifactId>jaravel-http</artifactId>
     </dependency>
     <!-- cache 驱动的会话存储(redis / file / database 都经由它) -->
     <dependency>
-      <groupId>io.jaravel</groupId>
+      <groupId>net.dobeen.jaravel</groupId>
       <artifactId>jaravel-cache</artifactId>
       <optional>true</optional>
     </dependency>
     <!-- database 驱动需要「登出其它设备」所需的 user_id / ip / ua 列 -->
     <dependency>
-      <groupId>io.jaravel</groupId>
+      <groupId>net.dobeen.jaravel</groupId>
       <artifactId>jaravel-database</artifactId>
       <optional>true</optional>
     </dependency>

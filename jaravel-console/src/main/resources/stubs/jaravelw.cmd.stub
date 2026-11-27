@@ -34,13 +34,13 @@ if defined NEED_RESOLVE (
   >  "%MARKER_POM%" echo ^<?xml version="1.0" encoding="UTF-8"?^>
   >> "%MARKER_POM%" echo ^<project xmlns="http://maven.apache.org/POM/4.0.0"^>
   >> "%MARKER_POM%" echo   ^<modelVersion^>4.0.0^</modelVersion^>
-  >> "%MARKER_POM%" echo   ^<groupId^>io.jaravel.wrapper^</groupId^>
+  >> "%MARKER_POM%" echo   ^<groupId^>net.dobeen.jaravel.wrapper^</groupId^>
   >> "%MARKER_POM%" echo   ^<artifactId^>jaravel-cli-classpath^</artifactId^>
   >> "%MARKER_POM%" echo   ^<version^>1^</version^>
   >> "%MARKER_POM%" echo   ^<packaging^>pom^</packaging^>
   >> "%MARKER_POM%" echo   ^<dependencies^>
   >> "%MARKER_POM%" echo     ^<dependency^>
-  >> "%MARKER_POM%" echo       ^<groupId^>io.jaravel^</groupId^>
+  >> "%MARKER_POM%" echo       ^<groupId^>net.dobeen.jaravel^</groupId^>
   >> "%MARKER_POM%" echo       ^<artifactId^>jaravel-cli^</artifactId^>
   >> "%MARKER_POM%" echo       ^<version^>%JARAVEL_VERSION%^</version^>
   >> "%MARKER_POM%" echo     ^</dependency^>
@@ -72,5 +72,5 @@ if defined JAVA_HOME if exist "%JAVA_HOME%\bin\java.exe" set JAVACMD=%JAVA_HOME%
 
 for /f "usebackq delims=" %%c in ("%CLASSPATH_FILE%") do set JARAVEL_CP=%%c
 
-"%JAVACMD%" %JARAVEL_JVM_ARGS% -cp "%JARAVEL_CP%" io.jaravel.cli.Jaravel %*
+"%JAVACMD%" %JARAVEL_JVM_ARGS% -cp "%JARAVEL_CP%" net.dobeen.jaravel.cli.Jaravel %*
 exit /b %ERRORLEVEL%

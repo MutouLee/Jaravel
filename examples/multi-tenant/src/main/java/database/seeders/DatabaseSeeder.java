@@ -4,7 +4,7 @@ import java.util.Map;
 
 import app.models.Note;
 import app.models.Tenant;
-import io.jaravel.migration.Seeder;
+import net.dobeen.jaravel.migration.Seeder;
 
 public class DatabaseSeeder implements Seeder {
 

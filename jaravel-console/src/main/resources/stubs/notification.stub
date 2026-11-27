@@ -3,11 +3,11 @@ package {{ pkg }};
 import java.util.List;
 import java.util.Map;
 
-import io.jaravel.mail.Mailable;
-import io.jaravel.notifications.HasDatabase;
-import io.jaravel.notifications.HasMail;
-import io.jaravel.notifications.Notifiable;
-import io.jaravel.notifications.Notification;
+import net.dobeen.jaravel.mail.Mailable;
+import net.dobeen.jaravel.notifications.HasDatabase;
+import net.dobeen.jaravel.notifications.HasMail;
+import net.dobeen.jaravel.notifications.Notifiable;
+import net.dobeen.jaravel.notifications.Notification;
 
 /**
  * ★ 字段只存**主键**(与队列任务同理,但与 Mailable 不同)。

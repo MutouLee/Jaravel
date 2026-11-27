@@ -5,7 +5,7 @@
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
-    <groupId>io.jaravel</groupId>
+    <groupId>net.dobeen.jaravel</groupId>
     <artifactId>jaravel-parent</artifactId>
     <version>0.1.0-SNAPSHOT</version>
   </parent>
@@ -17,7 +17,7 @@
   <dependencies>
     <!-- 只为了认得 JsonResource 类型与复用 ResourceSchema/ResourceProperty -->
     <dependency>
-      <groupId>io.jaravel</groupId>
+      <groupId>net.dobeen.jaravel</groupId>
       <artifactId>jaravel-api</artifactId>
     </dependency>
   </dependencies>

@@ -5,7 +5,7 @@
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
-    <groupId>io.jaravel</groupId>
+    <groupId>net.dobeen.jaravel</groupId>
     <artifactId>jaravel-parent</artifactId>
     <version>0.1.0-SNAPSHOT</version>
   </parent>
@@ -16,12 +16,12 @@
 
   <dependencies>
     <dependency>
-      <groupId>io.jaravel</groupId>
+      <groupId>net.dobeen.jaravel</groupId>
       <artifactId>jaravel-database</artifactId>
     </dependency>
     <!-- 工厂需要给模型赋值,因此依赖 eloquent;optional 让只用 Schema 的人不被牵连 -->
     <dependency>
-      <groupId>io.jaravel</groupId>
+      <groupId>net.dobeen.jaravel</groupId>
       <artifactId>jaravel-eloquent</artifactId>
       <optional>true</optional>
     </dependency>

@@ -7,10 +7,10 @@ import org.springframework.stereotype.Component;
 import app.models.Note;
 import app.models.Note_;
 import app.models.User;
-import io.jaravel.auth.Auth;
-import io.jaravel.auth.access.Gate;
-import io.jaravel.http.Request;
-import io.jaravel.validation.Validator;
+import net.dobeen.jaravel.auth.Auth;
+import net.dobeen.jaravel.auth.access.Gate;
+import net.dobeen.jaravel.http.Request;
+import net.dobeen.jaravel.validation.Validator;
 
 /**
  * 笔记:用来演示「认证之上还有授权」。

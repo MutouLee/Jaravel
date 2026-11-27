@@ -1,9 +1,9 @@
 package app.mail;
 
 import app.models.Invoice;
-import io.jaravel.mail.Content;
-import io.jaravel.mail.Envelope;
-import io.jaravel.mail.Mailable;
+import net.dobeen.jaravel.mail.Content;
+import net.dobeen.jaravel.mail.Envelope;
+import net.dobeen.jaravel.mail.Mailable;
 
 /**
  * 发票已发送的通知邮件。

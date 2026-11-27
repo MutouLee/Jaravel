@@ -793,7 +793,7 @@ jaravel inspire                         # 彩蛋,保留 Laravel 传统
 >
 > 代价:密钥的生成在 `jaravel-console` 里重写了一遍
 > (32 字节 SecureRandom + base64),而权威定义在
-> `io.jaravel.core.crypt.Encrypter` —— 让 console 为三行代码去依赖 core
+> `net.dobeen.jaravel.core.crypt.Encrypter` —— 让 console 为三行代码去依赖 core
 > 不值得。**那份重复由一条跨模块测试钉住**:starter 的测试拿
 > `KeyGenerateCommand.generate()` 的产物去喂 `Encrypter.fromBase64`,
 > 格式一旦漂掉它就红。
@@ -1236,8 +1236,8 @@ jaravel-console/src/main/resources/stubs/
 ```java
 package {{ pkg }};
 
-import io.jaravel.eloquent.annotations.Id;
-import io.jaravel.eloquent.annotations.Model;
+import net.dobeen.jaravel.eloquent.annotations.Id;
+import net.dobeen.jaravel.eloquent.annotations.Model;
 
 @Model(table = "{{ table }}")
 public class {{ class }} extends {{ class }}Base {
@@ -1263,8 +1263,8 @@ public class {{ class }} extends {{ class }}Base {
 > `migration.create`)来避免模板里的条件分支的 —— 真正需要的只有插值。
 > 代价:stub 里写不了循环与条件。真需要时的出路是再加一个 stub 文件。
 >
-> 这条由 `jaravel-archunit-rules` 把住:`io.jaravel.console` 依赖
-> `io.jaravel.view` 会让 CI 失败 —— 而不是某天打 native 镜像时才发现。
+> 这条由 `jaravel-archunit-rules` 把住:`net.dobeen.jaravel.console` 依赖
+> `net.dobeen.jaravel.view` 会让 CI 失败 —— 而不是某天打 native 镜像时才发现。
 >
 > ⚠ 没替换掉的变量**报错**。留着那串 `{{ x }}` 字面量的话,生成出来的是
 > 一个编译不过的 Java 文件,而 javac 的报错会指向用户的新文件,
@@ -1337,8 +1337,8 @@ jaravel> :exit
 2. 创建 `JShell` 实例,`LocalExecutionControlProvider` 使其与应用**同 JVM 同类加载器**(关键:否则拿不到容器实例);
 3. 预执行一批 snippet:
    ```java
-   import io.jaravel.facades.*;
-   import io.jaravel.support.*;
+   import net.dobeen.jaravel.facades.*;
+   import net.dobeen.jaravel.support.*;
    import com.app.models.*;         // 扫描项目的模型包
    import static java.time.Duration.*;
    ```
@@ -1455,7 +1455,7 @@ jaravel-spring-boot-starter(应用进程内)
 | 原设计 | 实际 | 原因 |
 |---|---|---|
 | `jaravel-cli` 用 picocli 命令树 | **没有 picocli** | 会变成两套注解、两个解析器(§1.1 已记) |
-| 在线命令在 `jaravel-console/commands/` | 在 **starter** 的 `io.jaravel.spring.commands` | 迁移与 seeder 的发现本来就是 Spring 的扫描器;而 console 要保持羽量级给 CLI 用(archunit 阻断式守着)。理由写在 `RuntimeCommand` 的类注释上 |
+| 在线命令在 `jaravel-console/commands/` | 在 **starter** 的 `net.dobeen.jaravel.spring.commands` | 迁移与 seeder 的发现本来就是 Spring 的扫描器;而 console 要保持羽量级给 CLI 用(archunit 阻断式守着)。理由写在 `RuntimeCommand` 的类注释上 |
 | `ConsoleKernel` 是注册表 | 注册表是 `CommandRegistry` | `ConsoleKernel` 这个名字留给**应用**写调度定义(见 `examples/queue`)—— 两件事叫一个名字会很乱 |
 | `JvmLauncher` | `AppLauncher` | —— |
 | `CommandChannelServer` | `ChannelServer` | —— |
@@ -1477,7 +1477,7 @@ CLI 与 Maven 不是竞争关系:
 
 ```xml
 <plugin>
-  <groupId>io.jaravel</groupId>
+  <groupId>net.dobeen.jaravel</groupId>
   <artifactId>jaravel-maven-plugin</artifactId>
   <executions>
     <execution>

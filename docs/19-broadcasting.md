@@ -78,7 +78,7 @@ public record OrderPaid(Long orderId, Long userId) implements ShouldBroadcast {
 Event.dispatch(new OrderPaid(1L, 42L));   // 监听器照常跑,跑完后广播
 ```
 
-接口(位于 `io.jaravel.broadcasting`,见 §6.1 为什么不在 events 模块):
+接口(位于 `net.dobeen.jaravel.broadcasting`,见 §6.1 为什么不在 events 模块):
 
 ```java
 public interface ShouldBroadcast {
@@ -103,7 +103,7 @@ public interface ShouldBroadcast {
 事件模块**不知道广播的存在**(依赖方向,§6.1)。它在 `EventBus` 上加一个与 `QueuedListenerDispatcher` 同模式的钩子:
 
 ```java
-// io.jaravel.events —— 事件模块里只出现这一个接口
+// net.dobeen.jaravel.events —— 事件模块里只出现这一个接口
 public interface Broadcaster {
     void broadcast(Object event);   // 实现自行判断 instanceof ShouldBroadcast
 }

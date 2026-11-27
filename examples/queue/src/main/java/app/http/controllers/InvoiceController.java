@@ -11,9 +11,9 @@ import app.jobs.SendInvoice;
 import app.jobs.StatementsDone;
 import app.models.Invoice;
 import app.models.Invoice_;
-import io.jaravel.http.Request;
-import io.jaravel.queue.Batch;
-import io.jaravel.queue.Queue;
+import net.dobeen.jaravel.http.Request;
+import net.dobeen.jaravel.queue.Batch;
+import net.dobeen.jaravel.queue.Queue;
 import org.springframework.stereotype.Component;
 
 /**
@@ -128,9 +128,9 @@ public class InvoiceController {
      * 见 {@code PendingBatch} 的类注释。
      */
     public Map<String, Object> statements() {
-        List<io.jaravel.queue.ShouldQueue> jobs =
+        List<net.dobeen.jaravel.queue.ShouldQueue> jobs =
                 Invoice.query().pluck(Invoice_.id).stream()
-                        .map(id -> (io.jaravel.queue.ShouldQueue)
+                        .map(id -> (net.dobeen.jaravel.queue.ShouldQueue)
                                 new GenerateStatement(id))
                         .toList();
 

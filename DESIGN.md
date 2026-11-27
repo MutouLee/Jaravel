@@ -5,7 +5,7 @@
 | 项 | 值 |
 |---|---|
 | 项目代号 | Jaravel (`Java` + `Laravel`) |
-| groupId | `io.jaravel` |
+| groupId | `net.dobeen.jaravel` |
 | 语言基线 | Java 21 (LTS),可选启用 Java 25 特性 |
 | 运行时底座 | Spring Boot 3.x(可替换的 adapter,非硬绑定) |
 | 构建工具 | Maven(Gradle 支持列入 v1.1) |
@@ -353,7 +353,7 @@ jaravel/                               (parent pom,Java 21 baseline)
 <dependencyManagement>
   <dependencies>
     <dependency>
-      <groupId>io.jaravel</groupId><artifactId>jaravel-bom</artifactId>
+      <groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-bom</artifactId>
       <version>${jaravel.version}</version><type>pom</type><scope>import</scope>
     </dependency>
   </dependencies>
@@ -361,7 +361,7 @@ jaravel/                               (parent pom,Java 21 baseline)
 
 <dependencies>
   <dependency>
-    <groupId>io.jaravel</groupId><artifactId>jaravel-spring-boot-starter</artifactId>
+    <groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-spring-boot-starter</artifactId>
   </dependency>
 </dependencies>
 ```

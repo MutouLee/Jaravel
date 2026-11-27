@@ -5,11 +5,11 @@ import java.util.Map;
 import org.springframework.stereotype.Component;
 
 import app.models.User;
-import io.jaravel.auth.Auth;
-import io.jaravel.auth.guard.TokenGuard;
-import io.jaravel.http.Request;
-import io.jaravel.http.Response;
-import io.jaravel.validation.Validator;
+import net.dobeen.jaravel.auth.Auth;
+import net.dobeen.jaravel.auth.guard.TokenGuard;
+import net.dobeen.jaravel.http.Request;
+import net.dobeen.jaravel.http.Response;
+import net.dobeen.jaravel.validation.Validator;
 
 /**
  * API token 的签发与撤销(docs/08 §4)。

@@ -7,7 +7,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import app.jobs.SendInvoice;
 import app.models.Invoice;
 import app.models.Invoice_;
-import io.jaravel.scheduler.Schedule;
+import net.dobeen.jaravel.scheduler.Schedule;
 import org.springframework.stereotype.Component;
 
 /**
@@ -76,7 +76,7 @@ public class ConsoleKernel implements Schedule.ScheduleDefinition {
      * 因为那条路径走的是队列。
      */
     @Component
-    public static class NightlyReminder implements io.jaravel.queue.ShouldQueue {
+    public static class NightlyReminder implements net.dobeen.jaravel.queue.ShouldQueue {
 
         @Override public String queue() { return "mail"; }
 

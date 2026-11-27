@@ -38,7 +38,7 @@ docker run --rm --entrypoint sh \
   ghcr.io/graalvm/native-image-community:21 \
   -c 'CP="target/jaravel-cli-0.1.0-SNAPSHOT.jar:$(find target/native-libs -name "*.jar" | tr "\n" ":")"; \
       native-image -cp "$CP" -o target/jaravel --no-fallback \
-        --initialize-at-build-time=io.jaravel.cli -J-Xmx4g io.jaravel.cli.Jaravel'
+        --initialize-at-build-time=net.dobeen.jaravel.cli -J-Xmx4g net.dobeen.jaravel.cli.Jaravel'
 ```
 
 ## 在已有 Maven 项目中使用
@@ -49,7 +49,7 @@ docker run --rm --entrypoint sh \
 <dependencyManagement>
   <dependencies>
     <dependency>
-      <groupId>io.jaravel</groupId>
+      <groupId>net.dobeen.jaravel</groupId>
       <artifactId>jaravel-bom</artifactId>
       <version>${jaravel.version}</version>
       <type>pom</type><scope>import</scope>
@@ -59,7 +59,7 @@ docker run --rm --entrypoint sh \
 
 <dependencies>
   <dependency>
-    <groupId>io.jaravel</groupId>
+    <groupId>net.dobeen.jaravel</groupId>
     <artifactId>jaravel-spring-boot-starter</artifactId>
   </dependency>
 </dependencies>

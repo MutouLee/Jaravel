@@ -1,7 +1,7 @@
 package database.seeders;
 
-import io.jaravel.migration.Factory;
-import io.jaravel.migration.Seeder;
+import net.dobeen.jaravel.migration.Factory;
+import net.dobeen.jaravel.migration.Seeder;
 
 import app.models.Post;
 import app.models.Post_;

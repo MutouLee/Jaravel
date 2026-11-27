@@ -9,21 +9,21 @@ import app.http.requests.LoginRequest;
 import app.http.requests.RegisterRequest;
 import app.http.requests.ResetPasswordRequest;
 import app.models.User;
-import io.jaravel.auth.Auth;
-import io.jaravel.auth.EmailVerification;
-import io.jaravel.auth.LoginThrottle;
-import io.jaravel.auth.Verification;
-import io.jaravel.auth.hash.Hash;
-import io.jaravel.auth.middleware.ConfirmPassword;
-import io.jaravel.auth.passwords.Password;
-import io.jaravel.auth.passwords.PasswordBroker;
-import io.jaravel.http.HttpException;
-import io.jaravel.http.Redirect;
-import io.jaravel.http.Request;
-import io.jaravel.http.Response;
-import io.jaravel.session.Session;
-import io.jaravel.http.View;
-import io.jaravel.validation.Validator;
+import net.dobeen.jaravel.auth.Auth;
+import net.dobeen.jaravel.auth.EmailVerification;
+import net.dobeen.jaravel.auth.LoginThrottle;
+import net.dobeen.jaravel.auth.Verification;
+import net.dobeen.jaravel.auth.hash.Hash;
+import net.dobeen.jaravel.auth.middleware.ConfirmPassword;
+import net.dobeen.jaravel.auth.passwords.Password;
+import net.dobeen.jaravel.auth.passwords.PasswordBroker;
+import net.dobeen.jaravel.http.HttpException;
+import net.dobeen.jaravel.http.Redirect;
+import net.dobeen.jaravel.http.Request;
+import net.dobeen.jaravel.http.Response;
+import net.dobeen.jaravel.session.Session;
+import net.dobeen.jaravel.http.View;
+import net.dobeen.jaravel.validation.Validator;
 
 /**
  * 注册 / 登录 / 登出 / 密码重置 / 邮箱验证。
@@ -77,7 +77,7 @@ public class AuthController {
         // 会让那些监听器没法复用。
         //
         // 放在 Auth.login 之后 —— 监听器里读 Auth.user() 要能拿到人
-        io.jaravel.events.Event.dispatch(new io.jaravel.auth.events.AuthEvents.Registered(
+        net.dobeen.jaravel.events.Event.dispatch(new net.dobeen.jaravel.auth.events.AuthEvents.Registered(
                 Auth.guard().user().orElseThrow()));
 
         // 欢迎通知:一条消息,两个渠道(邮件 + 站内)。
@@ -116,7 +116,7 @@ public class AuthController {
             User user = Auth.userOrFail(User.class);
 
             if (user.twoFactorEnabled) {
-                io.jaravel.auth.twofactor.TwoFactorChallenge.start(user, form.remember());
+                net.dobeen.jaravel.auth.twofactor.TwoFactorChallenge.start(user, form.remember());
                 return Redirect.to("/two-factor");
             }
 

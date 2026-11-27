@@ -2,7 +2,7 @@ package app.http.requests;
 
 import java.util.Map;
 
-import io.jaravel.validation.FormRequest;
+import net.dobeen.jaravel.validation.FormRequest;
 
 public class StorePostRequest extends FormRequest {
 

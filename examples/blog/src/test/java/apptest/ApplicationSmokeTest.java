@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import io.jaravel.testing.FeatureTest;
+import net.dobeen.jaravel.testing.FeatureTest;
 
 /**
  * 这个示例**能不能起来**。

@@ -3,7 +3,7 @@ package database.seeders;
 import app.models.Author;
 import app.models.Post;
 import app.models.Tag;
-import io.jaravel.migration.Seeder;
+import net.dobeen.jaravel.migration.Seeder;
 
 /**
  * 种子数据。

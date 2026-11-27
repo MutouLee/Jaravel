@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import app.models.Note;
 import app.models.Tenant;
-import io.jaravel.testing.FeatureTest;
+import net.dobeen.jaravel.testing.FeatureTest;
 
 class TenantIsolationTest extends FeatureTest {
 

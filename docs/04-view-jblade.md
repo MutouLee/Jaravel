@@ -781,10 +781,10 @@ Blade.if_("subscribed", () -> Auth.user().isSubscribed());   // → @subscribed 
 @endforeach
 ```
 
-生成 `io.jaravel.generated.views.posts.Index`:
+生成 `net.dobeen.jaravel.generated.views.posts.Index`:
 
 ```java
-package io.jaravel.generated.views.posts;
+package net.dobeen.jaravel.generated.views.posts;
 
 public final class Index implements JbladeTemplate {
     public static final String SOURCE = "posts/index.jblade.html";
@@ -881,7 +881,7 @@ public final class PostsIndex implements JbladeTemplate {
 
 ```java
 class JbladeClassLoader extends ClassLoader {
-    // 只加载 io.jaravel.generated.views.*,其余委托父加载器
+    // 只加载 net.dobeen.jaravel.generated.views.*,其余委托父加载器
     // 模板变更 → 丢弃整个 loader,新建一个(模板类不持有应用状态,安全)
 }
 ```
@@ -907,7 +907,7 @@ Views.layoutsApp("Posts");
 ```java
 public final class Views {
     public static View postsIndex(Paginator<Post> posts) {
-        return new TypedView(new io.jaravel.generated.views.posts.Index(posts));
+        return new TypedView(new net.dobeen.jaravel.generated.views.posts.Index(posts));
     }
 }
 ```

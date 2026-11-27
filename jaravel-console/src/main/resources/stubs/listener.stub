@@ -2,7 +2,7 @@ package {{ pkg }};
 
 import org.springframework.stereotype.Component;
 
-import io.jaravel.events.Listener;
+import net.dobeen.jaravel.events.Listener;
 
 /**
  * ★ {@code @Listener} 与 {@code @Component} 两个都要。

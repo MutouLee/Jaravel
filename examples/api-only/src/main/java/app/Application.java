@@ -2,7 +2,7 @@ package app;
 
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
-import io.jaravel.Jaravel;
+import net.dobeen.jaravel.Jaravel;
 
 @SpringBootApplication
 public class Application {

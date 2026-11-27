@@ -9,8 +9,8 @@ import org.junit.jupiter.api.Test;
 
 import app.http.resources.AuthorResource;
 import app.http.resources.PostResource;
-import io.jaravel.api.openapi.ResourceProperty;
-import io.jaravel.api.openapi.ResourceSchemaIndex;
+import net.dobeen.jaravel.api.openapi.ResourceProperty;
+import net.dobeen.jaravel.api.openapi.ResourceSchemaIndex;
 
 /**
  * 端到端:示例项目接上 {@code jaravel-api-processor} 之后,

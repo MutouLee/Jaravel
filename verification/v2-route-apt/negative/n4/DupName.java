@@ -1,5 +1,5 @@
 import app.http.controllers.*;
-import io.jaravel.routing.*;
+import net.dobeen.jaravel.routing.*;
 /** 负例 4:两条不同路由用了同一个路由名 */
 public class DupName implements RouteDefinition {
     @Override public void define(Router r) {

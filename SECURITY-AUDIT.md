@@ -1,6 +1,6 @@
 # 安全审计(v0.9,内部)
 
-> **日期**:2026-11-18 · **范围**:`io.jaravel.*` 的认证、会话、HTTP 边界、
+> **日期**:2026-11-18 · **范围**:`net.dobeen.jaravel.*` 的认证、会话、HTTP 边界、
 > 文件上传/存储、队列与配置;**方法**:代码审阅 + 现有测试复核 + 依赖升级。
 >
 > 本文件是**内部安全检查记录**,不是对外合规证明。
@@ -35,7 +35,7 @@
 **修复**:
 
 - `Request.pathWithQuery()` 只返回 path + query;
-- 新增 `io.jaravel.auth.Intended`:`remember()` 只存相对地址;
+- 新增 `net.dobeen.jaravel.auth.Intended`:`remember()` 只存相对地址;
   `pull(fallback)` 拒绝绝对 URL、`//host`、反斜杠、`%5C`、CR/LF;
 - 中间件改用 `Intended.remember`。
 
@@ -43,7 +43,7 @@
 
 ### F-02 · `Redirect.back` 的 Referer 开放重定向(中)
 
-**位置**:`io.jaravel.http.Redirect.back(Request, String)`。
+**位置**:`net.dobeen.jaravel.http.Redirect.back(Request, String)`。
 
 **问题**:直接 `request.header("Referer").orElse(fallback)`。恶意站点上的
 表单 POST 到本站,校验失败后 302 到攻击者站点(钓鱼)。

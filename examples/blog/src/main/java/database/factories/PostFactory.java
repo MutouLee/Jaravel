@@ -1,7 +1,7 @@
 package database.factories;
 
 import app.models.Post;
-import io.jaravel.support.Faker;
+import net.dobeen.jaravel.support.Faker;
 
 /**
  * Post 的工厂(docs/14 §3)。

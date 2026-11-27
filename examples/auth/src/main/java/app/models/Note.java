@@ -2,12 +2,12 @@ package app.models;
 
 import java.time.Instant;
 
-import io.jaravel.eloquent.annotations.BelongsTo;
-import io.jaravel.eloquent.annotations.Fillable;
-import io.jaravel.eloquent.annotations.Id;
-import io.jaravel.eloquent.annotations.Model;
-import io.jaravel.eloquent.annotations.Scope;
-import io.jaravel.eloquent.query.Query;
+import net.dobeen.jaravel.eloquent.annotations.BelongsTo;
+import net.dobeen.jaravel.eloquent.annotations.Fillable;
+import net.dobeen.jaravel.eloquent.annotations.Id;
+import net.dobeen.jaravel.eloquent.annotations.Model;
+import net.dobeen.jaravel.eloquent.annotations.Scope;
+import net.dobeen.jaravel.eloquent.query.Query;
 
 /** 用来演示 Policy 授权的资源:每条笔记属于一个用户 */
 @Model

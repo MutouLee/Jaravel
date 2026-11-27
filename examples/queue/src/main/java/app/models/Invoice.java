@@ -2,9 +2,9 @@ package app.models;
 
 import java.time.Instant;
 
-import io.jaravel.eloquent.annotations.Fillable;
-import io.jaravel.eloquent.annotations.Id;
-import io.jaravel.eloquent.annotations.Model;
+import net.dobeen.jaravel.eloquent.annotations.Fillable;
+import net.dobeen.jaravel.eloquent.annotations.Id;
+import net.dobeen.jaravel.eloquent.annotations.Model;
 
 /**
  * 发票。任务执行的**结果**落在这里。

@@ -1,7 +1,7 @@
 package {{ pkg }};
 
-import io.jaravel.eloquent.annotations.Id;
-import io.jaravel.eloquent.annotations.Model;
+import net.dobeen.jaravel.eloquent.annotations.Id;
+import net.dobeen.jaravel.eloquent.annotations.Model;
 
 @Model(table = "{{ table }}")
 public class {{ class }} extends {{ class }}Base {

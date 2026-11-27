@@ -16,4 +16,4 @@ SEED_ON_BOOT: "true"
 logging:
   level:
     root: WARN
-    io.jaravel: WARN
+    net.dobeen.jaravel: WARN

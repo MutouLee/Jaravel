@@ -4,8 +4,8 @@ import org.springframework.stereotype.Component;
 
 import app.http.requests.StoreCommentRequest;
 import app.models.Post;
-import io.jaravel.http.Redirect;
-import io.jaravel.http.Response;
+import net.dobeen.jaravel.http.Redirect;
+import net.dobeen.jaravel.http.Response;
 
 @Component
 public class CommentController {

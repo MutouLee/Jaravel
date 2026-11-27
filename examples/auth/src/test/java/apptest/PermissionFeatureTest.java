@@ -10,10 +10,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import app.models.User;
-import io.jaravel.auth.hash.Hash;
-import io.jaravel.database.Connection;
-import io.jaravel.permissions.Permissions;
-import io.jaravel.testing.FeatureTest;
+import net.dobeen.jaravel.auth.hash.Hash;
+import net.dobeen.jaravel.database.Connection;
+import net.dobeen.jaravel.permissions.Permissions;
+import net.dobeen.jaravel.testing.FeatureTest;
 
 /**
  * RBAC 的端到端(docs/08 §5.4)。
@@ -35,8 +35,8 @@ class PermissionFeatureTest extends FeatureTest {
         // FeatureTest 的上下文与 AuthFlowTest / HotReloadAcceptanceTest 的上下文
         // 会先后启动和关闭;静态 Eloquent 连接与 Permissions 门面可能指向上一个
         // 已关闭的池(症状是 HikariPool has been closed)。显式绑回本上下文。
-        io.jaravel.eloquent.Eloquent.useConnection(db);
-        Permissions.use(new io.jaravel.permissions.DatabasePermissionStore(db));
+        net.dobeen.jaravel.eloquent.Eloquent.useConnection(db);
+        Permissions.use(new net.dobeen.jaravel.permissions.DatabasePermissionStore(db));
 
         for (String table : RBAC_TABLES) {
             db.table(table).allowUnconditional().delete();

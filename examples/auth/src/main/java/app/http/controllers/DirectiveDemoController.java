@@ -3,7 +3,7 @@ package app.http.controllers;
 import org.springframework.stereotype.Component;
 
 import app.models.Note;
-import io.jaravel.http.View;
+import net.dobeen.jaravel.http.View;
 
 /**
  * jblade 条件指令的演示页(docs/04 §1.8)。
@@ -55,11 +55,11 @@ public class DirectiveDemoController {
      * 与「谁能删」无关。模板里 {@code @cannot('delete', note)} 不显示按钮,
      * 而这里是真正的那道门 —— 少显示一个按钮不等于接口安全。
      */
-    public io.jaravel.http.Response destroy(Long id) {
+    public net.dobeen.jaravel.http.Response destroy(Long id) {
         Note note = Note.findOrFail(id);
-        io.jaravel.auth.access.Gate.authorize("delete", note);
+        net.dobeen.jaravel.auth.access.Gate.authorize("delete", note);
         note.delete();
 
-        return io.jaravel.http.Redirect.to("/notes/page").with("status", "已删除");
+        return net.dobeen.jaravel.http.Redirect.to("/notes/page").with("status", "已删除");
     }
 }

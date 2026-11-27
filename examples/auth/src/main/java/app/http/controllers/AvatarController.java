@@ -7,11 +7,11 @@ import java.util.Map;
 import org.springframework.stereotype.Component;
 
 import app.models.User;
-import io.jaravel.auth.Auth;
-import io.jaravel.http.Request;
-import io.jaravel.http.UploadedFile;
-import io.jaravel.storage.Storage;
-import io.jaravel.validation.Validator;
+import net.dobeen.jaravel.auth.Auth;
+import net.dobeen.jaravel.http.Request;
+import net.dobeen.jaravel.http.UploadedFile;
+import net.dobeen.jaravel.storage.Storage;
+import net.dobeen.jaravel.validation.Validator;
 
 /**
  * 头像上传 —— multipart 的端到端路径。
@@ -77,7 +77,7 @@ public class AvatarController {
 
         var files = request.files("photos");
         if (files.isEmpty()) {
-            throw new io.jaravel.http.HttpException(400, "没有上传任何 photos。");
+            throw new net.dobeen.jaravel.http.HttpException(400, "没有上传任何 photos。");
         }
 
         var paths = new java.util.ArrayList<String>();

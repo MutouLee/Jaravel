@@ -3,8 +3,8 @@ package routes;
 import org.springframework.stereotype.Component;
 
 import app.http.controllers.AvatarController;
-import io.jaravel.routing.RouteDefinition;
-import io.jaravel.routing.Router;
+import net.dobeen.jaravel.routing.RouteDefinition;
+import net.dobeen.jaravel.routing.Router;
 
 /**
  * 头像上传的路由 —— **v0.4 的 multipart 演示**。

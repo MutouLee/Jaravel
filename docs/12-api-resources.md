@@ -963,7 +963,7 @@ public JsonResource store(StorePostRequest req) { ... }
 > ```xml
 > <annotationProcessorPaths>
 >   <path>
->     <groupId>io.jaravel</groupId>
+>     <groupId>net.dobeen.jaravel</groupId>
 >     <artifactId>jaravel-api-processor</artifactId>
 >     <version>${jaravel.version}</version>
 >   </path>

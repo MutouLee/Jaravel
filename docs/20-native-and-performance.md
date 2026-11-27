@@ -33,7 +33,7 @@ v0.9 交付了:
 
 ```xml
 <plugin>
-  <groupId>io.jaravel</groupId>
+  <groupId>net.dobeen.jaravel</groupId>
   <artifactId>jaravel-maven-plugin</artifactId>
   <version>${jaravel.version}</version>
   <executions>
@@ -103,7 +103,7 @@ v0.9 交付了:
 ### 2.2 `native-config`
 
 扫描项目编译产物(以及可选的依赖 jar)里带
-`@io.jaravel.console.Command` 的类,生成
+`@net.dobeen.jaravel.console.Command` 的类,生成
 `META-INF/native-image/<groupId>/<artifactId>/reflect-config.json`:
 
 - `allDeclaredConstructors` —— `CommandRegistry.register(Class)` 的反射构造;
@@ -142,12 +142,12 @@ docker run --rm --entrypoint sh \
   ghcr.io/graalvm/native-image-community:21 \
   -c 'CP="target/jaravel-cli-0.1.0-SNAPSHOT.jar:$(find target/native-libs -name "*.jar" | tr "\n" ":")"; \
       native-image -cp "$CP" -o target/jaravel --no-fallback \
-        --initialize-at-build-time=io.jaravel.cli -J-Xmx4g io.jaravel.cli.Jaravel'
+        --initialize-at-build-time=net.dobeen.jaravel.cli -J-Xmx4g net.dobeen.jaravel.cli.Jaravel'
 ```
 
-> `--initialize-at-build-time=io.jaravel.cli` 把 CLI 自身的静态初始化搬到
+> `--initialize-at-build-time=net.dobeen.jaravel.cli` 把 CLI 自身的静态初始化搬到
 > 构建期。不加时 `jaravel list` 的中位约 108ms(刚过 100ms);加上后
-> **~86ms**。只对 `io.jaravel.cli` 打开 —— 对 `io.jaravel` 整体打开会
+> **~86ms**。只对 `net.dobeen.jaravel.cli` 打开 —— 对 `net.dobeen.jaravel` 整体打开会
 > 把 Jackson 的 `ObjectMapper` 也拉进构建期初始化,native-image 会拒绝。
 
 产物是 Linux ELF:`jaravel-cli/target/jaravel`(~24MB)。
@@ -166,7 +166,7 @@ Docker 29。CLI 命令 `list`,容器内预热一次后 n=30:
 | 二进制 | ~24MB |
 
 测量用 bash 的 `time` 关键字(n=30),不在采样循环里额外 fork `date`。
-不加 `--initialize-at-build-time=io.jaravel.cli` 时 `list` 中位约 108ms;
+不加 `--initialize-at-build-time=net.dobeen.jaravel.cli` 时 `list` 中位约 108ms;
 加上后稳定在 100ms 以下。
 
 功能验收:

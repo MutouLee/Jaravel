@@ -3,8 +3,8 @@ package app.listeners;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import io.jaravel.auth.events.AuthEvents;
-import io.jaravel.events.Listener;
+import net.dobeen.jaravel.auth.events.AuthEvents;
+import net.dobeen.jaravel.events.Listener;
 import org.springframework.stereotype.Component;
 
 /**

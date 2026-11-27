@@ -5,7 +5,7 @@
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
-    <groupId>io.jaravel</groupId>
+    <groupId>net.dobeen.jaravel</groupId>
     <artifactId>jaravel-parent</artifactId>
     <version>0.1.0-SNAPSHOT</version>
   </parent>
@@ -25,20 +25,20 @@
 
   <dependencies>
     <dependency>
-      <groupId>io.jaravel</groupId>
+      <groupId>net.dobeen.jaravel</groupId>
       <artifactId>jaravel-auth</artifactId>
     </dependency>
     <dependency>
-      <groupId>io.jaravel</groupId>
+      <groupId>net.dobeen.jaravel</groupId>
       <artifactId>jaravel-eloquent</artifactId>
     </dependency>
     <dependency>
-      <groupId>io.jaravel</groupId>
+      <groupId>net.dobeen.jaravel</groupId>
       <artifactId>jaravel-eloquent-processor</artifactId>
       <scope>provided</scope>
     </dependency>
     <dependency>
-      <groupId>io.jaravel</groupId>
+      <groupId>net.dobeen.jaravel</groupId>
       <artifactId>jaravel-cache</artifactId>
     </dependency>
     <dependency>
@@ -69,7 +69,7 @@
           <compilerArgs><arg>-parameters</arg></compilerArgs>
           <annotationProcessorPaths>
             <path>
-              <groupId>io.jaravel</groupId>
+              <groupId>net.dobeen.jaravel</groupId>
               <artifactId>jaravel-eloquent-processor</artifactId>
               <version>${project.version}</version>
             </path>

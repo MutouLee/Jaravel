@@ -11,9 +11,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import io.jaravel.testing.FeatureTest;
-import io.jaravel.testing.TestcontainersSupport;
-import io.jaravel.testing.UseDatabase;
+import net.dobeen.jaravel.testing.FeatureTest;
+import net.dobeen.jaravel.testing.TestcontainersSupport;
+import net.dobeen.jaravel.testing.UseDatabase;
 
 /**
  * 真实 MySQL 验收(docs/14 §2.2)。

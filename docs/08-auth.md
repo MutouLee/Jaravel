@@ -460,7 +460,7 @@ boolean ok = user.confirmTwoFactor(code);
 
 > ### v0.6:原语 + 用户侧流程已实现(19 个测试)
 >
-> `io.jaravel.auth.twofactor`:
+> `net.dobeen.jaravel.auth.twofactor`:
 >
 > ```java
 > String secret = Totp.generateSecret();                 // 20 字节 → Base32

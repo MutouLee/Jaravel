@@ -4,7 +4,7 @@ import java.util.List;
 
 import org.springframework.stereotype.Component;
 
-import io.jaravel.http.Request;
+import net.dobeen.jaravel.http.Request;
 
 /**
  * {{ model }} 的 API 控制器 —— 没有 create / edit(那两个返回表单页面)。

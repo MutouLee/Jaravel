@@ -1,12 +1,12 @@
 package app.models;
 
-import io.jaravel.eloquent.annotations.BelongsTo;
-import io.jaravel.eloquent.annotations.Fillable;
-import io.jaravel.eloquent.annotations.Id;
-import io.jaravel.eloquent.annotations.Model;
-import io.jaravel.eloquent.annotations.Scope;
-import io.jaravel.eloquent.annotations.UseFactory;
-import io.jaravel.eloquent.query.Query;
+import net.dobeen.jaravel.eloquent.annotations.BelongsTo;
+import net.dobeen.jaravel.eloquent.annotations.Fillable;
+import net.dobeen.jaravel.eloquent.annotations.Id;
+import net.dobeen.jaravel.eloquent.annotations.Model;
+import net.dobeen.jaravel.eloquent.annotations.Scope;
+import net.dobeen.jaravel.eloquent.annotations.UseFactory;
+import net.dobeen.jaravel.eloquent.query.Query;
 
 @Model
 @Fillable({"body", "author_name"})

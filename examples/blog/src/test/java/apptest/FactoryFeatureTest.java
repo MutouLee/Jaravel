@@ -11,7 +11,7 @@ import app.models.Author;
 import app.models.Comment;
 import app.models.Post;
 import app.models.Tag;
-import io.jaravel.testing.AppTest;
+import net.dobeen.jaravel.testing.AppTest;
 
 /**
  * 生成式模型工厂的验收(docs/14 §3)。

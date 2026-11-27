@@ -6,7 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
-import io.jaravel.testing.FeatureTest;
+import net.dobeen.jaravel.testing.FeatureTest;
 
 /**
  * 两个「小件」的端到端验收:按请求选语言,以及默认安全响应头。

@@ -8,10 +8,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import io.jaravel.console.Artisan;
-import io.jaravel.console.CommandRegistry;
-import io.jaravel.core.Application;
-import io.jaravel.testing.FeatureTest;
+import net.dobeen.jaravel.console.Artisan;
+import net.dobeen.jaravel.console.CommandRegistry;
+import net.dobeen.jaravel.core.Application;
+import net.dobeen.jaravel.testing.FeatureTest;
 
 /**
  * 静态门面必须指向**当前测试的**上下文 —— 即使上一个测试把它们踩乱了。

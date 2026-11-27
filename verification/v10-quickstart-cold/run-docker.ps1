@@ -10,7 +10,7 @@
 # 于是计时里**不含第三方依赖下载**。两种跑法都有用:
 #   不带 -SeedM2 —— 真·全冷,数字里含下载,强依赖当时的带宽;
 #   带   -SeedM2 —— 隔离出构建/生成/测试本身的时间,与带宽无关。
-# 拷进去之后 io/jaravel 会被删掉 —— 框架必须从这次 clone 真的构建出来,
+# 拷进去之后 net/dobeen/jaravel 会被删掉 —— 框架必须从这次 clone 真的构建出来,
 # 否则就是在用本机上一次的产物冒充。
 param(
     [string]$Image  = "maven:3.9-eclipse-temurin-21",
@@ -38,7 +38,7 @@ if [ "${SEED_M2:-}" = "1" ]; then
   echo "seeding ~/.m2 from /mnt/m2 (not timed) ..."
   mkdir -p /root/.m2/repository
   cp -a /mnt/m2/. /root/.m2/repository/
-  rm -rf /root/.m2/repository/io/jaravel
+  rm -rf /root/.m2/repository/net/dobeen/jaravel
   du -sh /root/.m2/repository
 fi
 cp /mnt/script/run.sh /tmp/run.sh && chmod +x /tmp/run.sh

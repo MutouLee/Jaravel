@@ -1,5 +1,5 @@
 import app.http.controllers.*;
-import io.jaravel.routing.*;
+import net.dobeen.jaravel.routing.*;
 /** 负例 1:resource() 要求 7 个方法,控制器只有 2 个 */
 class HalfController {
     public Object index() { return null; }

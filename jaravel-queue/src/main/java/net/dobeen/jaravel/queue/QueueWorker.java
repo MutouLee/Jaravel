@@ -1,0 +1,1097 @@
+package net.dobeen.jaravel.queue;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+
+import net.dobeen.jaravel.core.context.ExecutionScope;
+import net.dobeen.jaravel.support.Clock;
+
+/**
+ * 队列消费者(docs/10 §1.4)。
+ *
+ * <pre>{@code
+ * var worker = new QueueWorker(queues, failedJobs, invoker,
+ *         WorkerOptions.onQueues("high", "default").withConcurrency(50));
+ * worker.run();                      // 阻塞直到 stop()
+ * }</pre>
+ *
+ * <h2>结构</h2>
+ * <pre>
+ * run()                        ← 调用线程:按优先级轮询 pop
+ *   └── 每个任务一个虚拟线程
+ *         ├── 心跳续约(另一个虚拟线程)
+ *         ├── JobScope + handle(注入依赖)
+ *         ├── 成功 → delete
+ *         └── 失败 → 能重试就 release(backoff),否则进 failed_jobs
+ * </pre>
+ *
+ * <p>**虚拟线程是这里的真实优势**:{@code --concurrency=50} 在 JVM 上
+ * 是 50 个虚拟线程(几十 KB),而 PHP 需要 50 个进程(数 GB)。
+ * 这是 Jaravel 相对 Laravel 少有的、不靠 API 设计换来的硬优势。
+ *
+ * <h2>超时:Java 杀不掉一个线程</h2>
+ * <p>{@link ShouldQueue#timeout()} 的实现是「在另一个虚拟线程里跑,
+ * 超时后 interrupt 并把这次尝试判为失败」。
+ *
+ * <p>**但那个线程可能继续跑下去** —— {@code Thread.interrupt()} 只是
+ * 设一个标记,只有阻塞在可中断操作上的代码才会响应它。一个
+ * {@code while(true)} 的死循环或一个不检查中断的 JDBC 调用不会停。
+ * {@code Thread.stop()} 在 Java 20 已被移除(它会让锁与不变量处于
+ * 任意状态)。
+ *
+ * <p>Laravel 用 {@code pcntl_alarm} 能真的中止进程,这是平台差异。
+ * 所以 Jaravel 的 timeout 语义必须说清:<b>它保证释放并发额度与
+ * 推进重试,不保证停止那段代码</b>。任务里的长循环应当自己检查
+ * {@code Thread.interrupted()}。
+ *
+ * <h2>优雅停机</h2>
+ * <p>{@code stop()} 之后不再 pop,等在跑的任务完成(最多
+ * {@link WorkerOptions#shutdownGrace()})。超时仍在跑的任务**不删不放回** ——
+ * 它们的保留会在 retryAfter 后过期,然后被别的 worker 捡起来。
+ * 那比强行 release 好:强行 release 可能让一个即将成功的任务被重复执行。
+ */
+public final class QueueWorker {
+
+    private final QueueManager queues;
+    private final FailedJobStore failedJobs;
+    private final JobInvoker invoker;
+    private final WorkerOptions options;
+    private final QueueStore store;
+    private final String connectionName;
+
+    private final AtomicBoolean running = new AtomicBoolean();
+    private final AtomicBoolean stopping = new AtomicBoolean();
+    private final Semaphore slots;
+
+    /** 正在执行的任务 uuid → 它的线程。停机时要等它们 */
+    private final ConcurrentHashMap<String, Thread> inFlight = new ConcurrentHashMap<>();
+
+    /**
+     * 续约失败的任务 uuid。
+     *
+     * <p>必须有这个标记,不能只靠「中断线程」来表达放弃:
+     * 中断在任务里表现为 {@code InterruptedException},而那与
+     * 「任务自己失败了」在 catch 里长得一模一样 —— 于是会走重试路径,
+     * 把一条已经被别人接手的任务又放回队列,产生重复执行。
+     *
+     * <p>这正是本 worker 写完第一版时的 bug:{@code JobAbandonedException}
+     * 声明了却永远不会被抛出。
+     */
+    private final java.util.Set<String> abandonedJobs =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    private final AtomicLong processed = new AtomicLong();
+    private final AtomicLong succeeded = new AtomicLong();
+    private final AtomicLong failed = new AtomicLong();
+    private final AtomicLong released = new AtomicLong();
+    private final AtomicLong timedOut = new AtomicLong();
+    private final AtomicLong abandoned = new AtomicLong();
+
+    private final List<Listener> listeners = new CopyOnWriteArrayList<>();
+
+    /** {@code queue:restart} 的信号来源。null = 不看(默认) */
+    private RestartSignal restartSignal;
+
+    public QueueWorker(QueueManager queues, FailedJobStore failedJobs,
+                       JobInvoker invoker, WorkerOptions options) {
+        this(queues, failedJobs, invoker, options, queues.defaultConnectionName());
+    }
+
+    public QueueWorker(QueueManager queues, FailedJobStore failedJobs,
+                       JobInvoker invoker, WorkerOptions options, String connectionName) {
+        this.queues = queues;
+        this.failedJobs = failedJobs;
+        this.invoker = invoker;
+        this.options = options;
+        this.connectionName = connectionName;
+        this.store = queues.connection(connectionName);
+        this.slots = new Semaphore(options.concurrency());
+
+        if (!store.isAsynchronous()) {
+            throw new IllegalArgumentException("""
+                    不能在 "%s" 连接上起 worker —— 它是同步驱动(%s),
+                    任务在投递时就执行完了,队列里永远是空的。
+                      要跑 worker 请用 database 或 redis 连接。"""
+                    .formatted(connectionName, store.name()));
+        }
+    }
+
+    public QueueWorker addListener(Listener listener) {
+        listeners.add(listener);
+        return this;
+    }
+
+    /**
+     * 盯住 {@code jaravel queue:restart} 的信号(docs/13 §2.4)。
+     *
+     * <p>每处理完一个任务回到主循环时看一眼:信号比自己启动的时刻新就
+     * **优雅退出** —— 等在跑的任务做完,不再取新的。
+     *
+     * <p>默认**不看**:它要一个共享缓存,而一个 {@code Queue.fake()} 的测试
+     * 或者没配 redis 的单机应用不该因此多一次缓存读。
+     * starter 的 {@code queue:work} 接上它(见 {@link RestartSignal})。
+     */
+    public QueueWorker watchingRestartSignal(RestartSignal signal) {
+        this.restartSignal = signal;
+        return this;
+    }
+
+    // ================= 主循环 =================
+
+    /**
+     * 开始消费。阻塞直到 {@link #stop()}、或达到 maxJobs / maxTime。
+     */
+    public void run() {
+        if (!running.compareAndSet(false, true)) {
+            throw new IllegalStateException("这个 worker 已经在跑了");
+        }
+
+        // ★ maxTime 用**真实**时间(Clock.realNow),不走可冻结的 Clock。
+        // 冻结时间会让一个本该在 maxTime 后退出的 worker 永远跑下去,
+        // 而测试里 Clock.freeze() 很常见 —— 那个失败形态是挂死,
+        // 不是断言失败。边界见 net.dobeen.jaravel.support.Clock 的类注释。
+        Instant deadline = options.hasTimeLimit()
+                ? Clock.realNow().plus(options.maxTime())
+                : null;
+
+        // 启动时刻:只有比它更新的重启请求才算(一次部署里发的信号不该
+        // 把这次部署之后起来的 worker 又重启一遍)。用真实时间,与 deadline 同理
+        Instant startedAt = Clock.realNow();
+
+        try {
+            while (!stopping.get()) {
+                if (reachedLimits(deadline)) break;
+
+                // ★ 在**任务之间**退出 —— 这是唯一的安全点。
+                // 在任务中途退出会让一条已经取走的任务等到保留超时才被
+                // 别人接手,用户看到的是「提交了但什么都没发生」
+                if (restartSignal != null && restartSignal.requestedAfter(startedAt)) {
+                    listeners.forEach(Listener::onRestartRequested);
+                    break;
+                }
+
+                var job = nextJob();
+                if (job.isEmpty()) {
+                    if (!options.stopWhenEmpty()) {
+                        sleepQuietly(options.sleep());
+                        continue;
+                    }
+
+                    // ★ 这里有一个会制造 flaky 的竞态,必须按这个顺序判:
+                    //
+                    // 「队列空」与「没有在跑的任务」是两个时刻的观察。
+                    // 先看到队列空、再看到 inFlight 空,中间那个任务可能
+                    // 刚好失败并把自己**放回了队列** —— 于是 worker 退出,
+                    // 而队列里还躺着一条待重试的任务。
+                    //
+                    // 正确的顺序:先等在跑的任务全部结束(它们可能往队列里
+                    // 放东西),**然后**重新取一次。只有这次也空才能退出。
+                    if (!inFlight.isEmpty()) {
+                        sleepQuietly(options.sleep());
+                        continue;
+                    }
+                    job = nextJob();
+                    if (job.isEmpty()) break;
+                }
+
+                // 拿到任务之后才占额度。反过来的话(先占额度再 pop)
+                // 空队列会把所有额度占着然后全在 sleep
+                acquireSlot();
+                if (stopping.get()) {
+                    // 停机信号在 pop 与 acquire 之间到了 —— 把任务放回去,
+                    // 不然它要等到保留超时才能被处理
+                    slots.release();
+                    store.release(job.get(), Duration.ZERO);
+                    break;
+                }
+                // **在启动时计数**,不是在完成时。
+                //
+                // 在 process() 里加的话,并发度 > 1 时主循环会在计数
+                // 追上来之前多取几个任务 —— maxJobs=2 实际处理 3 个。
+                // 「最多处理 N 个」的自然含义是「最多开始 N 个」。
+                processed.incrementAndGet();
+                startJob(job.get());
+            }
+        } finally {
+            drain();
+            running.set(false);
+        }
+    }
+
+    /** 在后台跑。返回的线程可用于 join。 */
+    public Thread runInBackground() {
+        return Thread.ofVirtual().name("jaravel-queue-worker").start(this::run);
+    }
+
+    /** 请求停机。不阻塞 —— run() 会在清理完成后返回。 */
+    public void stop() {
+        stopping.set(true);
+    }
+
+    public boolean isRunning() {
+        return running.get();
+    }
+
+    private boolean reachedLimits(Instant deadline) {
+        if (options.hasJobLimit() && processed.get() >= options.maxJobs()) return true;
+        return deadline != null && !Clock.realNow().isBefore(deadline);
+    }
+
+    /**
+     * 按优先级取下一个任务。
+     *
+     * <p>**严格优先**:只要前面的队列还有任务就不看后面的。
+     * 见 {@link WorkerOptions} 的类注释里为什么不做加权轮询。
+     */
+    private Optional<QueuedJob> nextJob() {
+        for (String queue : options.queues()) {
+            var job = store.pop(queue, options.retryAfter());
+            if (job.isPresent()) return job;
+        }
+        return Optional.empty();
+    }
+
+    private void acquireSlot() {
+        try {
+            slots.acquire();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            stopping.set(true);
+        }
+    }
+
+    // ================= 单个任务 =================
+
+    private void startJob(QueuedJob envelope) {
+        Thread runner = Thread.ofVirtual()
+                .name("jaravel-job-" + envelope.uuid().substring(0, 8))
+                .unstarted(() -> {
+                    try {
+                        process(envelope);
+                    } finally {
+                        inFlight.remove(envelope.uuid());
+                        slots.release();
+                    }
+                });
+
+        inFlight.put(envelope.uuid(), runner);
+        runner.start();
+    }
+
+    /**
+     * 执行一个任务。
+     *
+     * <p>这里不抛异常 —— 任何失败都转成 release 或 failed_jobs。
+     * 让异常冒到调用方会杀掉 worker 线程,而一个任务的失败
+     * 不该让整个 worker 停工。
+     */
+    private void process(QueuedJob envelope) {
+        listeners.forEach(l -> l.onStart(envelope));
+        net.dobeen.jaravel.events.Event.tryDispatchIfListening(
+                net.dobeen.jaravel.queue.events.QueueEvents.JobProcessing.class,
+                () -> new net.dobeen.jaravel.queue.events.QueueEvents.JobProcessing(
+                        connectionName, envelope));
+
+        long startedAt = System.nanoTime();
+
+        ShouldQueue job;
+        try {
+            job = queues.serializer().toJob(envelope);
+        } catch (RuntimeException e) {
+            // 反序列化失败是**不可重试**的:再试一百次结果一样。
+            // 直接归档,不浪费重试配额,也不让它在队列里打转
+            archive(envelope, e, "payload 无法还原");
+            return;
+        }
+
+        // 批次被取消了 —— 这条任务直接丢弃,不执行。
+        // 「取消」的落点就在这里:正在跑的不打断,还没出队的在出队时跳过
+        if (skipBecauseBatchCancelled(envelope)) return;
+
+        var heartbeat = startHeartbeat(envelope);
+        var decision = new MiddlewareDecision(job, envelope);
+
+        // 任务体是否已经跑完 —— 决定下面的 catch 走哪条路。
+        // 不能用「有没有异常」来判断:记账阶段的异常同样会冒上来,
+        // 而那时任务已经成功了
+        boolean executed = false;
+        try {
+            if (job instanceof UniqueJob unique && unique.uniqueUntilProcessing()
+                    && queues.hasUniqueLocks()) {
+                // 「同一个 key 同时只有一个在**排队**」—— 开始跑了就放开,
+                // 让下一个能排进来
+                queues.requireUniqueLocks(job)
+                        .restoreLock(unique.uniqueLockKey(), "queue-unique")
+                        .forceRelease();
+            }
+
+            runThroughMiddleware(envelope, job, decision);
+
+            // 中间件决定了结果(release / delete)—— 任务没有执行,
+            // 这既不是成功也不是失败
+            if (decision.isResolved()) {
+                applyDecision(envelope, decision);
+                return;
+            }
+
+            // **成功也要先看标记**:这条任务可能在执行途中被判定失联
+            // 并被别人接手了。此时删掉它等于把别人的那次执行抹掉
+            if (wasAbandoned(envelope)) {
+                reportAbandoned(envelope);
+                return;
+            }
+
+            // ★ 执行已经成功 —— 从这里往下的失败**不是任务失败**。
+            //
+            // 出队(DELETE jobs)可能撞上存储层的瞬时冲突:SQLite 共享缓存的
+            // SQLITE_LOCKED_SHAREDCACHE、MySQL 的死锁检测随机挑牺牲者。
+            // 此前这些异常会掉进下面的 catch,于是一个**已经跑完、副作用
+            // 已经发生**的任务被记成失败:
+            //   - tries=1 的任务直接进 failed_jobs,批次因此永远不触发 then;
+            //   - tries>1 的任务被放回队列,于是副作用再发生一次。
+            // 两者都比「出队慢了几十毫秒」严重得多。
+            //
+            // 所以先有界重试,再把「执行成功」这个事实记下来(executed)。
+            withRetry("任务 " + envelope.displayName() + " 的出队",
+                    () -> store.delete(envelope));
+            executed = true;
+            succeeded.incrementAndGet();
+            listeners.forEach(l -> l.onSuccess(envelope));
+            net.dobeen.jaravel.events.Event.tryDispatchIfListening(
+                    net.dobeen.jaravel.queue.events.QueueEvents.JobProcessed.class,
+                    () -> new net.dobeen.jaravel.queue.events.QueueEvents.JobProcessed(
+                            connectionName, envelope,
+                            Duration.ofNanos(System.nanoTime() - startedAt)));
+
+            // 删除**之后**才推进链与批。顺序是必须的:反过来的话
+            // worker 崩在「推下一环」与「删当前环」之间,会让当前环
+            // 被重新取出再跑一次,于是下一环被投两次
+            advanceChain(envelope);
+            recordBatchSuccess(envelope);
+
+        } catch (Throwable cause) {
+            if (wasAbandoned(envelope)) {
+                // 既不删也不放回 —— 它已经被别人接手。
+                // 走重试路径会把它又放回队列,产生重复执行
+                reportAbandoned(envelope);
+                return;
+            }
+            if (executed) {
+                // 任务跑完之后才炸的 —— 链推进、批次计数这些记账。
+                // 不能记成任务失败(它成功了,副作用已经发生),
+                // 但必须吵:链会断在这里、批次可能永远完不了。
+                System.err.printf("""
+                        [jaravel] 任务 %s **已经执行成功**,但之后的记账失败了:%s
+                                  这不会把它记成失败(副作用已经发生),但:
+                                    - 它所在的链不会继续;
+                                    - 它所在的批次的计数可能对不上,then / finally 可能不触发。
+                        %n""", envelope.displayName(), cause);
+                return;
+            }
+            handleFailure(envelope, job, cause);
+
+        } finally {
+            heartbeat.stop();
+            abandonedJobs.remove(envelope.uuid());
+            releaseUniqueLock(job);
+        }
+    }
+
+    /**
+     * 释放唯一性锁。
+     *
+     * <p>在 {@code finally} 里 —— 任务失败、超时、被接手时都要释放,
+     * 否则这个 key 会被挡到锁 TTL 过期为止,而那期间的新任务
+     * 全部被静默丢弃。
+     *
+     * <p>{@link UniqueJob#uniqueUntilProcessing()} 为 true 时**不在这里释放**:
+     * 它的语义是「开始执行时就释放」,那已经在进入 handle 之前做掉了。
+     */
+    private void releaseUniqueLock(ShouldQueue job) {
+        if (!(job instanceof UniqueJob unique)) return;
+        if (unique.uniqueUntilProcessing()) return;
+        if (!queues.hasUniqueLocks()) return;
+
+        try {
+            // forceRelease:锁是**投递方**加的,owner 不是本 worker。
+            // 普通 release 会因为 owner 不符而拒绝 —— 那个 owner 检查
+            // 对缓存锁是对的(防止误释放别人的锁),但唯一性锁的
+            // 持有者与释放者天生不同
+            queues.requireUniqueLocks(job)
+                    .restoreLock(unique.uniqueLockKey(), "queue-unique")
+                    .forceRelease();
+        } catch (RuntimeException e) {
+            System.err.printf("[jaravel] 释放唯一性锁失败(%s):%s%n",
+                    unique.uniqueLockKey(), e.getMessage());
+        }
+    }
+
+    private boolean wasAbandoned(QueuedJob envelope) {
+        return abandonedJobs.contains(envelope.uuid());
+    }
+
+    private void reportAbandoned(QueuedJob envelope) {
+        abandoned.incrementAndGet();
+        listeners.forEach(l -> l.onAbandoned(envelope));
+    }
+
+    /**
+     * 跑中间件链,终点是带超时的 handle。
+     *
+     * <p>中间件**不在**超时控制之内:它们自己就是「等待」的表达
+     * (等锁、等限流),把它们算进任务超时会让「等了 2 分钟锁」
+     * 变成「任务超时失败」。
+     */
+    private void runThroughMiddleware(QueuedJob envelope, ShouldQueue job,
+                                      MiddlewareDecision decision) throws Throwable {
+        var middleware = job.middleware();
+        if (middleware == null || middleware.isEmpty()) {
+            runWithTimeout(envelope, job);
+            return;
+        }
+
+        // ★ 终点必须把异常**原样抛出**,不能存进一个数组里。
+        //
+        // 存起来的话中间件的 next.run() 永远不抛,于是
+        // ThrottlesExceptions(熔断)数不到任何失败 —— 它声明了
+        // 要「数异常」却永远数到 0。这是接线时的真实缺陷,
+        // 只有在熔断的测试里才会暴露。
+        //
+        // Runnable 不能抛 checked 异常,所以用 sneakyThrow 穿过这个边界。
+        // 保持**原始类型**是必要的:中间件可能按异常类型做判断,
+        // 包一层 wrapper 会让那些判断失效。
+        JobMiddleware.run(middleware, decision, () -> {
+            decision.markTerminalReached();
+            try {
+                runWithTimeout(envelope, job);
+            } catch (Throwable t) {
+                sneakyThrow(t);
+            }
+        });
+
+        // 中间件既没放行也没决定结果 —— 任务会静默消失(它已经被 pop 了)。
+        // 报错而不是放过:静默消失的任务是队列系统里最难查的一类问题
+        if (!decision.isResolved() && !decision.reachedTerminal()) {
+            throw new IllegalStateException("""
+                    任务 %s 的中间件链既没有放行也没有决定结果。
+                      中间件不调 next.run() 时必须显式 release(...) 或 delete(...) ——
+                      否则这个任务已经被取出队列却没有被处理,会静默消失。
+                      检查这些中间件:%s"""
+                    .formatted(envelope.displayName(),
+                               middleware.stream().map(JobMiddleware::name).toList()));
+        }
+    }
+
+    /**
+     * 穿过 {@code Runnable} 边界把原始异常抛出去。
+     *
+     * <p>泛型擦除让这个强转在运行时无操作 —— 编译器以为抛的是
+     * {@code RuntimeException},实际抛的是原来那个。
+     *
+     * <p>这个技巧只用在这一处:中间件链的终点。它要让中间件看到
+     * 任务**真正**抛的异常,而 {@code Runnable.run()} 的签名不允许。
+     */
+    @SuppressWarnings("unchecked")
+    private static <E extends Throwable> void sneakyThrow(Throwable t) throws E {
+        throw (E) t;
+    }
+
+    private void applyDecision(QueuedJob envelope, MiddlewareDecision decision) {
+        if (decision.deleted()) {
+            store.delete(envelope);
+            listeners.forEach(l -> l.onDiscarded(envelope, decision.reason()));
+            return;
+        }
+
+        // release 走的是「主动让出」—— **不计入异常次数**,
+        // 见 ShouldQueue.maxExceptions 的注释。等锁等了 50 次
+        // 不该耗尽重试配额
+        store.release(envelope, decision.releaseDelay());
+        released.incrementAndGet();
+        listeners.forEach(l -> l.onYielded(envelope, decision.releaseDelay()));
+    }
+
+    /**
+     * 中间件对这个任务做了什么。
+     *
+     * <p>刻意只记录决定,**不自己执行** —— 执行要在心跳与超时的
+     * 控制之内,而那是 {@link #process} 的职责。中间件直接操作
+     * QueueStore 会绕过那些控制。
+     */
+    private static final class MiddlewareDecision implements JobMiddleware.Context {
+
+        private final ShouldQueue job;
+        private final QueuedJob envelope;
+
+        private boolean released;
+        private boolean deleted;
+        private Duration releaseDelay = Duration.ZERO;
+        private String reason;
+        private boolean reachedTerminal;
+
+        MiddlewareDecision(ShouldQueue job, QueuedJob envelope) {
+            this.job = job;
+            this.envelope = envelope;
+        }
+
+        @Override public ShouldQueue job()     { return job; }
+        @Override public QueuedJob envelope()  { return envelope; }
+
+        @Override
+        public void release(Duration delay) {
+            if (isResolved()) return;
+            this.released = true;
+            this.releaseDelay = delay == null ? Duration.ZERO : delay;
+        }
+
+        @Override
+        public void delete(String why) {
+            if (isResolved()) return;
+            this.deleted = true;
+            this.reason = why;
+        }
+
+        @Override
+        public boolean isResolved() {
+            return released || deleted;
+        }
+
+        void markTerminalReached() {
+            this.reachedTerminal = true;
+        }
+
+        boolean reachedTerminal()   { return reachedTerminal; }
+        boolean deleted()           { return deleted; }
+        Duration releaseDelay()     { return releaseDelay; }
+        String reason()             { return reason; }
+    }
+
+    /**
+     * 在独立的虚拟线程里跑,带超时。
+     *
+     * <p>超时的语义限制见类注释 —— 它保证释放并发额度与推进重试,
+     * **不保证停止那段代码**。
+     */
+    private void runWithTimeout(QueuedJob envelope, ShouldQueue job) throws Throwable {
+        Duration timeout = envelope.timeout();
+
+        if (timeout == null || timeout.isZero() || timeout.isNegative()) {
+            runInScope(envelope, job);
+            return;
+        }
+
+        var failure = new Throwable[1];
+        var done = new CountDownLatch(1);
+
+        Thread execution = Thread.ofVirtual().start(() -> {
+            try {
+                runInScope(envelope, job);
+            } catch (Throwable t) {
+                failure[0] = t;
+            } finally {
+                done.countDown();
+            }
+        });
+
+        boolean finished;
+        try {
+            finished = done.await(timeout.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException interrupted) {
+            // 本线程被中断 —— 几乎总是心跳判定失联后中断我们。
+            // 内层执行线程也要中断,否则它会继续产生副作用
+            execution.interrupt();
+            throw interrupted;
+        }
+
+        if (!finished) {
+            // interrupt 只是设标记:阻塞在可中断操作上的代码会响应,
+            // 死循环不会。这一点写在类注释里 —— 它是个平台限制,
+            // 不是实现缺陷
+            execution.interrupt();
+            timedOut.incrementAndGet();
+
+            throw new JobTimeoutException("""
+                    任务 %s 超过 %s 未完成。
+                      注意:Java 无法强制终止一个线程(Thread.stop 已在 Java 20 移除)。
+                      那段代码**可能仍在后台运行** —— 它只是不再占用 worker 的并发额度。
+                      任务里的长循环应当自己检查 Thread.interrupted()。"""
+                    .formatted(envelope.displayName(), timeout));
+        }
+
+        if (failure[0] != null) throw failure[0];
+    }
+
+    /**
+     * 任务级作用域。
+     *
+     * <p>与请求作用域同一个机制({@code ExecutionScope})—— 于是
+     * Eloquent 的身份映射、按作用域缓存的连接在任务里同样工作,
+     * 而**请求级的门面会正确地报错**:队列任务里没有当前请求,
+     * {@code Auth.user()} 抛 OutsideRequestException 而不是返回 null。
+     * 那正是 docs/02 要消除的那个 Laravel 经典坑。
+     */
+    private void runInScope(QueuedJob envelope, ShouldQueue job) throws Exception {
+        // 信封级上下文 → handle 的注入参数。
+        // 普通任务的 context 是空的,这里返回空 map,参数照常从容器解析
+        var contextual = JobContext.resolve(envelope, queues, queues.serializer());
+
+        ExecutionScope.runIn("queue", () -> {
+            ExecutionScope.current().put("queue.job", envelope);
+            invoker.invoke(job, contextual);
+        });
+    }
+
+    // ================= 失败处理 =================
+
+    private void handleFailure(QueuedJob envelope, ShouldQueue job, Throwable cause) {
+        // 领域时间:retryUntil 的判定要能被 Clock.travel 拨过去
+        Instant now = Clock.now();
+
+        // 真正抛了异常 —— 这一次要计入 exceptions。被中间件 release 的
+        // 那些走 applyDecision,不经过这里,所以不计数。
+        // 这正是 maxExceptions 与 tries 得以区分的地方
+        QueuedJob failed = envelope.withException();
+
+        if (failed.canRetry(now)) {
+            Duration delay = backoffFor(job, failed.attempts());
+            store.release(failed, delay);
+            released.incrementAndGet();
+            listeners.forEach(l -> l.onRetry(failed, cause, delay));
+
+            // 中途重试发的是 JobRetryRequested,**不是** JobFailed ——
+            // 混在一起的话一个「失败告警」监听器会在每次重试都响,
+            // 于是一个最终成功的任务也会触发两条告警
+            net.dobeen.jaravel.events.Event.tryDispatchIfListening(
+                    net.dobeen.jaravel.queue.events.QueueEvents.JobRetryRequested.class,
+                    () -> new net.dobeen.jaravel.queue.events.QueueEvents.JobRetryRequested(
+                            connectionName, failed, cause, delay));
+            return;
+        }
+
+        archive(failed, cause, failed.exhaustionReason(now));
+
+        // 链在这里断开:**后续各环不执行**,改投 catch 回调。
+        // 归档之后才做 —— 回调里可能去查 failed_jobs
+        breakChain(failed, cause);
+        recordBatchFailure(failed);
+
+        // failed() 在归档**之后**调:它可能自己抛异常,而那时
+        // 失败记录必须已经写进去了 —— 否则一个写错的 failed()
+        // 会让任务既不在队列里也不在 failed_jobs 里,彻底消失
+        try {
+            job.failed(cause);
+        } catch (RuntimeException inFailed) {
+            System.err.printf(
+                    "[jaravel] 任务 %s 的 failed() 自己抛了异常:%s%n",
+                    envelope.displayName(), inFailed);
+        }
+    }
+
+    // ================= 链 =================
+
+    /**
+     * 前一环成功了,投下一环。
+     *
+     * <p>链的状态就在信封里 —— 没有「链进度表」要同步,
+     * 所以不存在「队列与进度不一致」的中间态。
+     * 理由见 {@link PendingChain} 的类注释。
+     */
+    private void advanceChain(QueuedJob envelope) {
+        envelope.nextInChain(Clock.now()).ifPresent(next -> {
+            // 下一环可能指定了别的队列,但**连接**与当前相同 ——
+            // 跨连接的链会让「链断在哪」变成一个要查两个存储的问题
+            //
+            // 有界重试的理由与批次计数一样(见 withRetry):这一次 push 丢了,
+            // 这条链就停在这里,而前一环**已经执行成功**了 ——
+            // 没有任何东西会把它重新推进去。三次仍然失败时异常往上抛,
+            // 由「已经成功但记账失败」那条路径报出来
+            withRetry("链的下一环 " + next.displayName() + " 投递", () -> store.push(next));
+            listeners.forEach(l -> l.onChainAdvanced(envelope, next));
+        });
+    }
+
+    /**
+     * 链断了。
+     *
+     * <p>**后续各环被丢弃**,它们在信封里,随信封一起消失 ——
+     * 不需要额外的清理。这是「链存在信封里」带来的好处。
+     */
+    private void breakChain(QueuedJob envelope, Throwable cause) {
+        if (envelope.chainCatch() == null && !envelope.hasChain()) return;
+
+        listeners.forEach(l -> l.onChainBroken(envelope, cause));
+
+        QueuedJob handler = envelope.chainCatch();
+        if (handler == null) return;
+
+        // 失败上下文单独记着 —— 原始 Throwable 没法穿过队列,
+        // 见 ChainFailure 的类注释
+        var failure = ChainFailure.of(envelope, cause);
+        try {
+            // 同上:丢一次就不可恢复,所以有界重试
+            withRetry("链中断回调 " + handler.displayName() + " 投递", () ->
+                    store.push(handler.withChain(java.util.List.of(), null)
+                            .withContext(JobContext.CHAIN_FAILURE, failure)));
+        } catch (RuntimeException e) {
+            // 回调投不进去时不能让它静默消失:那条链断了而没人知道
+            System.err.printf(
+                    "[jaravel] 链中断回调 %s 投递失败(重试 3 次):%s%n          原始失败:%s%n",
+                    handler.displayName(), e.getMessage(), failure);
+        }
+    }
+
+    // ================= 批 =================
+
+    /**
+     * 批次已取消时跳过这条任务。
+     *
+     * <p>删掉而不是放回 —— 放回会让它在队列里反复出队、反复跳过,
+     * 直到保留超时耗尽,白烧一轮又一轮查询。
+     */
+    private boolean skipBecauseBatchCancelled(QueuedJob envelope) {
+        if (envelope.batchId() == null || !queues.hasBatches()) return false;
+
+        var batch = queues.requireBatches().find(envelope.batchId());
+        if (batch.isEmpty() || !batch.get().isCancelled()) return false;
+
+        store.delete(envelope);
+        listeners.forEach(l -> l.onDiscarded(envelope, "所属批次已取消"));
+        return true;
+    }
+
+    private void recordBatchSuccess(QueuedJob envelope) {
+        if (envelope.batchId() == null || !queues.hasBatches()) return;
+
+        var repository = queues.requireBatches();
+        try {
+            withRetry("批次 " + envelope.batchId() + " 的成功计数", () -> {
+                repository.recordSuccess(envelope.batchId());
+                finishBatchIfDone(repository, envelope.batchId());
+            });
+        } catch (RuntimeException e) {
+            // 计数失败不能把任务判成失败 —— 它已经成功执行并被删掉了。
+            // 但要吵:计数丢了的后果是批次永远完不了
+            System.err.printf(
+                    "[jaravel] 批次 %s 的成功计数最终写入失败:%s%n"
+                            + "          该批次会永远停在未完成状态,then / finally 回调不会触发。%n",
+                    envelope.batchId(), e.getMessage());
+        }
+    }
+
+    /**
+     * 批次计数的有界重试。
+     *
+     * <p>**为什么批次计数需要重试,而任务本身不需要**:任务失败有
+     * 完整的退路(release 重试、failed_jobs 归档),而批次计数没有 ——
+     * 它丢一次,这个批次就**永远**完不了,`then` 回调永不触发。
+     * 那是个不可恢复的状态,而触发它只需要一次瞬时的锁竞争。
+     *
+     * <p>锁竞争在真实数据库上也会发生:MySQL 的死锁检测会随机挑一个
+     * 事务做牺牲者,被挑中的那次 UPDATE 就会失败。不重试的话
+     * 「大批次偶尔卡住」会变成一个无法复现的报告。
+     *
+     * <p>重试次数刻意少(3 次、几十毫秒):这里不是在扛持续的故障,
+     * 只是在扛一次瞬时竞争。库真的挂了的话重试一百次也没用,
+     * 而那时要的是那条「批次会永远停住」的告警。
+     */
+    private void withRetry(String what, Runnable action) {
+        RuntimeException last = null;
+
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                action.run();
+                return;
+            } catch (RuntimeException e) {
+                last = e;
+                if (attempt == 3) break;
+
+                System.err.printf("[jaravel] %s 写入失败(第 %d 次),重试:%s%n",
+                        what, attempt, e.getMessage());
+                sleepQuietly(Duration.ofMillis(20L * attempt));
+            }
+        }
+        throw last;
+    }
+
+    private void recordBatchFailure(QueuedJob envelope) {
+        if (envelope.batchId() == null || !queues.hasBatches()) return;
+
+        var repository = queues.requireBatches();
+        try {
+            withRetry("批次 " + envelope.batchId() + " 的失败计数", () -> {
+                Batch batch = repository.recordFailure(envelope.batchId(), envelope.uuid());
+
+                // catch 回调只在**第一个**失败时投。判定用「失败数 == 1」,
+                // 而那个数来自原子 UPDATE 之后的读取 —— 两条 UPDATE 由行锁
+                // 串行化,所以并发下不会有两个 worker 都读到 1
+                if (batch.failedJobs() == 1) {
+                    dispatchCallback(repository, batch.id(), BatchRepository.Kind.CATCH);
+                }
+
+                // 不允许失败 → 取消剩余的。先取消再判完成:
+                // 反过来的话剩余任务可能在这中间出队并执行
+                if (!batch.allowsFailures()) {
+                    repository.cancel(batch.id());
+                }
+
+                finishBatchIfDone(repository, batch.id());
+            });
+        } catch (RuntimeException e) {
+            System.err.printf("[jaravel] 批次 %s 的失败计数最终写入失败:%s%n",
+                    envelope.batchId(), e.getMessage());
+        }
+    }
+
+    /**
+     * 批次全部有结果了吗,是就投 then / finally。
+     *
+     * <p>「是不是最后一个」**不由计数判定**,而由
+     * {@link BatchRepository#markFinished} 的条件 UPDATE 判定 ——
+     * 只有把 finished_at 从 null 改掉的那一次返回 true。
+     *
+     * <p>理由见 {@code DatabaseBatchRepository} 的类注释:
+     * 计数可以近似,回调不能重复。一个「给所有人发汇总邮件」的回调
+     * 跑两遍是用户可见的事故。
+     */
+    private void finishBatchIfDone(BatchRepository repository, String batchId) {
+        Batch batch = repository.find(batchId).orElse(null);
+        if (batch == null || batch.pendingJobs() > 0) return;
+
+        if (!repository.markFinished(batchId)) return;      // 别人已经标过了
+
+        if (!batch.hasFailures()) {
+            dispatchCallback(repository, batchId, BatchRepository.Kind.THEN);
+        }
+        dispatchCallback(repository, batchId, BatchRepository.Kind.FINALLY);
+
+        listeners.forEach(l -> l.onBatchFinished(batch));
+    }
+
+    private void dispatchCallback(BatchRepository repository, String batchId,
+                                  BatchRepository.Kind kind) {
+        repository.callback(batchId, kind).ifPresent(callback -> {
+            try {
+                // ★ 投递也要**有界重试**,理由与批次计数完全一样(见 withRetry):
+                // 这一次 push 丢了,这个回调就**永不触发**,而症状是
+                // 「报表跑完了但没收到汇总邮件」—— 没人会联想到一次瞬时锁竞争。
+                //
+                // 这里本来没有重试,而它旁边那个同样「丢一次就不可恢复」的
+                // 批次计数有 —— 不一致的那一侧正好是更难查的那一侧:
+                // then 与 finally 是**连着**两次 push,第二次撞上写锁的
+                // 概率比第一次高,于是表现成「then 跑了、finally 没跑」。
+                withRetry("批次 " + batchId + " 的 " + kind + " 回调投递", () ->
+                        // 批次 id 放在 **context** 而不是 batchId 字段里:
+                        // batchId 的语义是「这条任务计入该批次的计数」,
+                        // 而回调不该被计数(它不在 total_jobs 里)。
+                        // 两者分开才能让 handle(Batch batch) 拿到批次
+                        // 而不会把 pending_jobs 减成负数
+                        store.push(callback.withContext(JobContext.BATCH_ID, batchId)));
+            } catch (RuntimeException e) {
+                System.err.printf("[jaravel] 批次 %s 的 %s 回调投递失败(重试 3 次):%s%n",
+                        batchId, kind, e.getMessage());
+            }
+        });
+    }
+
+    private void archive(QueuedJob envelope, Throwable cause, String reason) {
+        try {
+            failedJobs.record(envelope, connectionName,
+                    new JobFailedException(reason, cause));
+        } finally {
+            // 不管归档成功与否都要把它从队列里删掉 ——
+            // 留着的话它会在保留超时后被再取一次,然后再失败一次,
+            // 无限循环
+            store.delete(envelope);
+        }
+        failed.incrementAndGet();
+        listeners.forEach(l -> l.onFailed(envelope, cause));
+
+        // 归档**之后**才发 —— 一个「去 failed_jobs 查详情」的监听器
+        // 需要那条记录已经在了
+        net.dobeen.jaravel.events.Event.tryDispatchIfListening(
+                net.dobeen.jaravel.queue.events.QueueEvents.JobFailed.class,
+                () -> new net.dobeen.jaravel.queue.events.QueueEvents.JobFailed(
+                        connectionName, envelope, cause));
+    }
+
+    /**
+     * 第 n 次重试等多久。
+     *
+     * <p>数组比重试次数短时**重复最后一个值**,而不是回到第一个 ——
+     * 回到第一个会让退避变成震荡,失去退避的意义。
+     */
+    private static Duration backoffFor(ShouldQueue job, int attempts) {
+        Duration[] backoff = job.backoff();
+        if (backoff == null || backoff.length == 0) return Duration.ZERO;
+
+        int index = Math.min(attempts - 1, backoff.length - 1);
+        return backoff[Math.max(0, index)];
+    }
+
+    // ================= 心跳 =================
+
+    /**
+     * 周期性续约,直到任务结束。
+     *
+     * <p>续约失败意味着这条任务已经被别人接手 —— 此时**中断执行线程**。
+     * 让它继续跑会产生重复副作用,而那是队列系统里最严重的一类问题。
+     */
+    private Heartbeat startHeartbeat(QueuedJob envelope) {
+        Duration interval = options.heartbeat();
+        if (interval == null || interval.isZero() || interval.isNegative()) {
+            return Heartbeat.disabled();
+        }
+
+        var stopped = new AtomicBoolean();
+        Thread thread = Thread.ofVirtual()
+                .name("jaravel-heartbeat-" + envelope.uuid().substring(0, 8))
+                .start(() -> {
+                    while (!stopped.get()) {
+                        try {
+                            Thread.sleep(interval.toMillis());
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            return;
+                        }
+                        if (stopped.get()) return;
+
+                        if (!store.touch(envelope, options.retryAfter())) {
+                            // **先置标记再中断**。反了的话被中断的线程
+                            // 可能先走到 catch 里、还没看到标记,
+                            // 于是把一条已被接手的任务放回队列
+                            abandonedJobs.add(envelope.uuid());
+
+                            var runner = inFlight.get(envelope.uuid());
+                            if (runner != null) runner.interrupt();
+                            return;
+                        }
+                    }
+                });
+        return new Heartbeat(stopped, thread);
+    }
+
+    private record Heartbeat(AtomicBoolean stopped, Thread thread) {
+
+        static Heartbeat disabled() {
+            return new Heartbeat(new AtomicBoolean(true), null);
+        }
+
+        void stop() {
+            stopped.set(true);
+            if (thread != null) thread.interrupt();
+        }
+    }
+
+    // ================= 停机 =================
+
+    /**
+     * 等在跑的任务结束。
+     *
+     * <p>超时后仍在跑的任务**不删不放回** —— 它们的保留会在
+     * retryAfter 后过期,然后被别的 worker 捡起来。
+     *
+     * <p>强行 release 更糟:一个即将成功的任务会被另一个 worker
+     * 同时执行,于是产生重复副作用。宁可晚一点处理。
+     */
+    private void drain() {
+        // 同 maxTime:关停宽限量的是「真的过了多久」
+        Instant deadline = Clock.realNow().plus(options.shutdownGrace());
+
+        while (!inFlight.isEmpty() && Clock.realNow().isBefore(deadline)) {
+            sleepQuietly(Duration.ofMillis(50));
+        }
+
+        if (!inFlight.isEmpty()) {
+            System.err.printf("""
+                    [jaravel] 停机等待超时,仍有 %d 个任务在跑:%s
+                              它们不会被删除也不会被放回 —— 保留会在 %s 后过期,
+                              届时由其它 worker 接手。强行放回会让即将成功的任务
+                              被重复执行。%n""",
+                    inFlight.size(), inFlight.keySet(), options.retryAfter());
+        }
+    }
+
+    private static void sleepQuietly(Duration duration) {
+        if (duration == null || duration.isZero() || duration.isNegative()) return;
+        try {
+            Thread.sleep(duration.toMillis());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    // ================= 统计 =================
+
+    public long processedCount() { return processed.get(); }
+    public long succeededCount() { return succeeded.get(); }
+    public long failedCount()    { return failed.get(); }
+    public long releasedCount()  { return released.get(); }
+    public long timedOutCount()  { return timedOut.get(); }
+    public long abandonedCount() { return abandoned.get(); }
+    public int  inFlightCount()  { return inFlight.size(); }
+
+    public WorkerOptions options() { return options; }
+
+    // ================= 观察 =================
+
+    /** 观察 worker 的进展。日志、指标与测试用。 */
+    public interface Listener {
+        default void onStart(QueuedJob job) {}
+
+        default void onSuccess(QueuedJob job) {}
+
+        default void onRetry(QueuedJob job, Throwable cause, Duration delay) {}
+
+        default void onFailed(QueuedJob job, Throwable cause) {}
+
+        /** 任务被别的 worker 接手了,本 worker 放弃 */
+        default void onAbandoned(QueuedJob job) {}
+
+        /** 中间件主动让出(等锁、等限流)—— 不算失败 */
+        default void onYielded(QueuedJob job, Duration delay) {}
+
+        /** 中间件丢弃了任务 —— 不算失败,是个正常结束 */
+        default void onDiscarded(QueuedJob job, String reason) {}
+
+        /** 链上前一环成功,下一环已入队 */
+        default void onChainAdvanced(QueuedJob finished, QueuedJob next) {}
+
+        /** 链断了 —— 后续各环不会执行 */
+        default void onChainBroken(QueuedJob failedLink, Throwable cause) {}
+
+        /** 批次全部有结果了。这个回调**只会被调一次**,见 markFinished */
+        default void onBatchFinished(Batch batch) {}
+
+        /**
+         * 收到 {@code queue:restart} 的信号,这个 worker 即将优雅退出。
+         *
+         * <p>给的是「要退出了」而不是「已退出」:在跑的任务还要等它们做完。
+         * {@code queue:work} 用它打一行字 —— 否则终端上只会看到命令突然
+         * 结束,看起来像崩了。
+         */
+        default void onRestartRequested() {}
+    }
+
+    /** 超时。见 {@link QueueWorker} 类注释里的语义限制。 */
+    public static class JobTimeoutException extends RuntimeException {
+        public JobTimeoutException(String message) {
+            super(message);
+        }
+    }
+
+    /** 包一层,好让 failed_jobs 里的异常带上「为什么不再重试」 */
+    public static class JobFailedException extends RuntimeException {
+        public JobFailedException(String reason, Throwable cause) {
+            super(reason, cause);
+        }
+    }
+}

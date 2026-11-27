@@ -1,0 +1,744 @@
+package net.dobeen.jaravel.spring.commands;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+
+import net.dobeen.jaravel.console.Artisan;
+import net.dobeen.jaravel.console.CommandRegistry;
+import net.dobeen.jaravel.core.Application;
+import net.dobeen.jaravel.core.config.ConfigLoader;
+import net.dobeen.jaravel.core.config.MapConfigRepository;
+import net.dobeen.jaravel.database.Connection;
+import net.dobeen.jaravel.database.JdbcConnection;
+import net.dobeen.jaravel.database.grammar.SqliteGrammar;
+import net.dobeen.jaravel.migration.Migration;
+import net.dobeen.jaravel.migration.Migrator;
+import net.dobeen.jaravel.migration.Seeder;
+import net.dobeen.jaravel.migration.schema.Schema;
+import net.dobeen.jaravel.routing.Router;
+import net.dobeen.jaravel.routing.RouteCollection;
+
+/**
+ * 在线命令(docs/13 §2.3 / §2.5)。
+ *
+ * <p>**真 SQLite、真 Migrator、真路由表** —— 这些命令本身只有几十行,
+ * 它们的价值全在「与运行时接得对不对」,而那恰恰是替身测不出来的
+ * (docs/10 里 examples/queue 那段记的 18 个缺陷全是这一类)。
+ */
+class RuntimeCommandsTest {
+
+    private java.sql.Connection jdbc;
+    private Connection connection;
+    private javax.sql.DataSource dataSource;
+    private MapConfigRepository config;
+    private CommandRegistry registry;
+    private final List<Migration> migrations = new ArrayList<>();
+    private final List<Seeder> seeders = new ArrayList<>();
+    private RouteCollection routes = RouteCollection.of(List.of());
+
+    @BeforeEach
+    void setUp() throws SQLException {
+        jdbc = DriverManager.getConnection("jdbc:sqlite::memory:");
+        dataSource = nonClosing(jdbc);
+        connection = new JdbcConnection(dataSource, new SqliteGrammar());
+        Schema.useConnection(connection);
+        Application.setEnvironment("local");
+
+        // ${...} 的解析器在测试里是一张表 —— 真的环境变量设不了,
+        // 而「解析之后是什么」恰恰是 config:show 的全部内容
+        config = new MapConfigRepository(ConfigLoader.parse("""
+                app:
+                  name: 测试应用
+                  key: base64:超级机密
+                database:
+                  default: ${DB_CONNECTION:sqlite}
+                  connections:
+                    main:
+                      url: ${DB_URL:jdbc:sqlite::memory:}
+                      password: ${DB_PASSWORD}
+                cache:
+                  default: array
+                """, "test"), name -> name.equals("DB_CONNECTION") ? "sqlite" : null);
+
+        registry = new CommandRegistry()
+                .register(() -> new MigrateCommand(() -> connection, () -> migrations))
+                .register(() -> new MigrateStatusCommand(() -> connection, () -> migrations))
+                .register(() -> new MigrateRollbackCommand(() -> connection, () -> migrations))
+                .register(() -> new MigrateFreshCommand(() -> connection, () -> migrations))
+                .register(() -> new DbSeedCommand(() -> seeders))
+                .register(() -> new RouteListCommand(() -> routes))
+                .register(() -> new AboutCommand(config, () -> routes))
+                .register(() -> new ConfigShowCommand(config))
+                .register(() -> new DbShowCommand(dataSource, connection, config))
+                .register(() -> new DbTableCommand(dataSource, connection));
+        Artisan.use(registry);
+    }
+
+    @AfterEach
+    void tearDown() throws SQLException {
+        Artisan.reset();
+        Schema.useConnection(null);
+        Application.setEnvironment("production");
+        Application.setEnvironment("local");   // 别把 production 漏给下一个测试
+        jdbc.close();
+    }
+
+    /**
+     * 一个不会真的关掉连接的 DataSource —— 内存库一关就没了。
+     *
+     * <p>与 MigratorTest 里那份同源:那边测 Migrator 本身,这边测命令壳子
+     * 与运行时接得对不对。
+     */
+    private static javax.sql.DataSource nonClosing(java.sql.Connection real) {
+        java.sql.Connection proxy = (java.sql.Connection) java.lang.reflect.Proxy.newProxyInstance(
+                java.sql.Connection.class.getClassLoader(),
+                new Class<?>[] {java.sql.Connection.class},
+                (p, method, args) -> {
+                    if ("close".equals(method.getName())) return null;
+                    if ("isClosed".equals(method.getName())) return false;
+                    try {
+                        return method.invoke(real, args);
+                    } catch (java.lang.reflect.InvocationTargetException e) {
+                        throw e.getCause();
+                    }
+                });
+        return new javax.sql.DataSource() {
+            @Override public java.sql.Connection getConnection() { return proxy; }
+            @Override public java.sql.Connection getConnection(String u, String pw) { return proxy; }
+            @Override public java.io.PrintWriter getLogWriter() { return null; }
+            @Override public void setLogWriter(java.io.PrintWriter out) { }
+            @Override public void setLoginTimeout(int seconds) { }
+            @Override public int getLoginTimeout() { return 0; }
+            @Override public java.util.logging.Logger getParentLogger() {
+                return java.util.logging.Logger.getGlobal();
+            }
+            @Override public <T> T unwrap(Class<T> iface) { return iface.cast(proxy); }
+            @Override public boolean isWrapperFor(Class<?> iface) { return false; }
+        };
+    }
+
+    private String run(String command, String... args) {
+        Artisan.call(command, args);
+        return Artisan.output();
+    }
+
+    // ================= 迁移 =================
+
+    public static final class CreatePosts implements Migration {
+        @Override public void up() {
+            Schema.create("posts", t -> { t.id(); t.string("title"); });
+        }
+        @Override public void down() { Schema.dropIfExists("posts"); }
+    }
+
+    public static final class CreateTags implements Migration {
+        @Override public void up() {
+            Schema.create("tags", t -> { t.id(); t.string("name"); });
+        }
+        @Override public void down() { Schema.dropIfExists("tags"); }
+    }
+
+    @Nested
+    @DisplayName("migrate")
+    class Migrate {
+
+        @Test
+        @DisplayName("★ 真的建了表,并把执行过的列出来")
+        void runsMigrations() {
+            migrations.add(new CreatePosts());
+
+            assertThat(Artisan.call("migrate")).isZero();
+            assertThat(Artisan.output()).contains("CreatePosts");
+            assertThat(connection.select("select name from sqlite_master where name = 'posts'")
+                    .isNotEmpty())
+                    .as("表真的建出来了,而不只是打印了一行")
+                    .isTrue();
+        }
+
+        @Test
+        @DisplayName("没有迁移时说清约定位置,而不是「Nothing to migrate」")
+        void noMigrations() {
+            assertThat(Artisan.call("migrate")).isZero();
+            assertThat(Artisan.output()).contains("database.migrations");
+        }
+
+        @Test
+        @DisplayName("★ --pretend 只打印不执行")
+        void pretend() {
+            migrations.add(new CreatePosts());
+
+            assertThat(Artisan.call("migrate", "--pretend")).isZero();
+            assertThat(connection.select("select name from sqlite_master where name = 'posts'")
+                    .isEmpty())
+                    .as("空跑之后表不该存在")
+                    .isTrue();
+        }
+
+        @Test
+        @DisplayName("★ 失败时已经执行的那些仍在 output() 里 —— 「第几个炸的」是第一个问题")
+        void outputSurvivesFailure() {
+            migrations.add(new CreatePosts());
+            migrations.add(new Failing());
+
+            // Migrator 的异常会原样抛出来 —— 注册表只接 ConsoleException,
+            // 真的失败要让调用方看到完整的栈(CLI 那边负责把它变成一条人话)
+            assertThatThrownBy(() -> Artisan.call("migrate"))
+                    .hasMessageContaining("本次已回滚");
+
+            assertThat(Artisan.output())
+                    .as("""
+                            Artisan.call 在 finally 里记录输出,所以炸了也拿得到 ——
+                            调用方正要用它写日志,而「第几个迁移炸的」在那段输出里,
+                            异常本身只说了原因。""")
+                    .contains("CreatePosts");
+        }
+
+        public static final class Failing implements Migration {
+            @Override public void up() { throw new IllegalStateException("这个迁移炸了"); }
+            @Override public void down() { }
+        }
+
+        @Test
+        @DisplayName("--seed 跑完迁移再跑种子")
+        void withSeed() {
+            migrations.add(new CreatePosts());
+            seeders.add(new RecordingSeeder());
+
+            assertThat(Artisan.call("migrate", "--seed")).isZero();
+            assertThat(Artisan.output()).contains("RecordingSeeder");
+        }
+    }
+
+    @Nested
+    @DisplayName("migrate:status")
+    class Status {
+
+        @Test
+        @DisplayName("★ 已跑的打 ✓,没跑的打 ✗")
+        void ranAndPending() {
+            migrations.add(new CreatePosts());
+            Artisan.call("migrate");
+            migrations.add(new CreateTags());
+
+            String out = run("migrate:status");
+
+            assertThat(out).contains("CreatePosts").contains("CreateTags")
+                           .contains("✓").contains("✗");
+        }
+
+        @Test
+        @DisplayName("一次都没跑过时不画空表")
+        void beforeAnyMigration() {
+            assertThat(run("migrate:status")).contains("一次 migrate 都没跑过");
+        }
+
+        @Test
+        @DisplayName("★ 库里有记录但代码里没有的迁移要标出来 —— 那通常是切了分支")
+        void orphanedMigrations() {
+            migrations.add(new CreatePosts());
+            Artisan.call("migrate");
+            migrations.clear();   // 模拟切到一个没有这个迁移的分支
+
+            String out = run("migrate:status");
+
+            assertThat(out)
+                    .as("只看代码侧的列表看不出这件事,而它正是"
+                            + "「我的库为什么和同事不一样」的常见答案")
+                    .contains("?")
+                    .contains("切了分支");
+        }
+    }
+
+    @Nested
+    @DisplayName("migrate:rollback / fresh")
+    class RollbackAndFresh {
+
+        @Test
+        @DisplayName("rollback 把表删回去")
+        void rollback() {
+            migrations.add(new CreatePosts());
+            Artisan.call("migrate");
+
+            assertThat(Artisan.call("migrate:rollback")).isZero();
+            assertThat(connection.select("select name from sqlite_master where name = 'posts'")
+                    .isEmpty()).isTrue();
+        }
+
+        @Test
+        @DisplayName("fresh 全删再全建")
+        void fresh() {
+            migrations.add(new CreatePosts());
+            migrations.add(new CreateTags());
+            Artisan.call("migrate");
+            connection.update("insert into posts (title) values ('旧数据')", List.of());
+
+            assertThat(Artisan.call("migrate:fresh")).isZero();
+            assertThat(connection.select("select count(*) as c from posts").first()
+                    .map(r -> net.dobeen.jaravel.support.Cast.to(r.get("c"), Integer.class)).orElse(-1))
+                    .as("fresh 会清数据 —— 那正是它的用途")
+                    .isZero();
+        }
+    }
+
+    // ================= 生产护栏 =================
+
+    @Nested
+    @DisplayName("生产护栏")
+    class ProductionGuard {
+
+        @Test
+        @DisplayName("★ 生产环境 + 不可交互 → 拒绝,并把 --force 说出来")
+        void refusesInProduction() {
+            Application.setEnvironment("production");
+            migrations.add(new CreatePosts());
+
+            assertThat(Artisan.call("migrate")).isEqualTo(1);
+            assertThat(Artisan.output())
+                    .as("""
+                            部署脚本里的 migrate 不该在生产库上静默执行 ——
+                            confirm 在不可交互时返回默认值 false,于是一律拒绝。""")
+                    .contains("生产环境").contains("--force");
+            assertThat(connection.select("select name from sqlite_master where name = 'posts'")
+                    .isEmpty()).isTrue();
+        }
+
+        @Test
+        @DisplayName("--force 在生产环境下放行")
+        void forceAllows() {
+            Application.setEnvironment("production");
+            migrations.add(new CreatePosts());
+
+            assertThat(Artisan.call("migrate", "--force")).isZero();
+        }
+
+        @Test
+        @DisplayName("★ --pretend 不需要确认 —— 它什么都不改")
+        void pretendNeedsNoConfirmation() {
+            Application.setEnvironment("production");
+            migrations.add(new CreatePosts());
+
+            assertThat(Artisan.call("migrate", "--pretend"))
+                    .as("「想看看它会做什么」恰恰是生产环境里最该允许的操作")
+                    .isZero();
+        }
+
+        @Test
+        @DisplayName("fresh 与 rollback 同样受护栏")
+        void destructiveCommandsAreGuarded() {
+            migrations.add(new CreatePosts());
+            Artisan.call("migrate");
+            Application.setEnvironment("production");
+
+            assertThat(Artisan.call("migrate:fresh")).isEqualTo(1);
+            assertThat(Artisan.call("migrate:rollback")).isEqualTo(1);
+            assertThat(connection.select("select name from sqlite_master where name = 'posts'")
+                    .isNotEmpty())
+                    .as("两条都被拦住了,表还在")
+                    .isTrue();
+        }
+    }
+
+    // ================= db:seed =================
+
+    public static final class RecordingSeeder implements Seeder {
+        static final List<String> RAN = new ArrayList<>();
+        @Override public void run() { RAN.add("RecordingSeeder"); }
+    }
+
+    public static final class DatabaseSeeder implements Seeder {
+        @Override public void run() { }
+    }
+
+    @Nested
+    @DisplayName("db:seed")
+    class DbSeed {
+
+        @Test
+        @DisplayName("没有 Seeder 时说清约定位置")
+        void noSeeders() {
+            assertThat(run("db:seed")).contains("database.seeders");
+        }
+
+        @Test
+        @DisplayName("逐个报出来,而不是最后报个总数")
+        void reportsEachSeeder() {
+            seeders.add(new RecordingSeeder());
+
+            assertThat(run("db:seed"))
+                    .as("一个慢 seeder 在「总数」那种输出里与卡住无法区分")
+                    .contains("执行 RecordingSeeder");
+        }
+
+        @Test
+        @DisplayName("★ 有 DatabaseSeeder 就只跑它(尊重 Laravel 的入口约定)")
+        void prefersTheEntryPoint() {
+            RecordingSeeder.RAN.clear();
+            seeders.add(new RecordingSeeder());
+            seeders.add(new DatabaseSeeder());
+
+            run("db:seed");
+
+            assertThat(RecordingSeeder.RAN)
+                    .as("入口 seeder 存在时,其余的应当由它 call 出来")
+                    .isEmpty();
+        }
+
+        @Test
+        @DisplayName("没有入口 seeder 时全跑 —— 否则「什么都没发生」")
+        void runsAllWithoutEntryPoint() {
+            RecordingSeeder.RAN.clear();
+            seeders.add(new RecordingSeeder());
+
+            run("db:seed");
+
+            assertThat(RecordingSeeder.RAN).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("--class 指定的名字不存在时,把找到的列出来")
+        void unknownClass() {
+            seeders.add(new RecordingSeeder());
+
+            assertThat(Artisan.call("db:seed", "--class=NoSuchSeeder")).isEqualTo(1);
+            assertThat(Artisan.output()).contains("没有叫").contains("RecordingSeeder");
+        }
+    }
+
+    // ================= route:list / about =================
+
+    @Nested
+    @DisplayName("route:list")
+    class RouteList {
+
+        /**
+         * 用真的 {@code Router} 定义再 compile ——
+         * Route 的构造器是包可见的,而那是对的:路由只能从 Router 来。
+         * 顺带这条测试走的就是应用启动时的那条路径。
+         */
+        private void withRoutes() {
+            var router = new Router();
+            router.view("/posts", "posts.index").name("posts.index").middleware("web");
+            router.view("/posts/create", "posts.form");
+            routes = router.compile();
+        }
+
+        @Test
+        @DisplayName("★ 数据来自编译后的路由表 —— 请求真正走的那一张")
+        void listsCompiledRoutes() {
+            withRoutes();
+
+            String out = run("route:list");
+
+            assertThat(out).contains("GET").contains("/posts")
+                           .contains("posts.index").contains("web")
+                           .contains("共 2 条");
+        }
+
+        @Test
+        @DisplayName("没有路由时说清,而不是画一个空表")
+        void noRoutes() {
+            assertThat(run("route:list")).contains("没有注册任何路由");
+        }
+
+        @Test
+        @DisplayName("--method / --path / --name 过滤,并报匹配了几条")
+        void filters() {
+            withRoutes();
+
+            assertThat(run("route:list", "--method=get"))
+                    .as("方法名不分大小写 —— 命令行上没人会去按住 shift")
+                    .contains("共 2 条");
+            assertThat(run("route:list", "--name=index")).contains("匹配 1 / 2 条");
+            assertThat(run("route:list", "--path=create")).contains("匹配 1 / 2 条");
+            assertThat(run("route:list", "--path=nope")).contains("没有匹配的路由");
+        }
+    }
+
+    /** route:list --json 要一个带处理器的路由 —— view 路由没有控制器 */
+    public static class PostsController {
+        public Object store() {
+            return "created";
+        }
+    }
+
+    @Nested
+    @DisplayName("route:list --json")
+    class RouteListJson {
+
+        @org.junit.jupiter.api.BeforeEach
+        void defineRoutes() {
+            var router = new Router();
+            router.view("/posts", "posts.index").name("posts.index").middleware("web");
+            router.post("/posts", PostsController::store);   // 没有名字 —— 下面要断言 null
+            routes = router.compile();
+        }
+
+        @Test
+        @DisplayName("★ stdout 上只有那一个 JSON 文档 —— 多一行就是 jq: parse error")
+        void stdoutCarriesNothingButJson() throws Exception {
+            String out = run("route:list", "--json");
+
+            var parsed = new com.fasterxml.jackson.databind.ObjectMapper()
+                    .readTree(out.trim());
+            assertThat(parsed.isArray()).as("输出:%s", out).isTrue();
+            assertThat(parsed).hasSize(2);
+            assertThat(out)
+                    .as("""
+                            人看的那行「共 N 条」在 --json 下不能打。
+                            route:list --json | jq 这条管道在 ConsoleCommand 的
+                            注释里被当作「报错要走 stderr」的理由反复引用,
+                            而 --json 本身此前根本没实现。""")
+                    .doesNotContain("共 ");
+        }
+
+        @Test
+        @DisplayName("★ 一条都没匹配时是 [] 且退出码 0,而不是一句人话")
+        void emptyResultIsAnEmptyArray() {
+            assertThat(Artisan.call("route:list", "--json", "--path=nope")).isZero();
+            assertThat(Artisan.output().trim())
+                    .as("一个 | jq length 的脚本要的是 0,不是解析失败")
+                    .isEqualTo("[]");
+        }
+
+        @Test
+        @DisplayName("字段顺序稳定 —— 否则两次输出的 diff 全是噪音")
+        void fieldOrderIsStable() {
+            String first = run("route:list", "--json");
+            String second = run("route:list", "--json");
+
+            assertThat(first)
+                    .as("Map.of 的键是哈希序,所以这里用 LinkedHashMap")
+                    .isEqualTo(second);
+            assertThat(first.indexOf("method")).isLessThan(first.indexOf("uri"));
+        }
+
+        @Test
+        @DisplayName("过滤器照样生效")
+        void filtersStillApply() throws Exception {
+            var parsed = new com.fasterxml.jackson.databind.ObjectMapper()
+                    .readTree(run("route:list", "--json", "--method=POST").trim());
+
+            assertThat(parsed).hasSize(1);
+            assertThat(parsed.get(0).get("method").asText()).isEqualTo("POST");
+            assertThat(parsed.get(0).has("name"))
+                    .as("""
+                            ★ 键必须在,值可以是 null。
+                            第一版复用了应用容器里的 ObjectMapper,而
+                            examples/blog 那个配了「不输出 null 字段」
+                            (API 响应的常见设置)—— 于是 name 键**整个消失**,
+                            一个 r["name"] 的脚本直接 KeyError(真跑管道时撞到)。
+                            复用应用的 mapper 等于让 HTTP 序列化策略
+                            决定 CLI 的机器可读契约。""")
+                    .isTrue();
+            assertThat(parsed.get(0).get("name").isNull())
+                    .as("没有名字的路由是 null,不是空字符串 —— 脚本分得清")
+                    .isTrue();
+        }
+    }
+
+    @Nested
+    @DisplayName("about")
+    class About {
+
+        @Test
+        @DisplayName("★ 报的是**解析之后**的配置值")
+        void showsResolvedConfiguration() {
+            String out = run("about");
+
+            assertThat(out)
+                    .as("""
+                            一半的「为什么不生效」最后都是 .env 没被读到、
+                            或者被另一个配置源覆盖了 —— 而那只有解析完才看得出来。""")
+                    .contains("测试应用")
+                    .contains("sqlite")
+                    .contains("local");
+        }
+
+        @Test
+        @DisplayName("没配的驱动显示「未配置」,而不是空白")
+        void unconfiguredDriversAreExplicit() {
+            assertThat(run("about")).contains("(未配置)");
+        }
+    }
+
+    @Nested
+    @DisplayName("config:show")
+    class ConfigShow {
+
+        @Test
+        @DisplayName("★ 打的是解析之后的值,不是配置文件里那行 ${...}")
+        void showsResolvedValues() {
+            String out = run("config:show", "database");
+
+            assertThat(out)
+                    .as("""
+                            这是这条命令的全部意义:配置文件里写的是
+                            ${DB_CONNECTION:sqlite},而应用读到的是 sqlite。
+                            拿 all() 的值直接打会显示前者 —— 一个**看起来像配置文件**
+                            的输出,而用户要的恰恰是「文件之后变成了什么」。""")
+                    .contains("database.default")
+                    .contains("sqlite")
+                    .doesNotContain("${DB_CONNECTION");
+        }
+
+        @Test
+        @DisplayName("★ 敏感键默认打码 —— 这条命令可能跑在生产机器上")
+        void secretsAreMaskedByDefault() {
+            String out = run("config:show", "app");
+
+            assertThat(out)
+                    .as("""
+                            输出会被贴进工单、落进 CI 日志,而密码进日志是不可逆的:
+                            日志会被归档、被检索、被转发。""")
+                    .contains("********")
+                    .doesNotContain("超级机密");
+            assertThat(out).contains("已打码");
+        }
+
+        @Test
+        @DisplayName("--show-secrets 才给真值")
+        void secretsCanBeRevealed() {
+            assertThat(run("config:show", "app", "--show-secrets"))
+                    .contains("超级机密");
+        }
+
+        @Test
+        @DisplayName("★ 没解析掉的 ${...} 要被点出来")
+        void unresolvedPlaceholdersAreFlagged() {
+            String out = run("config:show", "database", "--show-secrets");
+
+            assertThat(out)
+                    .as("""
+                            环境变量没设且没有默认值时,interpolate 保留原样(故意的,
+                            好让 doctor 能发现)。那意味着应用正拿着 "${DB_PASSWORD}"
+                            这个字面量去连库 —— 而报错会是「认证失败」,
+                            离真正的原因很远。""")
+                    .contains("未解析")
+                    .contains("DB_PASSWORD");
+        }
+
+        @Test
+        @DisplayName("前缀匹配:给一段就列出它下面所有的叶子")
+        void prefixListsTheWholeSubtree() {
+            assertThat(run("config:show", "database"))
+                    .contains("database.connections.main.url");
+        }
+
+        @Test
+        @DisplayName("不存在的键 → 退出码 1 + 相近的键")
+        void unknownKey() {
+            assertThat(Artisan.call("config:show", "databse")).isEqualTo(1);
+            assertThat(Artisan.output()).contains("没有 databse");
+        }
+
+        @Test
+        @DisplayName("不带参数时列出配置段,而不是把全部配置打出来")
+        void withoutAKeyItListsSections() {
+            String out = run("config:show");
+
+            assertThat(out).contains("app").contains("database").contains("配置段");
+            assertThat(out)
+                    .as("一个「什么都给你」的默认行为在这条命令里不是好默认")
+                    .doesNotContain("超级机密");
+        }
+    }
+
+    @Nested
+    @DisplayName("db:show / db:table")
+    class DatabaseInspection {
+
+        @org.junit.jupiter.api.BeforeEach
+        void createSchema() {
+            migrations.add(new CreatePosts());
+            run("migrate");
+            connection.statement("create index posts_title_body_index on posts (title, id)");
+        }
+
+        @Test
+        @DisplayName("★ 表清单来自 JDBC 元数据 —— 不写三份方言 SQL")
+        void listsTables() {
+            String out = run("db:show");
+
+            assertThat(out)
+                    .as("""
+                            「列出所有表」在每个库里都不一样。按方言分支意味着三条代码路径,
+                            而其中两条在这台机器上永远不会被执行 —— 它们会悄悄腐坏。""")
+                    .contains("posts")
+                    .contains("SQLite")
+                    .contains("jaravel_migrations");
+        }
+
+        @Test
+        @DisplayName("★ 行数默认不统计 —— 那在大表上是一次全表扫描")
+        void rowCountsAreOptIn() {
+            assertThat(run("db:show"))
+                    .as("一条「看看库里有什么」的命令不该顺手给生产库来一遍全扫")
+                    .contains("行数没有统计");
+
+            assertThat(run("db:show", "--counts")).contains("0 行");
+        }
+
+        @Test
+        @DisplayName("db:table 给出列、主键与索引")
+        void describesATable() {
+            String out = run("db:table", "posts");
+
+            assertThat(out).contains("title").contains("主键").contains("索引");
+        }
+
+        @Test
+        @DisplayName("★ 复合索引聚成一行,而不是看起来像两个单列索引")
+        void compositeIndexesAreGrouped() {
+            String out = run("db:table", "posts");
+
+            assertThat(out)
+                    .as("""
+                            元数据里一个索引的每一列是一行。不聚起来的话,
+                            一个 (a, b) 的复合索引会显示成两个单列索引 ——
+                            而那会让人以为复合索引没建上,然后去加一个重复的。""")
+                    .contains("title, id");
+        }
+
+        @Test
+        @DisplayName("★ 表名大小写不敏感 —— 否则「这张表没有列」会骗人")
+        void tableNamesAreCaseInsensitive() {
+            assertThat(Artisan.call("db:table", "Posts")).isZero();
+            assertThat(Artisan.output()).contains("title");
+        }
+
+        @Test
+        @DisplayName("不存在的表 → 退出码 1 + 库里有哪些表")
+        void unknownTable() {
+            assertThat(Artisan.call("db:table", "pots")).isEqualTo(1);
+            assertThat(Artisan.output())
+                    .contains("没有叫 pots 的表")
+                    .contains("posts");
+        }
+
+        @Test
+        @DisplayName("★ JDBC URL 里的密码要脱掉 —— config:show 按键名判断,挡不住它")
+        void jdbcUrlCredentialsAreScrubbed() {
+            assertThat(DbShowCommand.scrub("jdbc:mysql://root:hunter2@localhost/app"))
+                    .as("""
+                            config:show 那边按**键名**判断敏感(password / secret / …),
+                            而这里的密码藏在一个叫 url 的值**里面**。
+                            两种判据都需要。""")
+                    .doesNotContain("hunter2")
+                    .contains("root");
+            assertThat(DbShowCommand.scrub("jdbc:postgresql://h/db?user=a&password=hunter2"))
+                    .doesNotContain("hunter2");
+        }
+    }
+}

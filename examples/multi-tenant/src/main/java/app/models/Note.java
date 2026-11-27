@@ -2,11 +2,11 @@ package app.models;
 
 import java.time.Instant;
 
-import io.jaravel.eloquent.annotations.Fillable;
-import io.jaravel.eloquent.annotations.GlobalScope;
-import io.jaravel.eloquent.annotations.Id;
-import io.jaravel.eloquent.annotations.Model;
-import io.jaravel.eloquent.query.Query;
+import net.dobeen.jaravel.eloquent.annotations.Fillable;
+import net.dobeen.jaravel.eloquent.annotations.GlobalScope;
+import net.dobeen.jaravel.eloquent.annotations.Id;
+import net.dobeen.jaravel.eloquent.annotations.Model;
+import net.dobeen.jaravel.eloquent.query.Query;
 
 import app.tenancy.TenantContext;
 

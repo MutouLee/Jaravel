@@ -8,10 +8,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import io.jaravel.cache.Cache;
-import io.jaravel.cache.CacheManager;
-import io.jaravel.cache.Repository;
-import io.jaravel.testing.FeatureTest;
+import net.dobeen.jaravel.cache.Cache;
+import net.dobeen.jaravel.cache.CacheManager;
+import net.dobeen.jaravel.cache.Repository;
+import net.dobeen.jaravel.testing.FeatureTest;
 
 /**
  * {@code Cache} 门面指向**当前上下文**的 CacheManager。

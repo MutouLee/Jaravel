@@ -2,9 +2,9 @@ package {{ pkg }};
 
 import org.springframework.stereotype.Component;
 
-import io.jaravel.http.Redirect;
-import io.jaravel.http.Request;
-import io.jaravel.http.View;
+import net.dobeen.jaravel.http.Redirect;
+import net.dobeen.jaravel.http.Request;
+import net.dobeen.jaravel.http.View;
 
 /**
  * {{ model }} 的 CRUD 控制器。

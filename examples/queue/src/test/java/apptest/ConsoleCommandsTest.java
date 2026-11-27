@@ -6,9 +6,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 
-import io.jaravel.console.Artisan;
-import io.jaravel.database.Connection;
-import io.jaravel.testing.FeatureTest;
+import net.dobeen.jaravel.console.Artisan;
+import net.dobeen.jaravel.database.Connection;
+import net.dobeen.jaravel.testing.FeatureTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -36,7 +36,7 @@ import org.springframework.beans.factory.annotation.Autowired;
  * 而 {@code FeatureTest} 的那个事务永远不提交 —— 于是任务永远不入队,
  * 断言会以「队列是空的」失败,看起来像投递坏了。
  */
-@io.jaravel.testing.WithoutRollback
+@net.dobeen.jaravel.testing.WithoutRollback
 class ConsoleCommandsTest extends FeatureTest {
 
     @Autowired Connection db;

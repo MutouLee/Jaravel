@@ -10,20 +10,20 @@ import app.http.requests.LoginRequest;
 import app.http.requests.RegisterRequest;
 import app.http.requests.ResetPasswordRequest;
 import app.models.User;
-import io.jaravel.auth.Auth;
-import io.jaravel.auth.Intended;
-import io.jaravel.auth.LoginThrottle;
-import io.jaravel.auth.hash.Hash;
-import io.jaravel.auth.passwords.Password;
-import io.jaravel.auth.passwords.PasswordBroker;
-import io.jaravel.http.Redirect;
-import io.jaravel.http.Request;
-import io.jaravel.http.Response;
-import io.jaravel.http.View;
-import io.jaravel.mail.Mail;
-import io.jaravel.mail.Mailable;
-import io.jaravel.session.Session;
-import io.jaravel.validation.Validator;
+import net.dobeen.jaravel.auth.Auth;
+import net.dobeen.jaravel.auth.Intended;
+import net.dobeen.jaravel.auth.LoginThrottle;
+import net.dobeen.jaravel.auth.hash.Hash;
+import net.dobeen.jaravel.auth.passwords.Password;
+import net.dobeen.jaravel.auth.passwords.PasswordBroker;
+import net.dobeen.jaravel.http.Redirect;
+import net.dobeen.jaravel.http.Request;
+import net.dobeen.jaravel.http.Response;
+import net.dobeen.jaravel.http.View;
+import net.dobeen.jaravel.mail.Mail;
+import net.dobeen.jaravel.mail.Mailable;
+import net.dobeen.jaravel.session.Session;
+import net.dobeen.jaravel.validation.Validator;
 
 /**
  * 登录 / 注册 / 登出 / 密码重置。

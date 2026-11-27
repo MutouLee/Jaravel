@@ -189,7 +189,7 @@ List<Post> posts = Cache.get("posts", new TypeRef<List<Post>>() {}).orElse(List.
 Cache.remember("posts", ttl, new TypeRef<List<Post>>() {}, () -> Post.all().toList());
 ```
 
-`io.jaravel.support.TypeRef` 是一个抽象类,靠**匿名子类**把泛型参数留在 class
+`net.dobeen.jaravel.support.TypeRef` 是一个抽象类,靠**匿名子类**把泛型参数留在 class
 文件的签名里(Jackson 的 `TypeReference`、Guava 的 `TypeToken` 都是同一招)。
 `get` / `remember` 各有一个 `TypeRef` 重载,`Cache.tags(...)` 上也有。
 

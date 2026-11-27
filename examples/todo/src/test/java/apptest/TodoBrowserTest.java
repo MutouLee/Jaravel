@@ -8,9 +8,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import io.jaravel.database.Connection;
-import io.jaravel.eloquent.Eloquent;
-import io.jaravel.testing.BrowserTest;
+import net.dobeen.jaravel.database.Connection;
+import net.dobeen.jaravel.eloquent.Eloquent;
+import net.dobeen.jaravel.testing.BrowserTest;
 
 /**
  * Todo 示例的真实浏览器测试(docs/14 §6.1)。

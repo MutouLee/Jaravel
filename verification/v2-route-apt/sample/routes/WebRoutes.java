@@ -2,8 +2,8 @@ package routes;
 
 import app.http.controllers.PostController;
 import app.http.controllers.UserController;
-import io.jaravel.routing.RouteDefinition;
-import io.jaravel.routing.Router;
+import net.dobeen.jaravel.routing.RouteDefinition;
+import net.dobeen.jaravel.routing.Router;
 
 public class WebRoutes implements RouteDefinition {
     @Override public void define(Router r) {

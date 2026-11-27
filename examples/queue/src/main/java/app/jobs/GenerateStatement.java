@@ -4,7 +4,7 @@ import java.util.Map;
 
 import app.models.Invoice;
 import app.models.Invoice_;
-import io.jaravel.queue.ShouldQueue;
+import net.dobeen.jaravel.queue.ShouldQueue;
 
 /** 批量任务的一份:给一张发票生成对账单 */
 public class GenerateStatement implements ShouldQueue {

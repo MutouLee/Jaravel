@@ -4,8 +4,8 @@ import java.util.Map;
 
 import app.models.Invoice;
 import app.models.Invoice_;
-import io.jaravel.queue.ChainFailure;
-import io.jaravel.queue.ShouldQueue;
+import net.dobeen.jaravel.queue.ChainFailure;
+import net.dobeen.jaravel.queue.ShouldQueue;
 
 /**
  * 链中断时的回调。

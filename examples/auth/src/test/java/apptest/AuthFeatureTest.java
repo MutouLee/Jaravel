@@ -10,9 +10,9 @@ import org.junit.jupiter.api.Test;
 
 import app.models.Note;
 import app.models.User;
-import io.jaravel.auth.hash.Hash;
-import io.jaravel.session.VerifyCsrfToken;
-import io.jaravel.testing.FeatureTest;
+import net.dobeen.jaravel.auth.hash.Hash;
+import net.dobeen.jaravel.session.VerifyCsrfToken;
+import net.dobeen.jaravel.testing.FeatureTest;
 
 /**
  * ★ 用 {@code jaravel-testing} 重写的认证测试。
@@ -32,10 +32,10 @@ class AuthFeatureTest extends FeatureTest {
     app.listeners.AuthAudit audit;
 
     @org.springframework.beans.factory.annotation.Autowired
-    io.jaravel.cache.CacheManager caches;
+    net.dobeen.jaravel.cache.CacheManager caches;
 
     @org.springframework.beans.factory.annotation.Autowired
-    io.jaravel.database.Connection db;
+    net.dobeen.jaravel.database.Connection db;
 
     @org.junit.jupiter.api.BeforeEach
     void resetSingletonState() {
@@ -377,7 +377,7 @@ class AuthFeatureTest extends FeatureTest {
                     Map.of("email", "a@example.com"))
                     .session().orElseThrow().get("reset_token").orElseThrow();
 
-            io.jaravel.support.Clock.travel(java.time.Duration.ofMinutes(61));
+            net.dobeen.jaravel.support.Clock.travel(java.time.Duration.ofMinutes(61));
 
             post("/reset-password", Map.of(
                     "email", "a@example.com",
@@ -403,7 +403,7 @@ class AuthFeatureTest extends FeatureTest {
                     Map.of("email", "a@example.com"))
                     .session().orElseThrow().get("reset_token").orElseThrow();
 
-            io.jaravel.support.Clock.travel(java.time.Duration.ofMinutes(59));
+            net.dobeen.jaravel.support.Clock.travel(java.time.Duration.ofMinutes(59));
 
             post("/reset-password", Map.of(
                     "email", "a@example.com",

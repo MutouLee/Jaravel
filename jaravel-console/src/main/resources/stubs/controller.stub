@@ -2,7 +2,7 @@ package {{ pkg }};
 
 import org.springframework.stereotype.Component;
 
-import io.jaravel.http.Request;
+import net.dobeen.jaravel.http.Request;
 
 @Component
 public class {{ class }} {

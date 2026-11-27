@@ -2,11 +2,11 @@ package app.models;
 
 import java.time.Instant;
 
-import io.jaravel.auth.AuthModel;
-import io.jaravel.eloquent.annotations.Fillable;
-import io.jaravel.eloquent.annotations.Hidden;
-import io.jaravel.eloquent.annotations.Id;
-import io.jaravel.eloquent.annotations.Model;
+import net.dobeen.jaravel.auth.AuthModel;
+import net.dobeen.jaravel.eloquent.annotations.Fillable;
+import net.dobeen.jaravel.eloquent.annotations.Hidden;
+import net.dobeen.jaravel.eloquent.annotations.Id;
+import net.dobeen.jaravel.eloquent.annotations.Model;
 
 /**
  * 用户模型。password 与 rememberToken 上的 @Hidden 是必须的:

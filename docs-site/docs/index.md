@@ -45,9 +45,9 @@ public class Post extends PostBase {
 
 ## 当前状态
 
-**v1.0 功能面完成,正式发布待执行。** 默认全量 **2702 条测试**全绿;
-parity 最差 **1.29 / 1.30**;示例:`todo` / `blog` / `auth` / `queue` /
-`api-only` / `multi-tenant`。
+**v1.0 功能面完成,正式发布待执行。** 默认全量 **3030 条测试**全绿
+(0 失败 / 12 skipped);parity 最差 **1.28 / 1.30**;示例:`todo` / `blog` /
+`auth` / `queue` / `api-only` / `multi-tenant`。
 
 详细结果与发布待办见 [V1.0-RESULT.md](https://github.com/MutouLee/Jaravel/blob/main/V1.0-RESULT.md)。
 

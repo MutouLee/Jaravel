@@ -11,7 +11,7 @@
     <relativePath/>
   </parent>
 
-  <groupId>io.jaravel.benchmark</groupId>
+  <groupId>net.dobeen.jaravel.benchmark</groupId>
   <artifactId>bare-mvc</artifactId>
   <version>0.1.0-SNAPSHOT</version>
   <name>Bare Spring MVC · 吞吐对照</name>

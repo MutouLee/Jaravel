@@ -28,7 +28,7 @@ spring:
 logging:
   level:
     root: WARN
-    io.jaravel: WARN
+    net.dobeen.jaravel: WARN
 
 # ⚠ 这里刻意**不设** APP_DEBUG / APP_ENV / SESSION_DRIVER / SESSION_FILES。
 #

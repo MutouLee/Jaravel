@@ -44,14 +44,14 @@
 CI 中必须跑:
 
 ```java
-@AnalyzeClasses(packages = "io.jaravel")
+@AnalyzeClasses(packages = "net.dobeen.jaravel")
 class ArchitectureTest {
 
     @ArchTest
     static final ArchRule core_must_not_depend_on_spring =
-        noClasses().that().resideInAPackage("io.jaravel.core..")
-                   .or().resideInAPackage("io.jaravel.eloquent..")
-                   .or().resideInAPackage("io.jaravel.view..")
+        noClasses().that().resideInAPackage("net.dobeen.jaravel.core..")
+                   .or().resideInAPackage("net.dobeen.jaravel.eloquent..")
+                   .or().resideInAPackage("net.dobeen.jaravel.view..")
                    // ... 所有 L2/L3 模块
             .should().dependOnClassesThat().resideInAnyPackage(
                 "org.springframework..", "jakarta.servlet..");
@@ -59,7 +59,7 @@ class ArchitectureTest {
     @ArchTest
     static final ArchRule only_adapter_touches_spring =
         classes().that().dependOnClassesThat().resideInAPackage("org.springframework..")
-            .should().resideInAnyPackage("io.jaravel.spring..", "io.jaravel.starter..");
+            .should().resideInAnyPackage("net.dobeen.jaravel.spring..", "net.dobeen.jaravel.starter..");
 
     @ArchTest
     static final ArchRule facades_are_stateless =
@@ -328,7 +328,7 @@ JVM 启动
 ## 6. 包命名约定
 
 ```
-io.jaravel
+net.dobeen.jaravel
 ├── core                  容器、门面基类、契约、Pipeline、配置
 │   ├── contracts         所有跨模块接口(只有接口和 record,无实现)
 │   ├── container
@@ -343,10 +343,10 @@ io.jaravel
 └── spring                ★ 唯一允许 import org.springframework 的包
 ```
 
-`io.jaravel.facades` 单独成包是刻意的:用户的 import 区会非常干净——
+`net.dobeen.jaravel.facades` 单独成包是刻意的:用户的 import 区会非常干净——
 
 ```java
-import io.jaravel.facades.*;   // 一行拿到所有门面
+import net.dobeen.jaravel.facades.*;   // 一行拿到所有门面
 ```
 
 ---

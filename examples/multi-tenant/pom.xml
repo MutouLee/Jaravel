@@ -22,7 +22,7 @@
   <dependencyManagement>
     <dependencies>
       <dependency>
-        <groupId>io.jaravel</groupId>
+        <groupId>net.dobeen.jaravel</groupId>
         <artifactId>jaravel-bom</artifactId>
         <version>${jaravel.version}</version>
         <type>pom</type><scope>import</scope>
@@ -38,7 +38,7 @@
 
   <dependencies>
     <dependency>
-      <groupId>io.jaravel</groupId>
+      <groupId>net.dobeen.jaravel</groupId>
       <artifactId>jaravel-spring-boot-starter</artifactId>
     </dependency>
     <dependency>
@@ -47,7 +47,7 @@
       <version>3.47.1.0</version>
     </dependency>
     <dependency>
-      <groupId>io.jaravel</groupId>
+      <groupId>net.dobeen.jaravel</groupId>
       <artifactId>jaravel-testing</artifactId>
       <scope>test</scope>
     </dependency>
@@ -61,7 +61,7 @@
   <build>
     <plugins>
       <plugin>
-        <groupId>io.jaravel</groupId>
+        <groupId>net.dobeen.jaravel</groupId>
         <artifactId>jaravel-maven-plugin</artifactId>
         <version>${jaravel.version}</version>
         <executions>
@@ -84,7 +84,7 @@
           <compilerArgs><arg>-parameters</arg></compilerArgs>
           <annotationProcessorPaths>
             <path>
-              <groupId>io.jaravel</groupId>
+              <groupId>net.dobeen.jaravel</groupId>
               <artifactId>jaravel-eloquent-processor</artifactId>
               <version>${jaravel.version}</version>
             </path>

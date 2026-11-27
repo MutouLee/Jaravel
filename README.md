@@ -5,7 +5,7 @@
 > Laravel 级开发体验,构建在 Spring Boot 之上的 Java 应用框架。
 
 **当前状态:v1.0 功能面完成,正式发布待执行(详见 [V1.0-RESULT.md](V1.0-RESULT.md))。**
-37 个框架模块、**2702 个测试**全绿(默认套件;外部 Redis / RabbitMQ / SQS 组合未重测),
+37 个框架模块、**3030 个测试**全绿(0 失败 / 12 skipped;默认套件;外部 Redis / RabbitMQ / SQS 组合未重测),
 六个示例都在构建里(`examples/{todo,blog,auth,queue,api-only,multi-tenant}`)。
 队列 / 事件 / 调度 / 邮件 / 通知 / 存储到位(v0.4),
 终端上有 **45 条命令**、本地命令通道、冷启动启动器、`jaravelw`、`tinker`;

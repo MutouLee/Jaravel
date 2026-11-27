@@ -5,11 +5,11 @@ import java.util.List;
 import app.jobs.SendInvoice;
 import app.models.Invoice;
 import app.models.Invoice_;
-import io.jaravel.console.Argument;
-import io.jaravel.console.Command;
-import io.jaravel.console.ConsoleCommand;
-import io.jaravel.console.Option;
-import io.jaravel.queue.Queue;
+import net.dobeen.jaravel.console.Argument;
+import net.dobeen.jaravel.console.Command;
+import net.dobeen.jaravel.console.ConsoleCommand;
+import net.dobeen.jaravel.console.Option;
+import net.dobeen.jaravel.queue.Queue;
 import org.springframework.stereotype.Component;
 
 /**

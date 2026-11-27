@@ -1,7 +1,7 @@
 package app.http.components;
 
 import app.models.Post;
-import io.jaravel.view.Component;
+import net.dobeen.jaravel.view.Component;
 
 /**
  * 类组件(docs/04 §1.7):列表页的一张文章卡片。

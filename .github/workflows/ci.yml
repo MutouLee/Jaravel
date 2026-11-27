@@ -44,7 +44,7 @@ jobs:
           cache: maven
 
       # 示例不继承 jaravel-parent,并通过 annotationProcessorPaths /
-      # <plugin> 引用 io.jaravel 的 SNAPSHOT 构件。Maven 不会把这些
+      # <plugin> 引用 net.dobeen.jaravel 的 SNAPSHOT 构件。Maven 不会把这些
       # 从 reactor 解析,所以先安装框架模块;jaravel-coverage 依赖
       # 示例构件,也一起排除 —— 第二阶段在完整 reactor 里解析。
       - name: install framework artifacts

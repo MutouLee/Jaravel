@@ -18,7 +18,7 @@
 ### 1.1 契约
 
 ```java
-package io.jaravel.core.container;
+package net.dobeen.jaravel.core.container;
 
 public interface Container {
     <T> T make(Class<T> type);
@@ -90,7 +90,7 @@ Java 社区对静态门面的标准质疑是「不可测试、隐藏依赖」。
 ### 2.2 实现
 
 ```java
-package io.jaravel.core.facade;
+package net.dobeen.jaravel.core.facade;
 
 public abstract class Facade<T> {
     /** 子类声明自己代理哪个契约 */
@@ -113,7 +113,7 @@ public abstract class Facade<T> {
 具体门面是手写的薄转发类(**不用动态代理**,保证 IDE 可跳转、可重构、native-image 友好):
 
 ```java
-package io.jaravel.cache;      // 门面与它转发的类型同模块、同包
+package net.dobeen.jaravel.cache;      // 门面与它转发的类型同模块、同包
 
 public final class Cache {
     private Cache() {}
@@ -131,11 +131,11 @@ public final class Cache {
 
 > 实际落地与这段略有不同,差异都在**真实的那一侧**:
 > 契约是 `Repository`(不是 `CacheRepository`),门面在
-> `io.jaravel.cache`(与 `Storage` / `Auth` / `Queue` 一致,不在一个
-> 集中的 `io.jaravel.facades` 包里),绑定走 starter 的
+> `net.dobeen.jaravel.cache`(与 `Storage` / `Auth` / `Queue` 一致,不在一个
+> 集中的 `net.dobeen.jaravel.facades` 包里),绑定走 starter 的
 > `Cache.use(manager)` 而不是 `Facade.resolve` ——
 > 静态字段比每次查容器快,也让 `reset()` 能在测试里清干净。
-> 全部转发方法见 `io.jaravel.cache.Cache` 的 Javadoc。
+> 全部转发方法见 `net.dobeen.jaravel.cache.Cache` 的 Javadoc。
 >
 > `fake()` 与 `CacheFake` 已落地,但不在门面上 ——
 > 它是 `Cache.fake()` 返回的记录器(命中/未命中/写入/删除),
@@ -304,7 +304,7 @@ public class HeavyPdfProvider extends ServiceProvider {
 **与 HTTP 完全解耦**的纯函数式管道,HTTP 中间件、队列任务中间件、CLI 命令中间件共用同一实现。
 
 ```java
-package io.jaravel.core.pipeline;
+package net.dobeen.jaravel.core.pipeline;
 
 @FunctionalInterface
 public interface Pipe<T, R> {

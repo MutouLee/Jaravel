@@ -3,7 +3,7 @@ package app.tenancy;
 import java.util.Optional;
 
 import app.models.Tenant;
-import io.jaravel.core.context.ExecutionScope;
+import net.dobeen.jaravel.core.context.ExecutionScope;
 
 /**
  * 应用自己的租户上下文。

@@ -5,11 +5,11 @@ import java.time.Instant;
 
 import app.models.Invoice;
 import app.models.Invoice_;
-import io.jaravel.console.Command;
-import io.jaravel.console.ConsoleCommand;
-import io.jaravel.console.Option;
-import io.jaravel.database.query.QueryState.Op;
-import io.jaravel.core.Application;
+import net.dobeen.jaravel.console.Command;
+import net.dobeen.jaravel.console.ConsoleCommand;
+import net.dobeen.jaravel.console.Option;
+import net.dobeen.jaravel.database.query.QueryState.Op;
+import net.dobeen.jaravel.core.Application;
 import org.springframework.stereotype.Component;
 
 /**

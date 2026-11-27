@@ -3,8 +3,8 @@ package routes;
 import org.springframework.stereotype.Component;
 
 import app.http.controllers.IdempotencyDemoController;
-import io.jaravel.routing.RouteDefinition;
-import io.jaravel.routing.Router;
+import net.dobeen.jaravel.routing.RouteDefinition;
+import net.dobeen.jaravel.routing.Router;
 
 /**
  * 幂等性示例的路由。

@@ -4,7 +4,7 @@ import org.springframework.stereotype.Component;
 
 import app.models.Note;
 import app.models.User;
-import io.jaravel.auth.access.Policy;
+import net.dobeen.jaravel.auth.access.Policy;
 
 /**
  * 笔记的授权策略。

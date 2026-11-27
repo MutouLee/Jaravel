@@ -4,10 +4,10 @@ import java.util.function.Function;
 
 import app.models.Tenant;
 import app.models.Tenant_;
-import io.jaravel.http.HttpException;
-import io.jaravel.http.Middleware;
-import io.jaravel.http.Request;
-import io.jaravel.http.Response;
+import net.dobeen.jaravel.http.HttpException;
+import net.dobeen.jaravel.http.Middleware;
+import net.dobeen.jaravel.http.Request;
+import net.dobeen.jaravel.http.Response;
 
 /**
  * 从 {@code X-Tenant} 头解析租户。

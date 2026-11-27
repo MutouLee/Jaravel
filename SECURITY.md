@@ -33,7 +33,7 @@
 
 ## 范围
 
-**在范围内**:本仓库第一方代码(`io.jaravel.*`)、starter 自动配置、
+**在范围内**:本仓库第一方代码(`net.dobeen.jaravel.*`)、starter 自动配置、
 APT 生成的代码、官方示例中的框架用法。
 
 **不在范围内**:JDK、Spring Boot、数据库/容器本身、用户应用代码、

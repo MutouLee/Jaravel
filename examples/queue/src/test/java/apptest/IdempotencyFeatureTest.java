@@ -10,8 +10,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import app.http.controllers.IdempotencyDemoController;
-import io.jaravel.cache.Repository;
-import io.jaravel.testing.FeatureTest;
+import net.dobeen.jaravel.cache.Repository;
+import net.dobeen.jaravel.testing.FeatureTest;
 
 /**
  * 幂等性中间件的端到端(docs/12 §6.5)。

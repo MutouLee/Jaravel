@@ -118,7 +118,7 @@ build_cli() {
     cat > /usr/local/bin/jaravel <<EOF
 #!/bin/sh
 exec java -cp "$ROOT/Jaravel/jaravel-cli/target/jaravel-cli-$JARAVEL_VERSION.jar:\$(cat $OUT/cli-cp.txt)" \\
-    io.jaravel.cli.Jaravel "\$@"
+    net.dobeen.jaravel.cli.Jaravel "\$@"
 EOF
     chmod +x /usr/local/bin/jaravel
     jaravel --version

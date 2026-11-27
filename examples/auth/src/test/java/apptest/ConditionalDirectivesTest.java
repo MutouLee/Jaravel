@@ -7,9 +7,9 @@ import org.junit.jupiter.api.Test;
 
 import app.models.Note;
 import app.models.User;
-import io.jaravel.auth.hash.Hash;
-import io.jaravel.core.Application;
-import io.jaravel.testing.FeatureTest;
+import net.dobeen.jaravel.auth.hash.Hash;
+import net.dobeen.jaravel.core.Application;
+import net.dobeen.jaravel.testing.FeatureTest;
 
 /**
  * {@code @auth} / {@code @guest} / {@code @can} / {@code @env} 的端到端验收
@@ -161,14 +161,14 @@ class ConditionalDirectivesTest extends FeatureTest {
         User me = user("me@example.com", true);
         note(me, "第一条");
 
-        io.jaravel.core.lang.Lang.withLocale("en", () ->
+        net.dobeen.jaravel.core.lang.Lang.withLocale("en", () ->
                 assertThat(get("/notes/page").assertOk().content())
                         .as("en 目录里有同样的键 —— 页面与模板都不用改")
                         .contains("My notes")
                         .contains("One note")
                         .doesNotContain("我的笔记"));
 
-        assertThat(io.jaravel.core.lang.Lang.locale())
+        assertThat(net.dobeen.jaravel.core.lang.Lang.locale())
                 .as("withLocale 结束后还原")
                 .isEqualTo("zh_CN");
     }

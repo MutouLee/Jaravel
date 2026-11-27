@@ -3,8 +3,8 @@ package routes;
 import org.springframework.stereotype.Component;
 
 import app.http.controllers.DirectiveDemoController;
-import io.jaravel.routing.RouteDefinition;
-import io.jaravel.routing.Router;
+import net.dobeen.jaravel.routing.RouteDefinition;
+import net.dobeen.jaravel.routing.Router;
 
 /**
  * 条件指令演示页的路由(docs/04 §1.8)。

@@ -88,7 +88,7 @@ jaravel/                                  (git 仓库根)
 
 ```xml
 <project>
-  <groupId>io.jaravel</groupId>
+  <groupId>net.dobeen.jaravel</groupId>
   <artifactId>jaravel-bom</artifactId>
   <version>${revision}</version>
   <packaging>pom</packaging>
@@ -113,7 +113,7 @@ jaravel/                                  (git 仓库根)
 <dependencyManagement>
   <dependencies>
     <dependency>
-      <groupId>io.jaravel</groupId>
+      <groupId>net.dobeen.jaravel</groupId>
       <artifactId>jaravel-bom</artifactId>
       <version>${jaravel.version}</version>
       <type>pom</type>
@@ -124,25 +124,25 @@ jaravel/                                  (git 仓库根)
 
 <dependencies>
   <dependency>
-    <groupId>io.jaravel</groupId>
+    <groupId>net.dobeen.jaravel</groupId>
     <artifactId>jaravel-spring-boot-starter-all</artifactId>
   </dependency>
 
   <!-- APT:必须显式声明(或由 jaravel-maven-plugin 自动配置) -->
   <dependency>
-    <groupId>io.jaravel</groupId>
+    <groupId>net.dobeen.jaravel</groupId>
     <artifactId>jaravel-eloquent-processor</artifactId>
     <scope>provided</scope>
   </dependency>
 
   <dependency>
-    <groupId>io.jaravel</groupId>
+    <groupId>net.dobeen.jaravel</groupId>
     <artifactId>jaravel-devtools</artifactId>
     <scope>provided</scope>
   </dependency>
 
   <dependency>
-    <groupId>io.jaravel</groupId>
+    <groupId>net.dobeen.jaravel</groupId>
     <artifactId>jaravel-testing</artifactId>
     <scope>test</scope>
   </dependency>
@@ -227,7 +227,7 @@ server.error.whitelabel.enabled=false
 
 ```xml
 <plugin>
-  <groupId>io.jaravel</groupId>
+  <groupId>net.dobeen.jaravel</groupId>
   <artifactId>jaravel-maven-plugin</artifactId>
   <version>${jaravel.version}</version>
   <extensions>true</extensions>

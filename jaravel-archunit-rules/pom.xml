@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <parent>
-    <groupId>io.jaravel</groupId>
+    <groupId>net.dobeen.jaravel</groupId>
     <artifactId>jaravel-parent</artifactId>
     <version>0.1.0-SNAPSHOT</version>
   </parent>
@@ -14,41 +14,41 @@
 
   <dependencies>
     <!-- 需要把全部被约束的模块放上 classpath 才能分析它们的字节码 -->
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-support</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-core</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-http</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-routing</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-view</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-database</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-eloquent</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-api</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-eloquent-processor</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-migration</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-validation</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-queue</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-cache</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-session</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-auth</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-broadcasting</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-console</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-cli</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-devtools</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-security-bridge</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-testing</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-spring-boot-starter</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-support</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-core</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-http</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-routing</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-view</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-database</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-eloquent</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-api</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-eloquent-processor</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-migration</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-validation</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-queue</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-cache</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-session</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-auth</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-broadcasting</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-console</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-cli</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-devtools</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-security-bridge</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-testing</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-spring-boot-starter</artifactId></dependency>
     <!--
       时间源规则(no_direct_clock_reads)要覆盖的其余模块。
       它们此前不在这个 classpath 上,于是 ArchUnit 根本没有导入它们的字节码 ——
       规则对它们是静默通过的,而「静默通过」比没有规则更糟。
     -->
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-events</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-scheduler</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-mail</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-notifications</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-storage</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-dashboard</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-http-client</artifactId></dependency>
-    <dependency><groupId>io.jaravel</groupId><artifactId>jaravel-permissions</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-events</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-scheduler</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-mail</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-notifications</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-storage</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-dashboard</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-http-client</artifactId></dependency>
+    <dependency><groupId>net.dobeen.jaravel</groupId><artifactId>jaravel-permissions</artifactId></dependency>
 
     <dependency>
       <groupId>com.tngtech.archunit</groupId>

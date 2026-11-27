@@ -1,7 +1,7 @@
 package database.migrations.m2026_11_17_000000;
 
-import io.jaravel.migration.Migration;
-import io.jaravel.permissions.PermissionSchema;
+import net.dobeen.jaravel.migration.Migration;
+import net.dobeen.jaravel.permissions.PermissionSchema;
 
 /**
  * RBAC 的表(docs/08 §5.4)。

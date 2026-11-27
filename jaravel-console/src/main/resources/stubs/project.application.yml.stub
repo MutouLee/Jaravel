@@ -9,4 +9,4 @@ spring:
 logging:
   level:
     root: WARN
-    io.jaravel: INFO
+    net.dobeen.jaravel: INFO

@@ -1,7 +1,7 @@
 package {{migrationPackage}};
 
-import io.jaravel.migration.Migration;
-import io.jaravel.migration.schema.Schema;
+import net.dobeen.jaravel.migration.Migration;
+import net.dobeen.jaravel.migration.schema.Schema;
 
 /**
  * API token 表(docs/08 §4)。

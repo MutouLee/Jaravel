@@ -8,7 +8,7 @@ import app.http.requests.StoreNoteRequest;
 import app.http.resources.NoteResource;
 import app.models.Note;
 import app.tenancy.TenantContext;
-import io.jaravel.http.Response;
+import net.dobeen.jaravel.http.Response;
 
 @Component
 public class NoteController {

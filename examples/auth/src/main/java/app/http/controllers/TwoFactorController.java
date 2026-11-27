@@ -5,13 +5,13 @@ import java.util.Map;
 import org.springframework.stereotype.Component;
 
 import app.models.User;
-import io.jaravel.auth.Auth;
-import io.jaravel.auth.twofactor.TwoFactorChallenge;
-import io.jaravel.http.Redirect;
-import io.jaravel.http.Request;
-import io.jaravel.http.Response;
-import io.jaravel.http.View;
-import io.jaravel.session.Session;
+import net.dobeen.jaravel.auth.Auth;
+import net.dobeen.jaravel.auth.twofactor.TwoFactorChallenge;
+import net.dobeen.jaravel.http.Redirect;
+import net.dobeen.jaravel.http.Request;
+import net.dobeen.jaravel.http.Response;
+import net.dobeen.jaravel.http.View;
+import net.dobeen.jaravel.session.Session;
 
 /**
  * 二步验证的四个动作(docs/08 §6.4)。

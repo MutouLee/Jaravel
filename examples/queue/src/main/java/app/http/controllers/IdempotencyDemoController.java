@@ -5,7 +5,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.springframework.stereotype.Component;
 
-import io.jaravel.http.Request;
+import net.dobeen.jaravel.http.Request;
 
 /**
  * 幂等性示例(docs/12 §6.5)。**只用于示例与测试**。

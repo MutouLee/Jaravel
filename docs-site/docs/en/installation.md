@@ -37,7 +37,7 @@ mvn -pl jaravel-cli dependency:copy-dependencies \
 docker run --rm --entrypoint sh \
   -v "$PWD":/work -w /work/jaravel-cli \
   ghcr.io/graalvm/native-image-community:21 \
-  -c 'CP="target/jaravel-cli-0.1.0-SNAPSHOT.jar:$(find target/native-libs -name "*.jar" | tr "\n" ":")"; \
+  -c 'CP="target/jaravel-cli-1.0.0.jar:$(find target/native-libs -name "*.jar" | tr "\n" ":")"; \
       native-image -cp "$CP" -o target/jaravel --no-fallback \
         --initialize-at-build-time=net.dobeen.jaravel.cli -J-Xmx4g net.dobeen.jaravel.cli.Jaravel'
 ```

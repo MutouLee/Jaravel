@@ -6,7 +6,7 @@
 
   <groupId>com.example</groupId>
   <artifactId>multi-tenant</artifactId>
-  <version>0.0.1-SNAPSHOT</version>
+  <version>1.0.0</version>
   <name>Jaravel 多租户示例</name>
   <description>v1.0 示例:共享库 + tenant_id + @GlobalScope(ADR-016 的接线方式)</description>
 
@@ -15,7 +15,7 @@
     <maven.deploy.skip>true</maven.deploy.skip>
     <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <jaravel.version>0.1.0-SNAPSHOT</jaravel.version>
+    <jaravel.version>1.0.0</jaravel.version>
     <spring-boot.version>3.5.16</spring-boot.version>
   </properties>
 

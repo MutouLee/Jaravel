@@ -21,7 +21,7 @@ OUT=$ROOT/out
 REPO=${REPO:-https://github.com/MutouLee/Jaravel.git}
 EXAMPLE_PORT=8000
 APP_PORT=8010
-JARAVEL_VERSION=0.1.0-SNAPSHOT
+JARAVEL_VERSION=1.0.0
 
 rm -rf "$OUT"; mkdir -p "$OUT"
 : > "$OUT/steps.tsv"

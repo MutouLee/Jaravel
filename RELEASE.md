@@ -1,7 +1,7 @@
 # 发布流程
 
 > 这份文档描述 **v1.0 起**的正式发布。当前仓库版本仍是
-> `0.1.0-SNAPSHOT`;第一次真正发布时按下面的步骤把版本改成 `1.0.0`。
+> `1.0.0`;下一次发布时按下面的步骤改版本号。
 
 ## 0. 版本策略
 
@@ -52,6 +52,7 @@ manifest 读取版本号写入生成项目。
 
 ```bash
 mvn clean test
+mvn -DskipTests install                             # 让 jaravel-maven-plugin:X 进本地仓库
 mvn -Psecurity -DskipTests validate
 mvn -Prelease -DskipTests -Dgpg.skip=true package   # source/javadoc 能构建
 python benchmark/laravel-parity/parity.py --max 1.3

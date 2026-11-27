@@ -6,7 +6,7 @@
 
   <groupId>com.example</groupId>
   <artifactId>blog</artifactId>
-  <version>0.0.1-SNAPSHOT</version>
+  <version>1.0.0</version>
   <name>Jaravel Blog 示例</name>
   <description>v0.2 切片:Eloquent 关联 + 预加载 + 迁移 + FormRequest 校验,零裸 SQL</description>
 
@@ -15,7 +15,7 @@
     <maven.deploy.skip>true</maven.deploy.skip>
     <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <jaravel.version>0.1.0-SNAPSHOT</jaravel.version>
+    <jaravel.version>1.0.0</jaravel.version>
     <spring-boot.version>3.5.16</spring-boot.version>
   </properties>
 

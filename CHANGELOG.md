@@ -2,7 +2,7 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/)。版本遵循 SemVer。
 
-## [Unreleased] — v1.0.0
+## [1.0.0] — 2026-11-27
 
 ### Added
 

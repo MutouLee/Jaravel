@@ -8,7 +8,7 @@
 # (想保留改动就加 --force 之前先看一眼 diff)。
 set -e
 
-JARAVEL_VERSION=0.1.0-SNAPSHOT
+JARAVEL_VERSION=1.0.0
 
 # 缓存跟着**脚本**走,而不是跟着当前目录 —— 从子目录里敲 ./jaravelw 时
 # 缓存仍然命中。但命令本身看到的项目根是**当前目录**(mvnw 也是这个行为)

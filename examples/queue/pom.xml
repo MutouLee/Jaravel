@@ -6,7 +6,7 @@
 
   <groupId>com.example</groupId>
   <artifactId>queue</artifactId>
-  <version>0.0.1-SNAPSHOT</version>
+  <version>1.0.0</version>
   <name>Jaravel Queue 示例</name>
   <description>v0.4 切片:任务投递 / 重试 / 失败归档 / 唯一性 / 中间件 / 链 / 批,端到端</description>
 
@@ -15,7 +15,7 @@
     <maven.deploy.skip>true</maven.deploy.skip>
     <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <jaravel.version>0.1.0-SNAPSHOT</jaravel.version>
+    <jaravel.version>1.0.0</jaravel.version>
     <spring-boot.version>3.5.16</spring-boot.version>
   </properties>
 

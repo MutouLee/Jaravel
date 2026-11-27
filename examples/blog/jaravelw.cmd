@@ -8,7 +8,7 @@
 @rem    有一条测试核对两边的版本号、主类名与缓存文件名一致。
 setlocal
 
-set JARAVEL_VERSION=0.1.0-SNAPSHOT
+set JARAVEL_VERSION=1.0.0
 
 @rem 缓存跟着脚本走,而不是跟着当前目录
 set SCRIPT_DIR=%~dp0

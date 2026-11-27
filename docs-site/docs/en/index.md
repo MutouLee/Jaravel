@@ -50,3 +50,14 @@ v1.0 is feature-complete; the public release is pending. The default suite has
 
 See [V1.0-RESULT.md](https://github.com/MutouLee/Jaravel/blob/main/V1.0-RESULT.md)
 for evidence and remaining release steps.
+
+## Design principles
+
+1. **Compile-time first** — routes, view parameters and model fields are
+   checked at compile time wherever possible;
+2. **No runtime reflection by default** — what an APT can generate is not
+   looked up with `Class.forName` at runtime;
+3. **Every abstraction has an escape hatch** — replacing the view engine,
+   using Spring beans directly, and writing raw SQL all have documented paths;
+4. **Always give the next step** — error messages explain both "why" and
+   "how to fix it".

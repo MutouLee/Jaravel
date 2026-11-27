@@ -15,6 +15,11 @@
   <name>Jaravel :: 覆盖率汇总</name>
   <description>把各模块的 jacoco.exec 汇总成一份报告(v0.5 验收 #4)</description>
 
+  <properties>
+    <maven.deploy.skip>true</maven.deploy.skip>
+    <skipPublishing>true</skipPublishing>
+  </properties>
+
   <!--
     ★ 为什么需要这么一个空模块
 

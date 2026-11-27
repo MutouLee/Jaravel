@@ -20,6 +20,21 @@
     </license>
   </licenses>
 
+  <developers>
+    <developer>
+      <id>mutoulee</id>
+      <name>Dobeen</name>
+      <email>mutou.lee@qq.com</email>
+      <url>https://github.com/MutouLee</url>
+    </developer>
+  </developers>
+
+  <scm>
+    <connection>scm:git:https://github.com/MutouLee/Jaravel.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/MutouLee/Jaravel.git</developerConnection>
+    <url>https://github.com/MutouLee/Jaravel</url>
+  </scm>
+
   <modules>
     <module>jaravel-bom</module>
     <module>jaravel-support</module>

@@ -13,6 +13,29 @@
 
   <name>Jaravel :: BOM</name>
   <description>统一版本管理。用户侧 import 这一个即可</description>
+  <url>https://github.com/MutouLee/Jaravel</url>
+
+  <licenses>
+    <license>
+      <name>Apache-2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+    </license>
+  </licenses>
+
+  <developers>
+    <developer>
+      <id>mutoulee</id>
+      <name>Dobeen</name>
+      <email>mutou.lee@qq.com</email>
+      <url>https://github.com/MutouLee</url>
+    </developer>
+  </developers>
+
+  <scm>
+    <connection>scm:git:https://github.com/MutouLee/Jaravel.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/MutouLee/Jaravel.git</developerConnection>
+    <url>https://github.com/MutouLee/Jaravel</url>
+  </scm>
 
   <properties>
     <jaravel.version>1.0.0</jaravel.version>

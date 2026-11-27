@@ -32,11 +32,16 @@ public class Post extends PostBase {
 
 ## Start here
 
-- [Quickstart](quickstart.md)
-- [Authentication](../authentication.md)
-- [Routing](../routing.md)
-- [Testing](../testing.md)
-- [Deployment](../deployment.md)
+- [Quickstart (30 minutes)](quickstart.md)
+- [Installation](installation.md)
+- [Authentication](authentication.md)
+- [Routing and HTTP](routing.md)
+- [Database and Eloquent](database.md)
+- [Testing](testing.md)
+- [Deployment](deployment.md)
+- [Migrating from Laravel](migrate-from-laravel.md)
+- [Migrating from Spring Boot](migrate-from-spring-boot.md)
+- [API reference](api-reference.md)
 
 ## Status
 

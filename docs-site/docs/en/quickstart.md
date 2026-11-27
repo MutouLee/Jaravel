@@ -71,7 +71,9 @@ jblade templates are precompiled by `jaravel-maven-plugin` during
 
 ## More
 
-- [Authentication](../authentication.md)
-- [Database](../database.md)
-- [Deployment](../deployment.md)
-- [API reference](../api-reference.md)
+- [Installation](installation.md)
+- [Authentication](authentication.md)
+- [Database and Eloquent](database.md)
+- [Testing](testing.md)
+- [Deployment](deployment.md)
+- [API reference](api-reference.md)

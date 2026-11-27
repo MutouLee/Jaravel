@@ -68,6 +68,6 @@
 | 项 | 状态 | 说明 |
 |---|---|---|
 | Maven Central 发布 | 未执行(**等条件具备**) | 流程与清单见 RELEASE.md,`release` profile 已就绪(source/javadoc/GPG/Central Publishing)。卡在所有者侧的两样东西:**Central 的命名空间归属验证**与**GPG 签名密钥**。⚠ 发布之前公开 API 还能自由改,之后就是破坏性变更 —— 这一轮与上一轮的「发布前扫查」就是为此做的 |
-| 文档站英文完整版 | 部分 | English 目前是 index + quickstart;其余页面中文 |
+| 文档站英文完整版 | **已完成** | `en/` 与中文页面一一对应(11 页,含两篇迁移与 API 参考);`mkdocs build --strict` 通过 |
 | IntelliJ 插件 | 未开始 | 独立项目,见 docs/15 |
 | 多租户 opt-in 包 | 不做 | 只有示例;ADR-016 |

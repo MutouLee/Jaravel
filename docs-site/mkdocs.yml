@@ -45,7 +45,18 @@ nav:
   - API 参考: api-reference.md
   - English:
       - Overview: en/index.md
-      - Quickstart: en/quickstart.md
+      - Quickstart (30 minutes): en/quickstart.md
+      - Installation: en/installation.md
+      - Guides:
+          - Authentication: en/authentication.md
+          - Routing and HTTP: en/routing.md
+          - Database and Eloquent: en/database.md
+          - Testing: en/testing.md
+          - Deployment: en/deployment.md
+      - Migration:
+          - From Spring Boot: en/migrate-from-spring-boot.md
+          - From Laravel: en/migrate-from-laravel.md
+      - API Reference: en/api-reference.md
 
 markdown_extensions:
   - admonition

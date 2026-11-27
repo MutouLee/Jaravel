@@ -495,6 +495,11 @@
 
 ### Changed
 
+- **文档站英文完整版**(`docs-site`):`en/` 补齐到与中文一一对应 ——
+  安装 / 认证 / 路由 / 数据库 / 测试 / 部署 / 两篇迁移 / API 参考,
+  `mkdocs.yml` 的 English nav 同步。翻译时修掉 `routing.md` 一处过时声明
+  (「`@csrf` 目前没有实现」)—— 它早已实现,生成器与示例模板都在用;
+  现改为「用 `@csrf` 输出隐藏域」。
 - `JaravelDefaultKernel` 仍为默认;多租户示例展示如何扩展 `aliases()`。
 - 文档站与 README 补充 `jaravel new` / `install:auth` 的 30 分钟路径。
 - `api-reference.md` 的模块索引补齐 11 个此前缺席的模块,并修掉

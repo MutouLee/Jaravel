@@ -63,17 +63,22 @@ public Object resource(Post p){ return new PostResource(p); }
 
 ## 表单与 CSRF
 
-`web` 组会校验 CSRF。模板里显式写隐藏域:
+`web` 组会校验 CSRF。模板里用 `@csrf` 输出隐藏域:
 
 ```html
 <form method="post" action="/login">
-  <input type="hidden" name="_token" value="{{ csrf }}">
+  @csrf
   ...
 </form>
 ```
 
-`install:auth` 生成的控制器会把 `Session.token()` 传给模板。
-`@csrf` 模板指令目前**没有实现** —— 不要依赖它。
+`@csrf` 展开成一个带当前令牌的隐藏 input —— 手写它容易把 `name` 写错
+(症状是提交后 419),或者在布局里漏掉。没有会话时它**报错**,
+而不是输出空令牌。
+
+需要手写时,等价形式是
+`<input type="hidden" name="_token" value="{{ csrf }}">` —— 令牌本身来自
+`Session.token()`,得由控制器传给模板。
 
 ## 更多
 
